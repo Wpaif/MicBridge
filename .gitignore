@@ -1,0 +1,5 @@
+app/target/
+web/tmp/
+web/log/
+web/.bundle/
+web/config/master.key

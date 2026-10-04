@@ -114,9 +114,21 @@ Se mover a pasta do projeto, defina `MICBRIDGE_HOME` com o novo caminho.
   Como o token muda a cada execução, é preciso **escanear o QR de novo** quando o app reinicia.
 - **Um celular por vez:** enquanto um dispositivo estiver conectado, outro recebe 409. O mesmo
   celular pode reconectar (recarregar a página) e assume a própria conexão.
-- O servidor WebRTC escuta apenas em `127.0.0.1`; o Rails escuta na LAN (porta 3443).
-- O certificado é autoassinado: cifra o tráfego, mas não autentica o servidor. Em redes hostis,
-  prefira uma VLAN separada ou uma VPN (ex.: Tailscale).
+- **Janela de pareamento:** novos celulares só entram enquanto a opção **Aceitar novo celular**
+  estiver ativa (abre por 5 min ao iniciar o app e fecha sozinha após o primeiro pareamento).
+  Com ela fechada, um QR vazado não serve; só celulares já pareados reconectam. O Rust é quem
+  decide (`/pair`), não o Rails.
+- **TLS com CA local:** o `web-https.sh` cria a *MicBridge Local CA* e assina o certificado do
+  servidor com ela. Instale `web/tmp/certs/ca.pem` no celular uma vez (ou baixe em
+  `https://<IP>:3443/ca.crt`) e o navegador passa a confiar sem avisos, o que protege contra
+  alguém se passando pelo servidor. A chave da CA nunca sai do PC. O certificado é refeito
+  sozinho quando o IP muda. Sem instalar a CA, confira a **impressão digital SHA-256** mostrada no
+  app com a do aviso do navegador.
+- **Superfície de rede:** o Rails escuta só na interface da LAN e no loopback (não em `0.0.0.0`);
+  o servidor WebRTC escuta apenas em `127.0.0.1`.
+- **Camada de rede (fora do app):** para isolamento forte, use uma VLAN/rede de convidados
+  separada, regra de firewall liberando a porta 3443 só para o IP do celular, ou uma VPN
+  (ex.: Tailscale).
 
 ## 📄 Licença
 

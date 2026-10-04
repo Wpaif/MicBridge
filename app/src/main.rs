@@ -22,11 +22,7 @@ pub fn local_ip() -> String {
 
 fn main() -> glib::ExitCode {
     tracing_subscriber::fmt::init();
-    let shared = Arc::new(server::Shared {
-        params: dsp::Params::default(),
-        connected: Default::default(),
-        token: server::new_token(),
-    });
+    let shared = Arc::new(server::Shared::new(server::new_token()));
 
     // Runtime tokio (WebRTC + HTTP) em thread própria; GTK fica na principal.
     let rt = tokio::runtime::Runtime::new().expect("tokio");
@@ -151,6 +147,19 @@ fn show_qr(parent: &adw::ApplicationWindow, url: &str) {
     dialog.present(Some(parent));
 }
 
+/// SHA-256 do certificado do servidor web (gerado por scripts/web-https.sh).
+fn cert_fingerprint() -> Option<String> {
+    let home = std::env::var("MICBRIDGE_HOME")
+        .unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/..").into());
+    let out = std::process::Command::new("openssl")
+        .args(["x509", "-noout", "-fingerprint", "-sha256", "-in"])
+        .arg(format!("{home}/web/tmp/certs/cert.pem"))
+        .output()
+        .ok()?;
+    let text = String::from_utf8(out.stdout).ok()?;
+    text.trim().split_once('=').map(|(_, fp)| fp.to_string())
+}
+
 fn build_ui(app: &adw::Application, shared: Arc<server::Shared>) {
     let p = |f: fn(&dsp::Params) -> &std::sync::atomic::AtomicBool| {
         let sh = shared.clone();
@@ -187,6 +196,32 @@ fn build_ui(app: &adw::Application, shared: Arc<server::Shared>) {
     url_row.add_suffix(&copy_btn);
     url_row.add_suffix(&qr_btn);
     conn.add(&url_row);
+
+    // Janela de pareamento: novos celulares só entram enquanto estiver aberta.
+    let pair_row = adw::SwitchRow::builder()
+        .title("Aceitar novo celular")
+        .active(shared.pairing_remaining() > 0)
+        .build();
+    {
+        let sh = shared.clone();
+        pair_row.connect_active_notify(move |r| {
+            let open = sh.pairing_remaining() > 0;
+            if r.is_active() && !open {
+                sh.open_pairing();
+            } else if !r.is_active() && open {
+                sh.close_pairing();
+            }
+        });
+    }
+    conn.add(&pair_row);
+
+    // Impressão digital do certificado: confira no celular ao aceitar o aviso.
+    let fp_row = adw::ActionRow::builder()
+        .title("Impressão digital do certificado (SHA-256)")
+        .subtitle("aguardando o servidor…")
+        .subtitle_selectable(true)
+        .build();
+    conn.add(&fp_row);
     let (in_row, in_bar) = meter("Entrada");
     let (out_row, out_bar) = meter("Saída tratada");
     conn.add(&in_row);
@@ -232,9 +267,25 @@ fn build_ui(app: &adw::Application, shared: Arc<server::Shared>) {
     qr_btn.connect_clicked(move |_| show_qr(&qr_win, &qr_url));
 
     // Atualiza medidores e status (20 Hz).
+    let mut fp_loaded = false;
     glib::timeout_add_local(Duration::from_millis(50), move || {
         // Escala dB -> 0..1 (-60..0 dB).
         let norm = |rms: f32| (((20.0 * (rms + 1e-9).log10()) + 60.0) / 60.0).clamp(0.0, 1.0) as f64;
+        let left = shared.pairing_remaining();
+        if pair_row.is_active() != (left > 0) {
+            pair_row.set_active(left > 0);
+        }
+        pair_row.set_subtitle(&if left > 0 {
+            format!("Aberto: fecha em {}:{:02}", left / 60, left % 60)
+        } else {
+            "Fechado: só celulares já pareados reconectam".to_string()
+        });
+        if !fp_loaded {
+            if let Some(fp) = cert_fingerprint() {
+                fp_row.set_subtitle(&fp);
+                fp_loaded = true;
+            }
+        }
         in_bar.set_value(norm(shared.params.in_level()));
         out_bar.set_value(norm(shared.params.out_level()));
         status.set_text(if shared.connected.load(Relaxed) {

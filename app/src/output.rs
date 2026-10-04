@@ -90,10 +90,11 @@ impl Sink {
 
 /// Sobe o Rails (HTTPS na LAN). Morre junto com o app (kill_on_drop).
 /// Diretório do projeto: `MICBRIDGE_HOME` ou o local onde foi compilado.
-pub fn spawn_web() -> Result<Child> {
+pub fn spawn_web(token: &str) -> Result<Child> {
     let home = std::env::var("MICBRIDGE_HOME")
         .unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/..").into());
     Command::new(format!("{home}/scripts/web-https.sh"))
+        .env("MICBRIDGE_TOKEN", token)
         .env("MICBRIDGE_PARENT", std::process::id().to_string())
         .kill_on_drop(true)
         .die_with_parent()

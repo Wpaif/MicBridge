@@ -25,6 +25,7 @@ fn main() -> glib::ExitCode {
     let shared = Arc::new(server::Shared {
         params: dsp::Params::default(),
         connected: Default::default(),
+        token: server::new_token(),
     });
 
     // Runtime tokio (WebRTC + HTTP) em thread própria; GTK fica na principal.
@@ -39,7 +40,7 @@ fn main() -> glib::ExitCode {
     };
     let _web = {
         let _g = handle.enter();
-        output::spawn_web().map_err(|e| tracing::warn!("{e:#}")).ok()
+        output::spawn_web(&shared.token).map_err(|e| tracing::warn!("{e:#}")).ok()
     };
     rt.spawn(async move {
         if let Err(e) = server::serve(s, CORE_PORT).await {
@@ -159,8 +160,10 @@ fn build_ui(app: &adw::Application, shared: Arc<server::Shared>) {
     // Conexão
     let conn = adw::PreferencesGroup::builder().title("Conexão").build();
     let url = format!("https://{}:{}", local_ip(), WEB_PORT);
+    // Link de pareamento: só quem escaneia o QR (ou copia o link) entra.
+    let pair_url = format!("{url}/?t={}", shared.token);
     let url_row = adw::ActionRow::builder()
-        .title("Abra no celular (mesma rede)")
+        .title("Escaneie o QR code no celular")
         .subtitle(&url)
         .subtitle_selectable(true)
         .build();
@@ -173,6 +176,15 @@ fn build_ui(app: &adw::Application, shared: Arc<server::Shared>) {
         .valign(gtk::Align::Center)
         .css_classes(["flat"])
         .build();
+    let copy_btn = gtk::Button::builder()
+        .icon_name("edit-copy-symbolic")
+        .tooltip_text("Copiar link de pareamento")
+        .valign(gtk::Align::Center)
+        .css_classes(["flat"])
+        .build();
+    let link = pair_url.clone();
+    copy_btn.connect_clicked(move |b| b.clipboard().set_text(&link));
+    url_row.add_suffix(&copy_btn);
     url_row.add_suffix(&qr_btn);
     conn.add(&url_row);
     let (in_row, in_bar) = meter("Entrada");
@@ -216,7 +228,7 @@ fn build_ui(app: &adw::Application, shared: Arc<server::Shared>) {
         .hide_on_close(true)
         .build();
 
-    let (qr_win, qr_url) = (win.clone(), url.clone());
+    let (qr_win, qr_url) = (win.clone(), pair_url.clone());
     qr_btn.connect_clicked(move |_| show_qr(&qr_win, &qr_url));
 
     // Atualiza medidores e status (20 Hz).

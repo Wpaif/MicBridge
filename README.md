@@ -108,8 +108,15 @@ Se mover a pasta do projeto, defina `MICBRIDGE_HOME` com o novo caminho.
 
 ## 🔒 Segurança
 
-O Rails escuta na rede local (porta 3443) e o servidor WebRTC apenas em `127.0.0.1`.
-Qualquer pessoa na mesma rede que abrir a URL pode enviar áudio, então use em redes confiáveis.
+- **Pareamento por token:** a cada abertura o app gera um token aleatório (128 bits) embutido
+  no QR code. Quem abre o link recebe um cookie de sessão assinado (`Secure`, `HttpOnly`,
+  `SameSite=Strict`); sem ele, a página e o `/offer` respondem 403. O Rust também valida o token.
+  Como o token muda a cada execução, é preciso **escanear o QR de novo** quando o app reinicia.
+- **Um celular por vez:** enquanto um dispositivo estiver conectado, outro recebe 409. O mesmo
+  celular pode reconectar (recarregar a página) e assume a própria conexão.
+- O servidor WebRTC escuta apenas em `127.0.0.1`; o Rails escuta na LAN (porta 3443).
+- O certificado é autoassinado: cifra o tráfego, mas não autentica o servidor. Em redes hostis,
+  prefira uma VLAN separada ou uma VPN (ex.: Tailscale).
 
 ## 📄 Licença
 

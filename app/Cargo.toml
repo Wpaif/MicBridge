@@ -1,0 +1,26 @@
+[package]
+name = "micbridge"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+adw = { version = "0.9.2", package = "libadwaita", features = ["v1_5"] }
+anyhow = "1.0.104"
+async-channel = "2.5.0"
+async-trait = "0.1.92"
+axum = "0.8.9"
+bytes = "1.12.1"
+futures = "0.3.34"
+glib = "0.22.10"
+gtk = { version = "0.11.5", package = "gtk4" }
+ksni = "0.3.6"
+libc = "0.2.190"
+nnnoiseless = "0.5.2"
+opus = "0.3"
+png = "0.18.1"
+qrcode = { version = "0.14.1", default-features = false }
+rtc = "0.21"
+tokio = { version = "1.53.2", features = ["full"] }
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+webrtc = "0.21.0"

@@ -34,6 +34,8 @@ seleciona no Discord, OBS, Meet etc.
 - 🖥️ **Interface GTK4 + libadwaita** nativa do GNOME
 - 🔔 **Ícone na bandeja** que muda quando o celular conecta; fechar a janela só a esconde
 - 🚀 **Servidor web automático**: sobe com o app e para quando ele fecha
+- 🔐 **Pareamento seguro**: token no QR code, janela de pareamento temporária e um celular por vez
+- 🔏 **TLS com CA local**: certificado próprio e impressão digital visível no app
 
 ## 🧭 Como funciona
 
@@ -82,10 +84,16 @@ Procure por **MicBridge**.
 
 ## ▶️ Uso
 
-1. Abra o **MicBridge**. O microfone virtual e o servidor web sobem sozinhos.
-2. Clique no botão de QR code (ou abra a URL `https://<IP-do-PC>:3443`) no celular, na mesma rede.
-3. Aceite o aviso do certificado autoassinado e toque em **Iniciar microfone**.
+1. Abra o **MicBridge**. O microfone virtual e o servidor web sobem sozinhos, e a janela de
+   pareamento fica aberta por 5 minutos.
+2. No celular (mesma rede), **escaneie o QR code** (botão de QR na janela) ou cole o link copiado.
+   Abrir só `https://<IP>:3443` não funciona: o link precisa do token.
+3. Na primeira vez, instale a CA em `https://<IP>:3443/ca.crt` ou aceite o aviso do certificado
+   conferindo a impressão digital mostrada no app. Toque em **Iniciar microfone**.
 4. No Discord/OBS, escolha **Microfone_VDO** como entrada.
+
+Para parear outro celular, ligue **Aceitar novo celular** na janela. Ao reiniciar o app o token
+muda, então é preciso escanear o QR de novo.
 
 Para encerrar de verdade, use **Sair** no menu da bandeja. O botão "X" apenas esconde a janela.
 
@@ -108,8 +116,27 @@ Se mover a pasta do projeto, defina `MICBRIDGE_HOME` com o novo caminho.
 
 ## 🔒 Segurança
 
-O Rails escuta na rede local (porta 3443) e o servidor WebRTC apenas em `127.0.0.1`.
-Qualquer pessoa na mesma rede que abrir a URL pode enviar áudio, então use em redes confiáveis.
+- **Pareamento por token:** a cada abertura o app gera um token aleatório (128 bits) embutido
+  no QR code. Quem abre o link recebe um cookie de sessão assinado (`Secure`, `HttpOnly`,
+  `SameSite=Strict`); sem ele, a página e o `/offer` respondem 403. O Rust também valida o token.
+  Como o token muda a cada execução, é preciso **escanear o QR de novo** quando o app reinicia.
+- **Um celular por vez:** enquanto um dispositivo estiver conectado, outro recebe 409. O mesmo
+  celular pode reconectar (recarregar a página) e assume a própria conexão.
+- **Janela de pareamento:** novos celulares só entram enquanto a opção **Aceitar novo celular**
+  estiver ativa (abre por 5 min ao iniciar o app e fecha sozinha após o primeiro pareamento).
+  Com ela fechada, um QR vazado não serve; só celulares já pareados reconectam. O Rust é quem
+  decide (`/pair`), não o Rails.
+- **TLS com CA local:** o `web-https.sh` cria a *MicBridge Local CA* e assina o certificado do
+  servidor com ela. Instale `web/tmp/certs/ca.pem` no celular uma vez (ou baixe em
+  `https://<IP>:3443/ca.crt`) e o navegador passa a confiar sem avisos, o que protege contra
+  alguém se passando pelo servidor. A chave da CA nunca sai do PC. O certificado é refeito
+  sozinho quando o IP muda. Sem instalar a CA, confira a **impressão digital SHA-256** mostrada no
+  app com a do aviso do navegador.
+- **Superfície de rede:** o Rails escuta só na interface da LAN e no loopback (não em `0.0.0.0`);
+  o servidor WebRTC escuta apenas em `127.0.0.1`.
+- **Camada de rede (fora do app):** para isolamento forte, use uma VLAN/rede de convidados
+  separada, regra de firewall liberando a porta 3443 só para o IP do celular, ou uma VPN
+  (ex.: Tailscale).
 
 ## 📄 Licença
 

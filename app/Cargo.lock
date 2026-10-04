@@ -1635,6 +1635,7 @@ dependencies = [
  "axum",
  "bytes",
  "futures",
+ "getrandom 0.4.3",
  "glib",
  "gtk4",
  "ksni",

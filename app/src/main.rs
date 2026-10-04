@@ -1,16 +1,20 @@
 mod dsp;
 mod output;
 mod server;
+mod state;
 mod tray;
 
 use adw::prelude::*;
 use std::net::UdpSocket;
+use state::{Link, Shared};
 use std::sync::{Arc, atomic::Ordering::Relaxed};
 use std::time::Duration;
 
 const APP_ID: &str = "dev.wilian.MicBridge";
 const CORE_PORT: u16 = 7878;
 const WEB_PORT: u16 = 3443;
+/// Nome mDNS anunciado via avahi (já consta no certificado).
+pub const MDNS_HOST: &str = "micbridge.local";
 
 /// IP da LAN (a conexão UDP não envia nada, só descobre a rota).
 pub fn local_ip() -> String {
@@ -22,21 +26,19 @@ pub fn local_ip() -> String {
 
 fn main() -> glib::ExitCode {
     tracing_subscriber::fmt::init();
-    let shared = Arc::new(server::Shared::new(server::new_token()));
+    let hidden = std::env::args().any(|a| a == "--hidden");
+    let shared = Arc::new(Shared::new());
 
     // Runtime tokio (WebRTC + HTTP) em thread própria; GTK fica na principal.
     let rt = tokio::runtime::Runtime::new().expect("tokio");
     let s = shared.clone();
     let handle = rt.handle().clone();
-    let _virtual_mic = {
-        let _g = handle.enter();
-        output::spawn_virtual_mic()
-            .map_err(|e| tracing::warn!("{e:#}"))
-            .ok()
-    };
+    // Supervisor: cria o microfone virtual e o recria se o node do PipeWire sumir.
+    rt.spawn(output::supervise_virtual_mic(shared.clone()));
+    rt.spawn(output::supervise_mdns());
     let _web = {
         let _g = handle.enter();
-        output::spawn_web(&shared.token).map_err(|e| tracing::warn!("{e:#}")).ok()
+        output::spawn_web(&shared.internal_token).map_err(|e| tracing::warn!("{e:#}")).ok()
     };
     rt.spawn(async move {
         if let Err(e) = server::serve(s, CORE_PORT).await {
@@ -82,10 +84,11 @@ fn main() -> glib::ExitCode {
         if let Some(w) = app.windows().into_iter().next() {
             w.present();
         } else {
-            build_ui(app, shared.clone());
+            build_ui(app, shared.clone(), !hidden);
         }
     });
-    let code = app.run();
+    // O GApplication não deve interpretar nossas flags (--hidden).
+    let code = app.run_with_args::<&str>(&[]);
     drop(rt);
     code
 }
@@ -122,13 +125,13 @@ fn meter(title: &str) -> (adw::ActionRow, gtk::LevelBar) {
     (row, bar)
 }
 
-/// Diálogo com o QR code da URL (desenhado via cairo, sem dependência de imagem).
-fn show_qr(parent: &adw::ApplicationWindow, url: &str) {
+/// QR code desenhado via cairo (sem dependência de imagem).
+fn qr_area(url: &str, size: i32) -> Option<gtk::DrawingArea> {
     use qrcode::{Color, QrCode};
-    let Ok(code) = QrCode::new(url.as_bytes()) else { return };
+    let code = QrCode::new(url.as_bytes()).ok()?;
     let n = code.width();
     let colors = code.into_colors();
-    let area = gtk::DrawingArea::builder().content_width(300).content_height(300).build();
+    let area = gtk::DrawingArea::builder().content_width(size).content_height(size).build();
     area.set_draw_func(move |_, cr, w, h| {
         let quiet = 2.0; // margem (módulos)
         let cell = (w.min(h) as f64) / (n as f64 + 2.0 * quiet);
@@ -143,8 +146,34 @@ fn show_qr(parent: &adw::ApplicationWindow, url: &str) {
         }
         let _ = cr.fill();
     });
-    let dialog = adw::Dialog::builder().title("Abrir no celular").child(&area).build();
-    dialog.present(Some(parent));
+    Some(area)
+}
+
+fn show_qr(parent: &adw::ApplicationWindow, url: &str) {
+    let Some(area) = qr_area(url, 300) else { return };
+    adw::Dialog::builder().title("Abrir no celular").child(&area).build().present(Some(parent));
+}
+
+fn autostart_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_default();
+    std::path::PathBuf::from(home).join(".config/autostart/dev.wilian.MicBridge.desktop")
+}
+
+/// Liga/desliga a inicialização com a sessão (já abre escondido na bandeja).
+fn set_autostart(on: bool) {
+    let path = autostart_path();
+    if on {
+        let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or("micbridge".into());
+        let entry = format!(
+            "[Desktop Entry]\nType=Application\nName=MicBridge\nExec={exe} --hidden\nIcon={APP_ID}\nX-GNOME-Autostart-enabled=true\n"
+        );
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&path, entry);
+    } else {
+        let _ = std::fs::remove_file(&path);
+    }
 }
 
 /// SHA-256 do certificado do servidor web (gerado por scripts/web-https.sh).
@@ -160,25 +189,55 @@ fn cert_fingerprint() -> Option<String> {
     text.trim().split_once('=').map(|(_, fp)| fp.to_string())
 }
 
-fn build_ui(app: &adw::Application, shared: Arc<server::Shared>) {
+fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     let p = |f: fn(&dsp::Params) -> &std::sync::atomic::AtomicBool| {
         let sh = shared.clone();
         move |v: bool| f(&sh.params).store(v, Relaxed)
     };
 
+    // Estado da conexão: conectado, desconectado, reconectando ou erro.
+    let state_group = adw::PreferencesGroup::new();
+    let state_icon = gtk::Image::from_icon_name("network-offline-symbolic");
+    state_icon.set_pixel_size(24);
+    let state_row = adw::ActionRow::builder().title("Desconectado").build();
+    state_row.add_css_class("title-2");
+    state_row.add_prefix(&state_icon);
+    state_group.add(&state_row);
+
     // Conexão
     let conn = adw::PreferencesGroup::builder().title("Conexão").build();
-    let url = format!("https://{}:{}", local_ip(), WEB_PORT);
+    // Com o avahi ativo usa o nome estável; senão, o IP (muda com o DHCP).
+    let mdns = output::avahi_active();
+    let host = if mdns { MDNS_HOST.to_string() } else { local_ip() };
+    let url = format!("https://{host}:{WEB_PORT}");
     // Link de pareamento: só quem escaneia o QR (ou copia o link) entra.
-    let pair_url = format!("{url}/?t={}", shared.token);
+    let pair_url = format!("{url}/?t={}", shared.pair_token);
+    tracing::debug!("link de pareamento: {pair_url}");
+
+    // QR em destaque enquanto a janela de pareamento estiver aberta (primeira utilização).
+    let qr_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(8)
+        .halign(gtk::Align::Center)
+        .margin_top(6)
+        .margin_bottom(6)
+        .build();
+    if let Some(area) = qr_area(&pair_url, 220) {
+        area.add_css_class("card");
+        qr_box.append(&area);
+    }
+    qr_box.append(&gtk::Label::builder()
+        .label("Escaneie com a câmera do celular, na mesma rede.\nSó é preciso na primeira vez.")
+        .justify(gtk::Justification::Center)
+        .css_classes(["dim-label"])
+        .build());
+    conn.add(&qr_box);
+
     let url_row = adw::ActionRow::builder()
-        .title("Escaneie o QR code no celular")
+        .title(if mdns { "Endereço do servidor (nome fixo)" } else { "Endereço do servidor (IP, pode mudar)" })
         .subtitle(&url)
         .subtitle_selectable(true)
         .build();
-    let status = gtk::Label::new(Some("Aguardando celular"));
-    status.add_css_class("dim-label");
-    url_row.add_suffix(&status);
     let qr_btn = gtk::Button::builder()
         .icon_name("view-barcode-symbolic")
         .tooltip_text("Mostrar QR code")
@@ -215,6 +274,25 @@ fn build_ui(app: &adw::Application, shared: Arc<server::Shared>) {
     }
     conn.add(&pair_row);
 
+    // Celulares pareados (persistem entre execuções).
+    let devices_row = adw::ActionRow::builder().title("Celulares pareados").build();
+    let forget_btn = gtk::Button::builder()
+        .label("Esquecer todos")
+        .valign(gtk::Align::Center)
+        .css_classes(["destructive-action"])
+        .build();
+    {
+        let sh = shared.clone();
+        forget_btn.connect_clicked(move |_| {
+            sh.forget_all();
+            sh.open_pairing(); // sem celulares, volta a mostrar o QR
+        });
+    }
+    devices_row.add_suffix(&forget_btn);
+    conn.add(&devices_row);
+
+    conn.add(&switch_row("Iniciar com o sistema", autostart_path().exists(), set_autostart));
+
     // Impressão digital do certificado: confira no celular ao aceitar o aviso.
     let fp_row = adw::ActionRow::builder()
         .title("Impressão digital do certificado (SHA-256)")
@@ -248,6 +326,7 @@ fn build_ui(app: &adw::Application, shared: Arc<server::Shared>) {
     }));
 
     let page = adw::PreferencesPage::new();
+    page.add(&state_group);
     page.add(&conn);
     page.add(&fx);
     let view = adw::ToolbarView::new();
@@ -275,27 +354,47 @@ fn build_ui(app: &adw::Application, shared: Arc<server::Shared>) {
         if pair_row.is_active() != (left > 0) {
             pair_row.set_active(left > 0);
         }
+        qr_box.set_visible(left > 0);
         pair_row.set_subtitle(&if left > 0 {
             format!("Aberto: fecha em {}:{:02}", left / 60, left % 60)
         } else {
             "Fechado: só celulares já pareados reconectam".to_string()
         });
+        let n = shared.device_count();
+        devices_row.set_subtitle(&match n {
+            0 => "Nenhum".to_string(),
+            1 => "1 celular".to_string(),
+            n => format!("{n} celulares"),
+        });
+        forget_btn.set_sensitive(n > 0);
         if !fp_loaded {
             if let Some(fp) = cert_fingerprint() {
                 fp_row.set_subtitle(&fp);
                 fp_loaded = true;
             }
         }
+        // Estado da conexão, bem visível.
+        let st = shared.status();
+        state_row.set_title(st.label);
+        state_row.set_subtitle(&st.detail);
+        let (icon, class) = match st.link {
+            Link::Connected => ("emblem-ok-symbolic", "success"),
+            Link::Connecting | Link::Reconnecting => ("view-refresh-symbolic", "warning"),
+            Link::Error => ("dialog-error-symbolic", "error"),
+            Link::Disconnected => ("network-offline-symbolic", "dim-label"),
+        };
+        state_icon.set_icon_name(Some(icon));
+        for c in ["success", "warning", "error", "dim-label"] {
+            state_icon.remove_css_class(c);
+        }
+        state_icon.add_css_class(class);
         in_bar.set_value(norm(shared.params.in_level()));
         out_bar.set_value(norm(shared.params.out_level()));
-        status.set_text(if shared.connected.load(Relaxed) {
-            "Conectado"
-        } else {
-            "Aguardando celular"
-        });
         glib::ControlFlow::Continue
     });
 
     gtk::Window::set_default_icon_name(APP_ID);
-    win.present();
+    if show {
+        win.present();
+    }
 }

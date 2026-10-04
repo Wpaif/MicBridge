@@ -12,5 +12,6 @@ Rails.application.routes.draw do
   # Defines the root path route ("/")
   root "mic#show"
   post "offer", to: "mic#offer"
+  delete "offer", to: "mic#stop"
   get "ca.crt", to: "mic#ca"
 end

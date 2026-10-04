@@ -34,6 +34,8 @@ seleciona no Discord, OBS, Meet etc.
 - 🖥️ **Interface GTK4 + libadwaita** nativa do GNOME
 - 🔔 **Ícone na bandeja** que muda quando o celular conecta; fechar a janela só a esconde
 - 🚀 **Servidor web automático**: sobe com o app e para quando ele fecha
+- 🔐 **Pareamento seguro**: token no QR code, janela de pareamento temporária e um celular por vez
+- 🔏 **TLS com CA local**: certificado próprio e impressão digital visível no app
 
 ## 🧭 Como funciona
 
@@ -82,10 +84,16 @@ Procure por **MicBridge**.
 
 ## ▶️ Uso
 
-1. Abra o **MicBridge**. O microfone virtual e o servidor web sobem sozinhos.
-2. Clique no botão de QR code (ou abra a URL `https://<IP-do-PC>:3443`) no celular, na mesma rede.
-3. Aceite o aviso do certificado autoassinado e toque em **Iniciar microfone**.
+1. Abra o **MicBridge**. O microfone virtual e o servidor web sobem sozinhos, e a janela de
+   pareamento fica aberta por 5 minutos.
+2. No celular (mesma rede), **escaneie o QR code** (botão de QR na janela) ou cole o link copiado.
+   Abrir só `https://<IP>:3443` não funciona: o link precisa do token.
+3. Na primeira vez, instale a CA em `https://<IP>:3443/ca.crt` ou aceite o aviso do certificado
+   conferindo a impressão digital mostrada no app. Toque em **Iniciar microfone**.
 4. No Discord/OBS, escolha **Microfone_VDO** como entrada.
+
+Para parear outro celular, ligue **Aceitar novo celular** na janela. Ao reiniciar o app o token
+muda, então é preciso escanear o QR de novo.
 
 Para encerrar de verdade, use **Sair** no menu da bandeja. O botão "X" apenas esconde a janela.
 

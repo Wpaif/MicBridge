@@ -73,7 +73,10 @@ impl Sink {
             .spawn()
             .context("falha ao executar pw-cat")?;
         let stdin = child.stdin.take().context("pw-cat sem stdin")?;
-        Ok(Self { _child: child, stdin })
+        Ok(Self {
+            _child: child,
+            stdin,
+        })
     }
 
     /// Duplica mono em L/R e escreve.
@@ -112,7 +115,10 @@ pub struct ResilientSink {
 
 impl ResilientSink {
     pub fn new() -> Self {
-        Self { sink: None, last_try: None }
+        Self {
+            sink: None,
+            last_try: None,
+        }
     }
 
     pub async fn write_mono(&mut self, mono: &[f32]) {
@@ -131,7 +137,9 @@ impl ResilientSink {
         }
         let sink = self.sink.as_mut().expect("aberto acima");
         // Timeout: se o sink foi recriado, o pw-cat antigo pode parar de consumir o pipe.
-        let res = tokio::time::timeout(std::time::Duration::from_millis(250), sink.write_mono(mono)).await;
+        let res =
+            tokio::time::timeout(std::time::Duration::from_millis(250), sink.write_mono(mono))
+                .await;
         if !matches!(res, Ok(Ok(()))) {
             tracing::warn!("saída de áudio falhou; reabrindo");
             self.sink = None; // kill_on_drop encerra o pw-cat
@@ -143,7 +151,10 @@ impl ResilientSink {
 async fn virtual_mic_exists() -> bool {
     let out = tokio::time::timeout(
         std::time::Duration::from_secs(2),
-        Command::new("pw-cli").args(["ls", "Node"]).kill_on_drop(true).output(),
+        Command::new("pw-cli")
+            .args(["ls", "Node"])
+            .kill_on_drop(true)
+            .output(),
     )
     .await;
     let Ok(Ok(out)) = out else { return false };
@@ -159,7 +170,10 @@ pub async fn supervise_virtual_mic(shared: std::sync::Arc<crate::state::Shared>)
     let mut last_ok = true;
     loop {
         if virtual_mic_exists().await {
-            if child.as_mut().is_some_and(|c| !matches!(c.try_wait(), Ok(None))) {
+            if child
+                .as_mut()
+                .is_some_and(|c| !matches!(c.try_wait(), Ok(None)))
+            {
                 child = None; // o nosso morreu, mas há outro provendo o node
             }
             shared.set_pw_ok(true);

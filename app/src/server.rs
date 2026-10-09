@@ -45,7 +45,10 @@ struct AppState {
 }
 
 pub async fn serve(shared: Arc<Shared>, port: u16) -> Result<()> {
-    let state = Arc::new(AppState { shared, current: Mutex::new(None) });
+    let state = Arc::new(AppState {
+        shared,
+        current: Mutex::new(None),
+    });
     let app = Router::new()
         .route("/pair", post(pair))
         .route("/verify", post(verify))
@@ -73,7 +76,8 @@ fn authorize(st: &AppState, h: &HeaderMap) -> Result<(), Reply> {
 
 /// Credenciais do celular (id + segredo de longa duração).
 fn device_ok(st: &AppState, h: &HeaderMap) -> bool {
-    st.shared.verify_device(hdr(h, "x-micbridge-device"), hdr(h, "x-micbridge-secret"))
+    st.shared
+        .verify_device(hdr(h, "x-micbridge-device"), hdr(h, "x-micbridge-secret"))
 }
 
 /// Novo celular: exige o token do QR e a janela de pareamento aberta.
@@ -113,9 +117,17 @@ async fn whip(State(st): State<Arc<AppState>>, h: HeaderMap, offer_sdp: String) 
     }
     let device = hdr(&h, "x-micbridge-device").to_owned();
     // Outro celular só entra se o atual não estiver mais conectado/reconectando.
-    let other = st.current.lock().unwrap().as_ref().is_some_and(|c| c.device != device);
+    let other = st
+        .current
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|c| c.device != device);
     if other && st.shared.busy() {
-        return (StatusCode::CONFLICT, "Já existe outro celular conectado".into());
+        return (
+            StatusCode::CONFLICT,
+            "Já existe outro celular conectado".into(),
+        );
     }
     match negotiate(&st, device, offer_sdp).await {
         Ok(answer) => (StatusCode::CREATED, answer),
@@ -138,7 +150,11 @@ async fn stop(State(st): State<Arc<AppState>>, h: HeaderMap) -> Reply {
     let device = hdr(&h, "x-micbridge-device");
     let cur = {
         let mut g = st.current.lock().unwrap();
-        if g.as_ref().is_some_and(|c| c.device == device) { g.take() } else { None }
+        if g.as_ref().is_some_and(|c| c.device == device) {
+            g.take()
+        } else {
+            None
+        }
     };
     if let Some(c) = cur {
         st.shared.next_generation(); // ignora o "closed" que virá
@@ -173,11 +189,19 @@ impl PeerConnectionEventHandler for Handler {
             }
             // Queda depois de ter conectado: o celular deve reconectar sozinho.
             RTCPeerConnectionState::Disconnected | RTCPeerConnectionState::Failed => {
-                if self.was_connected.load(Relaxed) { Link::Reconnecting } else { Link::Disconnected }
+                if self.was_connected.load(Relaxed) {
+                    Link::Reconnecting
+                } else {
+                    Link::Disconnected
+                }
             }
             RTCPeerConnectionState::Closed => return,
             _ => {
-                if self.was_connected.load(Relaxed) { Link::Reconnecting } else { Link::Connecting }
+                if self.was_connected.load(Relaxed) {
+                    Link::Reconnecting
+                } else {
+                    Link::Connecting
+                }
             }
         };
         self.shared.set_link_for(self.generation, link);
@@ -208,7 +232,9 @@ async fn pump(track: Arc<dyn TrackRemote>, shared: Arc<Shared>, generation: u64)
         if !shared.is_current(generation) {
             break; // este celular reconectou com outra conexão
         }
-        let TrackRemoteEvent::OnRtpPacket(pkt) = evt else { continue };
+        let TrackRemoteEvent::OnRtpPacket(pkt) = evt else {
+            continue;
+        };
         let seq = pkt.header.sequence_number;
 
         // Perda de exatamente 1 pacote: conceal (PLC) do Opus.
@@ -297,14 +323,19 @@ async fn negotiate(st: &AppState, device: String, offer_sdp: String) -> Result<S
     )
     .await?;
 
-    pc.set_remote_description(RTCSessionDescription::offer(offer_sdp)?).await?;
+    pc.set_remote_description(RTCSessionDescription::offer(offer_sdp)?)
+        .await?;
     let answer = pc.create_answer(None).await?;
     pc.set_local_description(answer).await?;
     futures::select! {
         _ = gather_rx.recv().fuse() => {}
         _ = tokio::time::sleep(std::time::Duration::from_secs(3)).fuse() => {}
     }
-    let sdp = pc.local_description().await.ok_or_else(|| anyhow!("sem answer"))?.sdp;
+    let sdp = pc
+        .local_description()
+        .await
+        .ok_or_else(|| anyhow!("sem answer"))?
+        .sdp;
 
     let old = st.current.lock().unwrap().replace(Current { device, pc });
     if let Some(old) = old {

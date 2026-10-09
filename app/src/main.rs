@@ -5,8 +5,8 @@ mod state;
 mod tray;
 
 use adw::prelude::*;
-use std::net::UdpSocket;
 use state::{Link, Shared};
+use std::net::UdpSocket;
 use std::sync::{Arc, atomic::Ordering::Relaxed};
 use std::time::Duration;
 
@@ -38,7 +38,9 @@ fn main() -> glib::ExitCode {
     rt.spawn(output::supervise_mdns());
     let _web = {
         let _g = handle.enter();
-        output::spawn_web(&shared.internal_token).map_err(|e| tracing::warn!("{e:#}")).ok()
+        output::spawn_web(&shared.internal_token)
+            .map_err(|e| tracing::warn!("{e:#}"))
+            .ok()
     };
     rt.spawn(async move {
         if let Err(e) = server::serve(s, CORE_PORT).await {
@@ -51,9 +53,10 @@ fn main() -> glib::ExitCode {
     let sig_tx = tray_tx.clone();
     rt.spawn(async move {
         use tokio::signal::unix::{SignalKind, signal};
-        let (Ok(mut term), Ok(mut int)) =
-            (signal(SignalKind::terminate()), signal(SignalKind::interrupt()))
-        else {
+        let (Ok(mut term), Ok(mut int)) = (
+            signal(SignalKind::terminate()),
+            signal(SignalKind::interrupt()),
+        ) else {
             return;
         };
         tokio::select! { _ = term.recv() => {}, _ = int.recv() => {} }
@@ -70,7 +73,10 @@ fn main() -> glib::ExitCode {
             while let Ok(ev) = tray_rx.recv().await {
                 match ev {
                     tray::TrayEvent::Show => {
-                        if let Some(w) = app.active_window().or_else(|| app.windows().into_iter().next()) {
+                        if let Some(w) = app
+                            .active_window()
+                            .or_else(|| app.windows().into_iter().next())
+                        {
                             w.present();
                         }
                     }
@@ -111,7 +117,10 @@ fn scale_row(
 }
 
 fn switch_row(title: &str, active: bool, on_change: impl Fn(bool) + 'static) -> adw::SwitchRow {
-    let row = adw::SwitchRow::builder().title(title).active(active).build();
+    let row = adw::SwitchRow::builder()
+        .title(title)
+        .active(active)
+        .build();
     row.connect_active_notify(move |r| on_change(r.is_active()));
     row
 }
@@ -125,33 +134,76 @@ fn meter(title: &str) -> (adw::ActionRow, gtk::LevelBar) {
     (row, bar)
 }
 
-/// QR code desenhado via cairo (sem dependência de imagem).
+// QR code desenhado via Cairo, centralizado na área disponível.
 fn qr_area(url: &str, size: i32) -> Option<gtk::DrawingArea> {
     use qrcode::{Color, QrCode};
+
     let code = QrCode::new(url.as_bytes()).ok()?;
     let n = code.width();
     let colors = code.into_colors();
-    let area = gtk::DrawingArea::builder().content_width(size).content_height(size).build();
+
+    let area = gtk::DrawingArea::builder()
+        .content_width(size)
+        .content_height(size)
+        .width_request(size)
+        .height_request(size)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .hexpand(false)
+        .vexpand(false)
+        .build();
+
     area.set_draw_func(move |_, cr, w, h| {
-        let quiet = 2.0; // margem (módulos)
-        let cell = (w.min(h) as f64) / (n as f64 + 2.0 * quiet);
+        const QUIET: f64 = 4.0;
+
+        let modules = n as f64 + 2.0 * QUIET;
+        let side = w.min(h) as f64;
+        let cell = (side / modules).floor();
+
+        if cell < 1.0 {
+            return;
+        }
+
+        let qr_size = modules * cell;
+        let offset_x = (w as f64 - qr_size) / 2.0;
+        let offset_y = (h as f64 - qr_size) / 2.0;
+
+        // Fundo branco.
         cr.set_source_rgb(1.0, 1.0, 1.0);
         let _ = cr.paint();
+
+        cr.set_antialias(gtk::cairo::Antialias::None);
         cr.set_source_rgb(0.0, 0.0, 0.0);
-        for (i, c) in colors.iter().enumerate() {
-            if *c == Color::Dark {
-                let (x, y) = ((i % n) as f64, (i / n) as f64);
-                cr.rectangle((x + quiet) * cell, (y + quiet) * cell, cell, cell);
+
+        for (i, color) in colors.iter().enumerate() {
+            if *color == Color::Dark {
+                let x = i % n;
+                let y = i / n;
+
+                cr.rectangle(
+                    offset_x + (x as f64 + QUIET) * cell,
+                    offset_y + (y as f64 + QUIET) * cell,
+                    cell,
+                    cell,
+                );
             }
         }
+
         let _ = cr.fill();
     });
+
     Some(area)
 }
 
 fn show_qr(parent: &adw::ApplicationWindow, url: &str) {
-    let Some(area) = qr_area(url, 300) else { return };
-    adw::Dialog::builder().title("Abrir no celular").child(&area).build().present(Some(parent));
+    let Some(area) = qr_area(url, 300) else {
+        return;
+    };
+    adw::Dialog::builder()
+        .title("Abrir no celular")
+        .child(&area)
+        .build()
+        .present(Some(parent));
 }
 
 fn autostart_path() -> std::path::PathBuf {
@@ -163,7 +215,9 @@ fn autostart_path() -> std::path::PathBuf {
 fn set_autostart(on: bool) {
     let path = autostart_path();
     if on {
-        let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or("micbridge".into());
+        let exe = std::env::current_exe()
+            .map(|p| p.display().to_string())
+            .unwrap_or("micbridge".into());
         let entry = format!(
             "[Desktop Entry]\nType=Application\nName=MicBridge\nExec={exe} --hidden\nIcon={APP_ID}\nX-GNOME-Autostart-enabled=true\n"
         );
@@ -208,7 +262,11 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     let conn = adw::PreferencesGroup::builder().title("Conexão").build();
     // Com o avahi ativo usa o nome estável; senão, o IP (muda com o DHCP).
     let mdns = output::avahi_active();
-    let host = if mdns { MDNS_HOST.to_string() } else { local_ip() };
+    let host = if mdns {
+        MDNS_HOST.to_string()
+    } else {
+        local_ip()
+    };
     let url = format!("https://{host}:{WEB_PORT}");
     // Link de pareamento: só quem escaneia o QR (ou copia o link) entra.
     let pair_url = format!("{url}/?t={}", shared.pair_token);
@@ -223,18 +281,45 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .margin_bottom(6)
         .build();
     if let Some(area) = qr_area(&pair_url, 220) {
-        area.add_css_class("card");
-        qr_box.append(&area);
+        let qr_card = gtk::Box::builder()
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Center)
+            .build();
+
+        qr_card.add_css_class("card");
+        qr_card.set_overflow(gtk::Overflow::Hidden);
+
+        let frame = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Center)
+            .margin_top(12)
+            .margin_bottom(12)
+            .margin_start(12)
+            .margin_end(12)
+            .build();
+
+        frame.append(&area);
+        qr_card.append(&frame);
+        qr_box.append(&qr_card);
     }
-    qr_box.append(&gtk::Label::builder()
-        .label("Escaneie com a câmera do celular, na mesma rede.\nSó é preciso na primeira vez.")
-        .justify(gtk::Justification::Center)
-        .css_classes(["dim-label"])
-        .build());
+    qr_box.append(
+        &gtk::Label::builder()
+            .label(
+                "Escaneie com a câmera do celular, na mesma rede.\nSó é preciso na primeira vez.",
+            )
+            .justify(gtk::Justification::Center)
+            .css_classes(["dim-label"])
+            .build(),
+    );
     conn.add(&qr_box);
 
     let url_row = adw::ActionRow::builder()
-        .title(if mdns { "Endereço do servidor (nome fixo)" } else { "Endereço do servidor (IP, pode mudar)" })
+        .title(if mdns {
+            "Endereço do servidor (nome fixo)"
+        } else {
+            "Endereço do servidor (IP, pode mudar)"
+        })
         .subtitle(&url)
         .subtitle_selectable(true)
         .build();
@@ -275,7 +360,9 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     conn.add(&pair_row);
 
     // Celulares pareados (persistem entre execuções).
-    let devices_row = adw::ActionRow::builder().title("Celulares pareados").build();
+    let devices_row = adw::ActionRow::builder()
+        .title("Celulares pareados")
+        .build();
     let forget_btn = gtk::Button::builder()
         .label("Esquecer todos")
         .valign(gtk::Align::Center)
@@ -291,7 +378,11 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     devices_row.add_suffix(&forget_btn);
     conn.add(&devices_row);
 
-    conn.add(&switch_row("Iniciar com o sistema", autostart_path().exists(), set_autostart));
+    conn.add(&switch_row(
+        "Iniciar com o sistema",
+        autostart_path().exists(),
+        set_autostart,
+    ));
 
     // Impressão digital do certificado: confira no celular ao aceitar o aviso.
     let fp_row = adw::ActionRow::builder()
@@ -306,24 +397,41 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     conn.add(&out_row);
 
     // Tratamento
-    let fx = adw::PreferencesGroup::builder().title("Tratamento de áudio").build();
-    fx.add(&switch_row("Cancelamento de ruído (RNNoise)", true, p(|x| &x.denoise)));
+    let fx = adw::PreferencesGroup::builder()
+        .title("Tratamento de áudio")
+        .build();
+    fx.add(&switch_row(
+        "Cancelamento de ruído (RNNoise)",
+        true,
+        p(|x| &x.denoise),
+    ));
     fx.add(&switch_row("Noise gate", true, p(|x| &x.gate)));
     let sh = shared.clone();
-    fx.add(&scale_row("Limiar do gate (dB)", (-80.0, -20.0), -55.0, move |v| {
-        sh.params.set_gate_db(v)
-    }));
+    fx.add(&scale_row(
+        "Limiar do gate (dB)",
+        (-80.0, -20.0),
+        -55.0,
+        move |v| sh.params.set_gate_db(v),
+    ));
     fx.add(&switch_row("Compressor", true, p(|x| &x.compressor)));
     let sh = shared.clone();
-    fx.add(&scale_row("Limiar do compressor (dB)", (-50.0, 0.0), -20.0, move |v| {
-        sh.params.set_comp_threshold_db(v)
+    fx.add(&scale_row(
+        "Limiar do compressor (dB)",
+        (-50.0, 0.0),
+        -20.0,
+        move |v| sh.params.set_comp_threshold_db(v),
+    ));
+    let sh = shared.clone();
+    fx.add(&scale_row("Razão", (1.0, 10.0), 3.0, move |v| {
+        sh.params.set_comp_ratio(v)
     }));
     let sh = shared.clone();
-    fx.add(&scale_row("Razão", (1.0, 10.0), 3.0, move |v| sh.params.set_comp_ratio(v)));
-    let sh = shared.clone();
-    fx.add(&scale_row("Ganho final (dB)", (-12.0, 18.0), 4.0, move |v| {
-        sh.params.set_makeup_db(v)
-    }));
+    fx.add(&scale_row(
+        "Ganho final (dB)",
+        (-12.0, 18.0),
+        4.0,
+        move |v| sh.params.set_makeup_db(v),
+    ));
 
     let page = adw::PreferencesPage::new();
     page.add(&state_group);
@@ -349,7 +457,8 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     let mut fp_loaded = false;
     glib::timeout_add_local(Duration::from_millis(50), move || {
         // Escala dB -> 0..1 (-60..0 dB).
-        let norm = |rms: f32| (((20.0 * (rms + 1e-9).log10()) + 60.0) / 60.0).clamp(0.0, 1.0) as f64;
+        let norm =
+            |rms: f32| (((20.0 * (rms + 1e-9).log10()) + 60.0) / 60.0).clamp(0.0, 1.0) as f64;
         let left = shared.pairing_remaining();
         if pair_row.is_active() != (left > 0) {
             pair_row.set_active(left > 0);

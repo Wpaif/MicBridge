@@ -17,7 +17,11 @@ fn pixmap(png_bytes: &[u8]) -> Icon {
         .chunks_exact(4)
         .flat_map(|p| [p[3], p[0], p[1], p[2]]) // RGBA -> ARGB
         .collect();
-    Icon { width: info.width as i32, height: info.height as i32, data }
+    Icon {
+        width: info.width as i32,
+        height: info.height as i32,
+        data,
+    }
 }
 
 fn icons(link: Link) -> Vec<Icon> {
@@ -124,7 +128,12 @@ impl Tray for MicTray {
 /// Deve ser chamado dentro do runtime tokio. Reflete o estado da conexão no ícone.
 pub async fn spawn(tx: async_channel::Sender<TrayEvent>, shared: Arc<Shared>) {
     let st = shared.status();
-    let tray = MicTray { tx, link: st.link, label: st.label, detail: st.detail };
+    let tray = MicTray {
+        tx,
+        link: st.link,
+        label: st.label,
+        detail: st.detail,
+    };
     let handle = match tray.spawn().await {
         Ok(h) => h,
         Err(e) => return tracing::warn!("bandeja indisponível: {e}"),

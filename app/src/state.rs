@@ -30,11 +30,18 @@ pub fn random_hex(n: usize) -> String {
 
 /// Comparação em tempo constante.
 pub fn ct_eq(a: &str, b: &str) -> bool {
-    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.len() == b.len()
+        && a.bytes()
+            .zip(b.bytes())
+            .fold(0, |acc, (x, y)| acc | (x ^ y))
+            == 0
 }
 
 fn sha256_hex(s: &str) -> String {
-    Sha256::digest(s.as_bytes()).iter().map(|x| format!("{x:02x}")).collect()
+    Sha256::digest(s.as_bytes())
+        .iter()
+        .map(|x| format!("{x:02x}"))
+        .collect()
 }
 
 // ───────────────────────── Celulares pareados (persistentes) ─────────────────────────
@@ -175,7 +182,10 @@ impl Shared {
         let mut st = self.store.lock().unwrap();
         st.devices.insert(
             id.clone(),
-            Device { secret_sha256: sha256_hex(&secret), created: now_secs() },
+            Device {
+                secret_sha256: sha256_hex(&secret),
+                created: now_secs(),
+            },
         );
         st.save();
         self.close_pairing();
@@ -246,7 +256,11 @@ impl Shared {
             };
         }
         if let Some(e) = self.last_error.lock().unwrap().clone() {
-            return Status { link: Link::Error, label: "Erro", detail: e };
+            return Status {
+                link: Link::Error,
+                label: "Erro",
+                detail: e,
+            };
         }
         match self.link() {
             Link::Connected => Status {

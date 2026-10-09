@@ -1,105 +1,208 @@
 import { Controller } from "@hotwired/stimulus"
 
-// Captura o microfone SEM processamento do navegador (o tratamento é feito no PC)
-// e envia via WebRTC (Opus) ao app Rust.
-export default class extends Controller {
-  static targets = ["status", "button", "meter"]
+// Captura o microfone SEM processamento do navegador (o tratamento é feito no PC) e envia via
+// WebRTC (Opus) ao app. Reconecta sozinho se a rede cair ou a conexão falhar, sem novo QR.
+const BACKOFF_MS = [1000, 2000, 3000, 5000, 8000, 10000]
+const KEY = "micbridge.on"
 
-  async toggle() {
-    this.pc ? this.stop() : await this.start()
+export default class extends Controller {
+  static targets = ["status", "button", "meter", "badge"]
+
+  connect() {
+    this.wanted = false
+    this.retries = 0
+    this.onVisible = () => document.visibilityState === "visible" && this.recoverNow()
+    document.addEventListener("visibilitychange", this.onVisible)
+    window.addEventListener("online", this.onVisible)
+    // Estava ligado antes (página recarregada, celular desbloqueado)? Volta sozinho.
+    if (localStorage.getItem(KEY) === "1") this.start()
+  }
+
+  disconnect() {
+    document.removeEventListener("visibilitychange", this.onVisible)
+    window.removeEventListener("online", this.onVisible)
+    this.teardown()
+  }
+
+  toggle() {
+    this.wanted ? this.stop() : this.start()
   }
 
   async start() {
-    try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-          channelCount: 1,
-          sampleRate: 48000,
-        },
-      })
-    } catch (e) {
-      return this.setStatus(`Microfone negado: ${e.message}`)
-    }
-
-    this.pc = new RTCPeerConnection({ iceServers: [] }) // só rede local
-    this.pc.onconnectionstatechange = () => {
-      this.setStatus(this.pc?.connectionState ?? "")
-      if (["failed", "closed"].includes(this.pc?.connectionState)) this.stop()
-    }
-    const track = this.stream.getAudioTracks()[0]
-    const sender = this.pc.addTrack(track, this.stream)
-    this.tuneSender(sender)
-
-    await this.pc.setLocalDescription(await this.pc.createOffer())
-    await this.waitIce()
-
-    const res = await fetch("/offer", {
-      method: "POST",
-      headers: { "Content-Type": "application/sdp" },
-      body: this.pc.localDescription.sdp,
-    })
-    if (!res.ok) {
-      this.setStatus(await res.text())
-      return this.stop()
-    }
-    await this.pc.setRemoteDescription({ type: "answer", sdp: await res.text() })
+    this.wanted = true
+    localStorage.setItem(KEY, "1")
     this.buttonTarget.textContent = "Parar"
-    this.startMeter()
+    this.render("connecting", "Conectando…")
+    if (!(await this.acquireMic())) return
+    this.requestWakeLock()
+    this.connectPeer()
   }
 
-  // Opus de alta qualidade para voz, sem DTX; prioridade alta de rede.
+  // Parar de propósito: avisa o PC para mostrar "desconectado" na hora.
+  stop() {
+    this.wanted = false
+    localStorage.removeItem(KEY)
+    fetch("/offer", { method: "DELETE", keepalive: true }).catch(() => {})
+    this.teardown()
+    this.buttonTarget.textContent = "Iniciar microfone"
+    this.render("idle", "Desconectado")
+  }
+
+  async acquireMic() {
+    if (this.stream?.getAudioTracks().some((t) => t.readyState === "live")) return true
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1, sampleRate: 48000 },
+      })
+      this.stream.getAudioTracks()[0].addEventListener("ended", () => this.wanted && this.recoverNow())
+      return true
+    } catch (e) {
+      this.wanted = false
+      localStorage.removeItem(KEY)
+      this.buttonTarget.textContent = "Iniciar microfone"
+      this.render("error", `Microfone negado: ${e.message}`)
+      return false
+    }
+  }
+
+  async connectPeer() {
+    this.closePeer()
+    const pc = new RTCPeerConnection({ iceServers: [] }) // só rede local
+    this.pc = pc
+    pc.onconnectionstatechange = () => this.onState(pc)
+    const sender = pc.addTrack(this.stream.getAudioTracks()[0], this.stream)
+    this.tuneSender(sender)
+
+    try {
+      await pc.setLocalDescription(await pc.createOffer())
+      await this.waitIce(pc)
+      const res = await fetch("/offer", { method: "POST", headers: { "Content-Type": "application/sdp" }, body: pc.localDescription.sdp })
+      if (pc !== this.pc) return // já foi substituída por outra tentativa
+      if (res.status === 409) return this.fatal("Já existe outro celular conectado")
+      if (res.status === 403) return this.fatal("Celular não pareado. Escaneie o QR code no PC.")
+      if (!res.ok) throw new Error(await res.text())
+      await pc.setRemoteDescription({ type: "answer", sdp: await res.text() })
+    } catch (e) {
+      if (pc === this.pc) this.scheduleRetry(`Sem conexão com o PC (${e.message})`)
+    }
+  }
+
+  onState(pc) {
+    if (pc !== this.pc || !this.wanted) return
+    switch (pc.connectionState) {
+      case "connected":
+        this.retries = 0
+        this.render("connected", "Conectado")
+        this.startMeter()
+        break
+      case "disconnected": // pode se recuperar sozinha; dá 3 s antes de refazer
+        this.render("reconnecting", "Conexão instável…")
+        clearTimeout(this.graceTimer)
+        this.graceTimer = setTimeout(() => pc === this.pc && pc.connectionState !== "connected" && this.scheduleRetry("Reconectando…"), 3000)
+        break
+      case "failed":
+      case "closed":
+        this.scheduleRetry("Reconectando…")
+        break
+    }
+  }
+
+  scheduleRetry(message) {
+    if (!this.wanted) return
+    clearTimeout(this.retryTimer)
+    const delay = BACKOFF_MS[Math.min(this.retries++, BACKOFF_MS.length - 1)]
+    this.render("reconnecting", message)
+    this.retryTimer = setTimeout(async () => {
+      if (!this.wanted) return
+      if (await this.acquireMic()) this.connectPeer()
+    }, delay)
+  }
+
+  // Tela desbloqueada / rede voltou: tenta já, sem esperar o backoff.
+  recoverNow() {
+    if (!this.wanted || this.pc?.connectionState === "connected") return
+    clearTimeout(this.retryTimer)
+    this.requestWakeLock()
+    this.retries = 0
+    this.acquireMic().then((ok) => ok && this.connectPeer())
+  }
+
+  fatal(message) {
+    this.wanted = false
+    localStorage.removeItem(KEY)
+    this.teardown()
+    this.buttonTarget.textContent = "Iniciar microfone"
+    this.render("error", message)
+  }
+
+  // Mantém a tela ligada enquanto transmite: navegadores suspendem o microfone ao bloquear.
+  async requestWakeLock() {
+    try {
+      if ("wakeLock" in navigator && !this.wakeLock) {
+        this.wakeLock = await navigator.wakeLock.request("screen")
+        this.wakeLock.addEventListener("release", () => (this.wakeLock = null))
+      }
+    } catch (_) {}
+  }
+
+  // Opus de alta qualidade para voz; prioridade alta de rede.
   tuneSender(sender) {
     const p = sender.getParameters()
     p.encodings = [{ ...(p.encodings?.[0] ?? {}), maxBitrate: 64000, networkPriority: "high" }]
     sender.setParameters(p).catch(() => {})
   }
 
-  waitIce() {
-    if (this.pc.iceGatheringState === "complete") return
+  waitIce(pc) {
+    if (pc.iceGatheringState === "complete") return
     return new Promise((resolve) => {
-      this.pc.onicegatheringstatechange = () =>
-        this.pc.iceGatheringState === "complete" && resolve()
+      pc.onicegatheringstatechange = () => pc.iceGatheringState === "complete" && resolve()
       setTimeout(resolve, 2000)
     })
   }
 
   startMeter() {
-    const ctx = new AudioContext()
-    const analyser = ctx.createAnalyser()
-    analyser.fftSize = 512
-    ctx.createMediaStreamSource(this.stream).connect(analyser)
-    const buf = new Float32Array(analyser.fftSize)
-    const g = this.meterTarget.getContext("2d")
-    const draw = () => {
-      analyser.getFloatTimeDomainData(buf)
-      const rms = Math.sqrt(buf.reduce((a, v) => a + v * v, 0) / buf.length)
-      g.clearRect(0, 0, 300, 14)
-      g.fillStyle = "#3584e4"
-      g.fillRect(0, 0, Math.min(1, rms * 4) * 300, 14)
-      this.raf = requestAnimationFrame(draw)
-    }
-    this.audioCtx = ctx
-    draw()
+    if (this.audioCtx || !this.stream) return
+    try {
+      const ctx = new AudioContext()
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 512
+      ctx.createMediaStreamSource(this.stream).connect(analyser)
+      const buf = new Float32Array(analyser.fftSize)
+      const g = this.meterTarget.getContext("2d")
+      const draw = () => {
+        analyser.getFloatTimeDomainData(buf)
+        const rms = Math.sqrt(buf.reduce((a, v) => a + v * v, 0) / buf.length)
+        g.clearRect(0, 0, 300, 14)
+        g.fillStyle = "#3584e4"
+        g.fillRect(0, 0, Math.min(1, rms * 4) * 300, 14)
+        this.raf = requestAnimationFrame(draw)
+      }
+      this.audioCtx = ctx
+      draw()
+    } catch (_) {} // o medidor é opcional
   }
 
-  stop() {
+  closePeer() {
+    clearTimeout(this.graceTimer)
+    const pc = this.pc
+    this.pc = null
+    pc?.close()
+  }
+
+  teardown() {
+    clearTimeout(this.retryTimer)
     cancelAnimationFrame(this.raf)
-    this.audioCtx?.close()
+    this.audioCtx?.close().catch(() => {})
+    this.audioCtx = null
+    this.closePeer()
     this.stream?.getTracks().forEach((t) => t.stop())
-    this.pc?.close()
-    this.pc = this.stream = this.audioCtx = null
-    this.buttonTarget.textContent = "Iniciar microfone"
-    this.setStatus("Desconectado")
+    this.stream = null
+    this.wakeLock?.release().catch(() => {})
+    this.wakeLock = null
   }
 
-  setStatus(t) {
-    this.statusTarget.textContent = t
-  }
-
-  disconnect() {
-    this.stop()
+  render(state, text) {
+    this.badgeTarget.dataset.state = state
+    this.statusTarget.textContent = text
   }
 }

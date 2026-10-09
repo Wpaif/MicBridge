@@ -1,9 +1,9 @@
 //! Ícone na bandeja (StatusNotifierItem), como Discord/Steam. No GNOME requer
 //! a extensão AppIndicator.
 
-use crate::server::Shared;
+use crate::state::{Link, Shared};
 use ksni::{Category, Icon, MenuItem, ToolTip, Tray, TrayMethods, menu::StandardItem};
-use std::sync::{Arc, atomic::Ordering::Relaxed};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// PNG -> pixmap ARGB32 (big-endian) exigido pelo StatusNotifierItem.
@@ -17,20 +17,31 @@ fn pixmap(png_bytes: &[u8]) -> Icon {
         .chunks_exact(4)
         .flat_map(|p| [p[3], p[0], p[1], p[2]]) // RGBA -> ARGB
         .collect();
-    Icon { width: info.width as i32, height: info.height as i32, data }
+    Icon {
+        width: info.width as i32,
+        height: info.height as i32,
+        data,
+    }
 }
 
-fn icons(connected: bool) -> Vec<Icon> {
-    if connected {
-        vec![
+fn icons(link: Link) -> Vec<Icon> {
+    match link {
+        Link::Connected => vec![
             pixmap(include_bytes!("../data/tray-active-32.png")),
             pixmap(include_bytes!("../data/tray-active-64.png")),
-        ]
-    } else {
-        vec![
+        ],
+        Link::Connecting | Link::Reconnecting => vec![
+            pixmap(include_bytes!("../data/tray-warn-32.png")),
+            pixmap(include_bytes!("../data/tray-warn-64.png")),
+        ],
+        Link::Error => vec![
+            pixmap(include_bytes!("../data/tray-error-32.png")),
+            pixmap(include_bytes!("../data/tray-error-64.png")),
+        ],
+        Link::Disconnected => vec![
             pixmap(include_bytes!("../data/tray-idle-32.png")),
             pixmap(include_bytes!("../data/tray-idle-64.png")),
-        ]
+        ],
     }
 }
 
@@ -42,7 +53,9 @@ pub enum TrayEvent {
 
 struct MicTray {
     tx: async_channel::Sender<TrayEvent>,
-    connected: bool,
+    link: Link,
+    label: &'static str,
+    detail: String,
 }
 
 impl Tray for MicTray {
@@ -57,17 +70,13 @@ impl Tray for MicTray {
     }
     // Ícone próprio embutido no binário: não depende do tema de ícones instalado.
     fn icon_pixmap(&self) -> Vec<Icon> {
-        icons(self.connected)
+        icons(self.link)
     }
     fn tool_tip(&self) -> ToolTip {
         ToolTip {
             title: "MicBridge".into(),
-            description: if self.connected {
-                "Celular conectado, transmitindo áudio".into()
-            } else {
-                "Aguardando celular".into()
-            },
-            icon_pixmap: icons(self.connected),
+            description: format!("{}: {}", self.label, self.detail),
+            icon_pixmap: icons(self.link),
             ..Default::default()
         }
     }
@@ -78,11 +87,16 @@ impl Tray for MicTray {
     fn menu(&self) -> Vec<MenuItem<Self>> {
         vec![
             StandardItem {
-                label: if self.connected {
-                    "● Celular conectado".into()
-                } else {
-                    "○ Aguardando celular".into()
-                },
+                label: format!(
+                    "{} {}",
+                    match self.link {
+                        Link::Connected => "●",
+                        Link::Connecting | Link::Reconnecting => "◐",
+                        Link::Error => "✕",
+                        Link::Disconnected => "○",
+                    },
+                    self.label
+                ),
                 enabled: false,
                 ..Default::default()
             }
@@ -111,19 +125,34 @@ impl Tray for MicTray {
     }
 }
 
-/// Deve ser chamado dentro do runtime tokio. Atualiza o ícone conforme a conexão.
+/// Deve ser chamado dentro do runtime tokio. Reflete o estado da conexão no ícone.
 pub async fn spawn(tx: async_channel::Sender<TrayEvent>, shared: Arc<Shared>) {
-    let handle = match (MicTray { tx, connected: false }).spawn().await {
+    let st = shared.status();
+    let tray = MicTray {
+        tx,
+        link: st.link,
+        label: st.label,
+        detail: st.detail,
+    };
+    let handle = match tray.spawn().await {
         Ok(h) => h,
         Err(e) => return tracing::warn!("bandeja indisponível: {e}"),
     };
-    let mut last = false;
+    let mut last = (st.link, st.label, String::new());
     loop {
         tokio::time::sleep(Duration::from_millis(500)).await;
-        let now = shared.connected.load(Relaxed);
+        let st = shared.status();
+        let now = (st.link, st.label, st.detail.clone());
         if now != last {
             last = now;
-            if handle.update(|t| t.connected = now).await.is_none() {
+            let updated = handle
+                .update(|t| {
+                    t.link = st.link;
+                    t.label = st.label;
+                    t.detail = st.detail;
+                })
+                .await;
+            if updated.is_none() {
                 break; // bandeja encerrada
             }
         }

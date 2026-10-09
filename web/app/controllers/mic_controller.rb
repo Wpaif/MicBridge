@@ -1,16 +1,24 @@
 require "net/http"
 
-# Serve a página do celular e repassa o SDP offer WebRTC ao app Rust (WHIP).
-# O Rails existe porque getUserMedia exige HTTPS; o Rust fica só em localhost.
+# Serve a página do celular e repassa as chamadas ao app Rust (localhost).
+# O Rails existe porque getUserMedia exige HTTPS.
 #
-# Segurança: o app gera um token por sessão (MICBRIDGE_TOKEN) embutido no QR code.
-# Quem abre o link com o token recebe um cookie de sessão assinado; sem ele, nada funciona.
+# Segurança/pareamento:
+# - O QR code traz um token (?t=) válido só com a janela de pareamento aberta no app.
+# - Ao parear, o app devolve id + segredo de longa duração, guardados no cookie de sessão
+#   (1 ano). Depois disso o celular é reconhecido sem novo QR, mesmo após reiniciar o app.
+# - O Rails fala com o app com um token interno (MICBRIDGE_TOKEN) que o celular nunca vê.
 class MicController < ApplicationController
-  skip_forgery_protection only: :offer
+  skip_forgery_protection only: %i[offer stop]
   before_action :pair_with_token, only: :show
-  before_action :require_pairing, except: :ca
+  before_action :require_pairing, only: :show
+  before_action :require_credentials, only: %i[offer stop]
 
   CORE_URL = URI(ENV.fetch("MICBRIDGE_CORE_URL", "http://127.0.0.1:7878/whip"))
+
+  rescue_from SystemCallError, Net::OpenTimeout, Net::ReadTimeout do
+    render plain: "App MicBridge não está rodando no PC", status: :bad_gateway
+  end
 
   def show; end
 
@@ -21,54 +29,59 @@ class MicController < ApplicationController
   end
 
   def offer
-    res = core_post("whip", session[:device], request.raw_post, "application/sdp")
+    res = core(Net::HTTP::Post, "whip", body: request.raw_post, type: "application/sdp")
     render plain: res.body, status: res.code.to_i, content_type: "application/sdp"
-  rescue SystemCallError, Net::OpenTimeout, Net::ReadTimeout
-    render plain: "App MicBridge não está rodando no PC", status: :bad_gateway
+  end
+
+  def stop
+    core(Net::HTTP::Delete, "whip")
+    head :no_content
   end
 
   private
 
-  def expected_token
-    ENV["MICBRIDGE_TOKEN"].to_s
+  def core(klass, path, body: nil, type: "text/plain", extra: {})
+    uri = URI.join(CORE_URL.to_s, path)
+    req = klass.new(uri.path)
+    req["Content-Type"] = type
+    req["X-MicBridge-Token"] = ENV["MICBRIDGE_TOKEN"].to_s
+    req["X-MicBridge-Device"] = session[:device].to_s
+    req["X-MicBridge-Secret"] = session[:secret].to_s
+    extra.each { |k, v| req[k] = v }
+    req.body = body if body
+    Net::HTTP.start(uri.host, uri.port, open_timeout: 2, read_timeout: 5) { |http| http.request(req) }
   end
 
-  def valid_token?(given)
-    expected = expected_token
-    expected.present? && given.is_a?(String) &&
-      ActiveSupport::SecurityUtils.secure_compare(given, expected)
-  end
-
-  # Link do QR code (?t=...): troca o token por cookie de sessão e limpa a URL.
+  # Link do QR code (?t=...): troca o token por credenciais permanentes e limpa a URL.
   def pair_with_token
     return unless params[:t].present?
-    return render_denied unless valid_token?(params[:t])
 
-    device = session[:device] || SecureRandom.hex(16)
-    case core_post("pair", device).code.to_i
-    when 200, 201
-      session[:paired_token] = params[:t]
-      session[:device] = device
+    res = core(Net::HTTP::Post, "pair", extra: { "X-MicBridge-Pair" => params[:t].to_s })
+    case res.code.to_i
+    when 201
+      id, secret = res.body.split("\n", 2)
+      session[:device] = id
+      session[:secret] = secret
       redirect_to root_path
     when 403
       render_denied("Pareamento fechado. Ative \"Aceitar novo celular\" no app do PC.")
     else
       render_denied
     end
-  rescue SystemCallError, Net::OpenTimeout, Net::ReadTimeout
-    render plain: "App MicBridge não está rodando no PC", status: :bad_gateway
   end
 
-  def core_post(path, device, body = "", type = "text/plain")
-    uri = URI.join(CORE_URL.to_s, path)
-    Net::HTTP.start(uri.host, uri.port, open_timeout: 2, read_timeout: 5) do |http|
-      http.post(uri.path, body, "Content-Type" => type,
-                "X-MicBridge-Token" => expected_token, "X-MicBridge-Device" => device)
-    end
+  def require_credentials
+    head :forbidden unless session[:device].present? && session[:secret].present?
   end
 
+  # A página só abre para celular já pareado; o app confirma as credenciais.
   def require_pairing
-    render_denied unless valid_token?(session[:paired_token]) && session[:device].present?
+    return render_denied unless session[:device].present? && session[:secret].present?
+
+    if core(Net::HTTP::Post, "verify").code.to_i != 200
+      reset_session
+      render_denied("Este celular não está pareado. Escaneie o QR code mostrado no app do PC.")
+    end
   end
 
   def render_denied(message = "Acesso não autorizado.<br>Escaneie o QR code mostrado no app do PC.")

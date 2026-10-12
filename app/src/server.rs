@@ -1,11 +1,12 @@
-//! Endpoints locais (só 127.0.0.1) chamados pelo Rails:
-//! - `POST /pair`   troca o token do QR por credenciais de longa duração do celular
-//! - `POST /verify` confere as credenciais de um celular
-//! - `POST /whip`   SDP offer -> SDP answer (WebRTC)
-//! - `DELETE /whip` encerra a conexão do celular
+//! Servidor HTTPS do app (porta pública na LAN + loopback):
+//! - páginas e arquivos do celular (ver `web.rs`)
+//! - `POST /offer`   SDP offer -> SDP answer (WebRTC)
+//! - `DELETE /offer` encerra a conexão do celular
+//!
+//! O celular se identifica pelo cookie de pareamento.
 
-use crate::state::{Link, Shared, ct_eq};
-use crate::{dsp, output};
+use crate::state::{Link, Shared};
+use crate::{dsp, output, tls, web};
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use axum::{
@@ -14,6 +15,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     routing::post,
 };
+use axum_server::tls_rustls::RustlsConfig;
 use futures::FutureExt;
 use rtc::interceptor::Registry;
 use rtc::peer_connection::configuration::RTCConfigurationBuilder;
@@ -22,6 +24,7 @@ use rtc::peer_connection::configuration::media_engine::{MIME_TYPE_OPUS, MediaEng
 use rtc::peer_connection::sdp::RTCSessionDescription;
 use rtc::rtp_transceiver::rtp_sender::{RTCRtpCodec, RTCRtpCodecParameters, RtpCodecKind};
 use rtc::rtp_transceiver::{RTCRtpTransceiverDirection, RTCRtpTransceiverInit};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering::Relaxed},
@@ -38,84 +41,65 @@ struct Current {
     pc: Arc<dyn PeerConnection>,
 }
 
-struct AppState {
-    shared: Arc<Shared>,
+pub struct AppState {
+    pub shared: Arc<Shared>,
     /// Apenas um celular por vez.
     current: Mutex<Option<Current>>,
 }
 
-pub async fn serve(shared: Arc<Shared>, port: u16) -> Result<()> {
+/// Sobe o servidor HTTPS na interface da LAN (`ip`) e no loopback.
+pub async fn serve(shared: Arc<Shared>, ip: Option<IpAddr>, port: u16) -> Result<()> {
+    // Provider de cripto único para o processo (o rustls não escolhe sozinho).
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
+    let cert = tls::ensure(ip)?;
+    let config = RustlsConfig::from_pem(cert.cert_pem.into_bytes(), cert.key_pem.into_bytes())
+        .await
+        .map_err(|e| anyhow!("TLS: {e}"))?;
+
     let state = Arc::new(AppState {
         shared,
         current: Mutex::new(None),
     });
     let app = Router::new()
-        .route("/pair", post(pair))
-        .route("/verify", post(verify))
-        .route("/whip", post(whip).delete(stop))
+        .route("/offer", post(offer).delete(stop))
+        .merge(web::routes())
         .with_state(state);
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
-    axum::serve(listener, app).await?;
+
+    // Escuta só na LAN e no loopback, não em todas as interfaces.
+    let mut addrs = vec![SocketAddr::from(([127, 0, 0, 1], port))];
+    if let Some(ip) = ip.filter(|i| !i.is_loopback()) {
+        addrs.push(SocketAddr::new(ip, port));
+    }
+    let mut servers = tokio::task::JoinSet::new();
+    for addr in addrs {
+        let (cfg, app) = (config.clone(), app.clone());
+        tracing::info!("servidor HTTPS em https://{addr}");
+        servers.spawn(async move {
+            axum_server::bind_rustls(addr, cfg)
+                .serve(app.into_make_service())
+                .await
+        });
+    }
+    // Se qualquer listener cair, devolve o erro para o main registrar.
+    while let Some(res) = servers.join_next().await {
+        res??;
+    }
     Ok(())
 }
 
 type Reply = (StatusCode, String);
 
-fn hdr<'a>(h: &'a HeaderMap, n: &str) -> &'a str {
-    h.get(n).and_then(|v| v.to_str().ok()).unwrap_or("")
+/// Credenciais do cookie, se o celular estiver pareado.
+fn paired(st: &AppState, h: &HeaderMap) -> Option<String> {
+    let (id, secret) = web::credentials(h)?;
+    st.shared.verify_device(&id, &secret).then_some(id)
 }
 
-/// Só o Rails (que conhece o token interno) pode chamar estes endpoints.
-fn authorize(st: &AppState, h: &HeaderMap) -> Result<(), Reply> {
-    if ct_eq(hdr(h, "x-micbridge-token"), &st.shared.internal_token) {
-        Ok(())
-    } else {
-        Err((StatusCode::UNAUTHORIZED, "token inválido".into()))
-    }
-}
-
-/// Credenciais do celular (id + segredo de longa duração).
-fn device_ok(st: &AppState, h: &HeaderMap) -> bool {
-    st.shared
-        .verify_device(hdr(h, "x-micbridge-device"), hdr(h, "x-micbridge-secret"))
-}
-
-/// Novo celular: exige o token do QR e a janela de pareamento aberta.
-/// Devolve `id\nsegredo`; o celular guarda e passa a ser reconhecido sem novo QR.
-async fn pair(State(st): State<Arc<AppState>>, h: HeaderMap) -> Reply {
-    if let Err(r) = authorize(&st, &h) {
-        return r;
-    }
-    if st.shared.pairing_remaining() == 0 {
-        return (StatusCode::FORBIDDEN, "pareamento fechado".into());
-    }
-    if !ct_eq(hdr(&h, "x-micbridge-pair"), &st.shared.pair_token) {
-        return (StatusCode::FORBIDDEN, "QR code inválido".into());
-    }
-    let (id, secret) = st.shared.add_device();
-    tracing::info!("novo celular pareado");
-    (StatusCode::CREATED, format!("{id}\n{secret}"))
-}
-
-async fn verify(State(st): State<Arc<AppState>>, h: HeaderMap) -> Reply {
-    if let Err(r) = authorize(&st, &h) {
-        return r;
-    }
-    if device_ok(&st, &h) {
-        (StatusCode::OK, "ok".into())
-    } else {
-        (StatusCode::UNAUTHORIZED, "celular não pareado".into())
-    }
-}
-
-async fn whip(State(st): State<Arc<AppState>>, h: HeaderMap, offer_sdp: String) -> Reply {
-    if let Err(r) = authorize(&st, &h) {
-        return r;
-    }
-    if !device_ok(&st, &h) {
+async fn offer(State(st): State<Arc<AppState>>, h: HeaderMap, offer_sdp: String) -> Reply {
+    let Some(device) = paired(&st, &h) else {
         return (StatusCode::FORBIDDEN, "celular não pareado".into());
-    }
-    let device = hdr(&h, "x-micbridge-device").to_owned();
+    };
     // Outro celular só entra se o atual não estiver mais conectado/reconectando.
     let other = st
         .current
@@ -141,13 +125,9 @@ async fn whip(State(st): State<Arc<AppState>>, h: HeaderMap, offer_sdp: String) 
 
 /// O celular pediu para parar: derruba a conexão e mostra "desconectado" na hora.
 async fn stop(State(st): State<Arc<AppState>>, h: HeaderMap) -> Reply {
-    if let Err(r) = authorize(&st, &h) {
-        return r;
-    }
-    if !device_ok(&st, &h) {
+    let Some(device) = paired(&st, &h) else {
         return (StatusCode::FORBIDDEN, "celular não pareado".into());
-    }
-    let device = hdr(&h, "x-micbridge-device");
+    };
     let cur = {
         let mut g = st.current.lock().unwrap();
         if g.as_ref().is_some_and(|c| c.device == device) {

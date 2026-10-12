@@ -92,20 +92,6 @@ impl Sink {
     }
 }
 
-/// Sobe o Rails (HTTPS na LAN). Morre junto com o app (kill_on_drop).
-/// Diretório do projeto: `MICBRIDGE_HOME` ou o local onde foi compilado.
-pub fn spawn_web(token: &str) -> Result<Child> {
-    let home = std::env::var("MICBRIDGE_HOME")
-        .unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/..").into());
-    Command::new(format!("{home}/scripts/web-https.sh"))
-        .env("MICBRIDGE_TOKEN", token)
-        .env("MICBRIDGE_PARENT", std::process::id().to_string())
-        .kill_on_drop(true)
-        .die_with_parent()
-        .spawn()
-        .context("falha ao iniciar o servidor web (scripts/web-https.sh)")
-}
-
 /// Saída que se recupera sozinha: se o `pw-cat` morrer, travar ou o sink sumir,
 /// descarta o áudio daquele instante e tenta reabrir (no máximo 1x por segundo).
 pub struct ResilientSink {

@@ -1,14 +1,15 @@
-import { Controller } from "@hotwired/stimulus"
-
 // Captura o microfone SEM processamento do navegador (o tratamento é feito no PC) e envia via
 // WebRTC (Opus) ao app. Reconecta sozinho se a rede cair ou a conexão falhar, sem novo QR.
 const BACKOFF_MS = [1000, 2000, 3000, 5000, 8000, 10000]
 const KEY = "micbridge.on"
 
-export default class extends Controller {
-  static targets = ["status", "button", "meter", "badge"]
-
-  connect() {
+class Mic {
+  constructor() {
+    this.button = document.getElementById("button")
+    this.statusEl = document.getElementById("status")
+    this.meter = document.getElementById("meter")
+    this.badge = document.getElementById("badge")
+    this.button.addEventListener("click", () => this.toggle())
     this.wanted = false
     this.retries = 0
     this.onVisible = () => document.visibilityState === "visible" && this.recoverNow()
@@ -18,12 +19,6 @@ export default class extends Controller {
     if (localStorage.getItem(KEY) === "1") this.start()
   }
 
-  disconnect() {
-    document.removeEventListener("visibilitychange", this.onVisible)
-    window.removeEventListener("online", this.onVisible)
-    this.teardown()
-  }
-
   toggle() {
     this.wanted ? this.stop() : this.start()
   }
@@ -31,7 +26,7 @@ export default class extends Controller {
   async start() {
     this.wanted = true
     localStorage.setItem(KEY, "1")
-    this.buttonTarget.textContent = "Parar"
+    this.button.textContent = "Parar"
     this.render("connecting", "Conectando…")
     if (!(await this.acquireMic())) return
     this.requestWakeLock()
@@ -42,9 +37,9 @@ export default class extends Controller {
   stop() {
     this.wanted = false
     localStorage.removeItem(KEY)
-    fetch("/offer", { method: "DELETE", keepalive: true }).catch(() => {})
+    fetch("/offer", { method: "DELETE", credentials: "same-origin", keepalive: true }).catch(() => {})
     this.teardown()
-    this.buttonTarget.textContent = "Iniciar microfone"
+    this.button.textContent = "Iniciar microfone"
     this.render("idle", "Desconectado")
   }
 
@@ -59,7 +54,7 @@ export default class extends Controller {
     } catch (e) {
       this.wanted = false
       localStorage.removeItem(KEY)
-      this.buttonTarget.textContent = "Iniciar microfone"
+      this.button.textContent = "Iniciar microfone"
       this.render("error", `Microfone negado: ${e.message}`)
       return false
     }
@@ -76,7 +71,7 @@ export default class extends Controller {
     try {
       await pc.setLocalDescription(await pc.createOffer())
       await this.waitIce(pc)
-      const res = await fetch("/offer", { method: "POST", headers: { "Content-Type": "application/sdp" }, body: pc.localDescription.sdp })
+      const res = await fetch("/offer", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/sdp" }, body: pc.localDescription.sdp })
       if (pc !== this.pc) return // já foi substituída por outra tentativa
       if (res.status === 409) return this.fatal("Já existe outro celular conectado")
       if (res.status === 403) return this.fatal("Celular não pareado. Escaneie o QR code no PC.")
@@ -131,7 +126,7 @@ export default class extends Controller {
     this.wanted = false
     localStorage.removeItem(KEY)
     this.teardown()
-    this.buttonTarget.textContent = "Iniciar microfone"
+    this.button.textContent = "Iniciar microfone"
     this.render("error", message)
   }
 
@@ -168,7 +163,7 @@ export default class extends Controller {
       analyser.fftSize = 512
       ctx.createMediaStreamSource(this.stream).connect(analyser)
       const buf = new Float32Array(analyser.fftSize)
-      const g = this.meterTarget.getContext("2d")
+      const g = this.meter.getContext("2d")
       const draw = () => {
         analyser.getFloatTimeDomainData(buf)
         const rms = Math.sqrt(buf.reduce((a, v) => a + v * v, 0) / buf.length)
@@ -202,7 +197,9 @@ export default class extends Controller {
   }
 
   render(state, text) {
-    this.badgeTarget.dataset.state = state
-    this.statusTarget.textContent = text
+    this.badge.dataset.state = state
+    this.statusEl.textContent = text
   }
 }
+
+new Mic()

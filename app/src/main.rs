@@ -2,7 +2,9 @@ mod dsp;
 mod output;
 mod server;
 mod state;
+mod tls;
 mod tray;
+mod web;
 
 use adw::prelude::*;
 use state::{Link, Shared};
@@ -11,10 +13,9 @@ use std::sync::{Arc, atomic::Ordering::Relaxed};
 use std::time::Duration;
 
 const APP_ID: &str = "dev.wilian.MicBridge";
-const CORE_PORT: u16 = 7878;
 const WEB_PORT: u16 = 3443;
 /// Nome mDNS anunciado via avahi (já consta no certificado).
-pub const MDNS_HOST: &str = "micbridge.local";
+pub const MDNS_HOST: &str = tls::MDNS_HOST;
 
 /// IP da LAN (a conexão UDP não envia nada, só descobre a rota).
 pub fn local_ip() -> String {
@@ -43,18 +44,12 @@ fn main() -> glib::ExitCode {
     // Runtime tokio (WebRTC + HTTP) em thread própria; GTK fica na principal.
     let rt = tokio::runtime::Runtime::new().expect("tokio");
     let s = shared.clone();
-    let handle = rt.handle().clone();
     // Supervisor: cria o microfone virtual e o recria se o node do PipeWire sumir.
     rt.spawn(output::supervise_virtual_mic(shared.clone()));
     rt.spawn(output::supervise_mdns());
-    let _web = {
-        let _g = handle.enter();
-        output::spawn_web(&shared.internal_token)
-            .map_err(|e| tracing::warn!("{e:#}"))
-            .ok()
-    };
     rt.spawn(async move {
-        if let Err(e) = server::serve(s, CORE_PORT).await {
+        let ip = local_ip().parse().ok();
+        if let Err(e) = server::serve(s, ip, WEB_PORT).await {
             tracing::error!("servidor: {e:#}");
         }
     });
@@ -272,19 +267,6 @@ fn set_autostart(on: bool) {
     } else {
         let _ = std::fs::remove_file(&path);
     }
-}
-
-/// SHA-256 do certificado do servidor web (gerado por scripts/web-https.sh).
-fn cert_fingerprint() -> Option<String> {
-    let home = std::env::var("MICBRIDGE_HOME")
-        .unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/..").into());
-    let out = std::process::Command::new("openssl")
-        .args(["x509", "-noout", "-fingerprint", "-sha256", "-in"])
-        .arg(format!("{home}/web/tmp/certs/cert.pem"))
-        .output()
-        .ok()?;
-    let text = String::from_utf8(out.stdout).ok()?;
-    text.trim().split_once('=').map(|(_, fp)| fp.to_string())
 }
 
 fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
@@ -582,7 +564,7 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         });
         forget_btn.set_sensitive(n > 0);
         if !fp_loaded {
-            if let Some(fp) = cert_fingerprint() {
+            if let Some(fp) = tls::fingerprint() {
                 fp_row.set_subtitle(&fp);
                 fp_loaded = true;
             }

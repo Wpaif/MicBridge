@@ -28,6 +28,15 @@ pub fn random_hex(n: usize) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
+/// Dados persistentes do app (`~/.local/share/micbridge`): pareamento e certificados.
+pub fn data_dir() -> PathBuf {
+    std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("micbridge")
+}
+
 /// Comparação em tempo constante.
 pub fn ct_eq(a: &str, b: &str) -> bool {
     a.len() == b.len()
@@ -60,12 +69,7 @@ struct Store {
 
 impl Store {
     fn load() -> Self {
-        let dir = std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("micbridge");
-        let path = dir.join("devices.json");
+        let path = data_dir().join("devices.json");
         let devices = std::fs::read_to_string(&path)
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
@@ -126,8 +130,6 @@ pub struct Status {
 
 pub struct Shared {
     pub params: dsp::Params,
-    /// Segredo entre o Rails e este app (nunca vai para o celular).
-    pub internal_token: String,
     /// Token do QR code (válido só com a janela de pareamento aberta).
     pub pair_token: String,
     link: AtomicU8,
@@ -145,7 +147,6 @@ impl Shared {
         let first_run = store.devices.is_empty();
         let s = Self {
             params: Default::default(),
-            internal_token: random_hex(16),
             pair_token: random_hex(16),
             link: AtomicU8::new(Link::Disconnected as u8),
             link_since: AtomicU64::new(now_secs()),

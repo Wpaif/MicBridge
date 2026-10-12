@@ -1,6 +1,7 @@
 mod dsp;
 mod output;
 mod server;
+mod settings;
 mod state;
 mod theme;
 mod tls;
@@ -488,6 +489,7 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
                 .unwrap_or(dsp::Preset::Chamada);
             let prm = &sh.params;
             prm.apply_preset(preset);
+            settings::save_preset(preset);
             preset_desc.set_label(preset.description());
 
             let flag = |f: fn(&dsp::Params) -> &std::sync::atomic::AtomicBool| f(prm).load(Relaxed);
@@ -504,9 +506,13 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
             makeup_scale.set_value(prm.makeup_db() as f64);
         }
     };
-    // Perfil inicial: "Chamada" (índice 1), o mais seguro para uso geral.
+    // Perfil inicial: o da última execução ou, na primeira vez, "Chamada" (índice 1), o mais
+    // seguro para uso geral.
+    let initial = settings::load_preset()
+        .and_then(|saved| dsp::Preset::ALL.iter().position(|p| *p == saved))
+        .unwrap_or(1);
     let preset_names: Vec<&str> = dsp::Preset::ALL.iter().map(|p| p.name()).collect();
-    let preset_bar = widgets::segmented(&preset_names, 1, sync);
+    let preset_bar = widgets::segmented(&preset_names, initial, sync);
     // O seletor e a descrição entram antes dos ajustes avançados.
     // Só debug: MICBRIDGE_DEMO=<estado> mostra os ajustes avançados e fecha o pareamento.
     #[cfg(debug_assertions)]

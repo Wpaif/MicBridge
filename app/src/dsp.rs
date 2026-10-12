@@ -56,6 +56,10 @@ pub struct Params {
     /// RMS linear da entrada e da saída.
     pub in_level: AtomicU32,
     pub out_level: AtomicU32,
+
+    /// Frames processados (com wrap). Quem observa o nível compara com a leitura
+    /// anterior para saber se ainda chega áudio, e não um valor antigo.
+    frames: AtomicU32,
 }
 
 fn atomic_f32(v: f32) -> AtomicU32 {
@@ -92,6 +96,7 @@ impl Default for Params {
 
             in_level: atomic_f32(0.0),
             out_level: atomic_f32(0.0),
+            frames: AtomicU32::new(0),
         }
     }
 }
@@ -196,6 +201,10 @@ impl Params {
 
     pub fn out_level(&self) -> f32 {
         load_f32(&self.out_level)
+    }
+
+    pub fn frames(&self) -> u32 {
+        self.frames.load(Relaxed)
     }
 
     pub fn gate_threshold(&self) -> f32 {
@@ -472,6 +481,7 @@ impl Processor {
         }
 
         p.out_level.store(rms(frame).to_bits(), Relaxed);
+        p.frames.fetch_add(1, Relaxed);
     }
 
     fn gate(&mut self, frame: &mut [f32], threshold_db: f32) {

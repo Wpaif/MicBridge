@@ -27,6 +27,17 @@ pub fn local_ip() -> String {
 fn main() -> glib::ExitCode {
     tracing_subscriber::fmt::init();
     let hidden = std::env::args().any(|a| a == "--hidden");
+
+    // Instância única: registra no D-Bus antes de subir servidores e bandeja.
+    // Se já houver uma instância rodando, apenas pede que ela mostre a janela.
+    let app = adw::Application::builder().application_id(APP_ID).build();
+    if let Err(e) = app.register(None::<&gtk::gio::Cancellable>) {
+        tracing::warn!("registro do GApplication: {e}");
+    } else if app.is_remote() {
+        app.activate();
+        return glib::ExitCode::SUCCESS;
+    }
+
     let shared = Arc::new(Shared::new());
 
     // Runtime tokio (WebRTC + HTTP) em thread própria; GTK fica na principal.
@@ -64,7 +75,6 @@ fn main() -> glib::ExitCode {
     });
     rt.spawn(tray::spawn(tray_tx, shared.clone()));
 
-    let app = adw::Application::builder().application_id(APP_ID).build();
     // Mantém o app vivo com a janela escondida (fechar = minimizar para a bandeja).
     std::mem::forget(app.hold());
     {

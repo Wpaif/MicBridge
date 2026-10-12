@@ -2,13 +2,15 @@ mod dsp;
 mod output;
 mod server;
 mod state;
+mod theme;
 mod tls;
 mod tray;
 mod tray_icon;
 mod web;
+mod widgets;
 
 use adw::prelude::*;
-use state::{Link, Shared};
+use state::Shared;
 use std::net::UdpSocket;
 use std::sync::{Arc, atomic::Ordering::Relaxed};
 use std::time::Duration;
@@ -32,7 +34,12 @@ fn main() -> glib::ExitCode {
 
     // Instância única: registra no D-Bus antes de subir servidores e bandeja.
     // Se já houver uma instância rodando, apenas pede que ela mostre a janela.
-    let app = adw::Application::builder().application_id(APP_ID).build();
+    // Só debug: MICBRIDGE_APP_ID permite rodar ao lado do app instalado (ver skill libadwaita-design).
+    #[cfg(debug_assertions)]
+    let app_id = std::env::var("MICBRIDGE_APP_ID").unwrap_or_else(|_| APP_ID.into());
+    #[cfg(not(debug_assertions))]
+    let app_id = APP_ID;
+    let app = adw::Application::builder().application_id(app_id).build();
     if let Err(e) = app.register(None::<&gtk::gio::Cancellable>) {
         tracing::warn!("registro do GApplication: {e}");
     } else if app.is_remote() {
@@ -136,16 +143,6 @@ fn switch_row(title: &str, active: bool, on_change: impl Fn(bool) + 'static) -> 
     row
 }
 
-fn meter(title: &str) -> (adw::ActionRow, gtk::LevelBar) {
-    let bar = gtk::LevelBar::for_interval(0.0, 1.0);
-    bar.set_width_request(200);
-    bar.set_valign(gtk::Align::Center);
-    let row = adw::ActionRow::builder().title(title).build();
-    row.add_suffix(&bar);
-    (row, bar)
-}
-
-// QR code desenhado via Cairo, centralizado na área disponível.
 fn qr_area(url: &str, size: i32) -> Option<gtk::DrawingArea> {
     use qrcode::{Color, QrCode};
 
@@ -239,6 +236,7 @@ fn show_qr(parent: &adw::ApplicationWindow, url: &str) {
 
     // Com HeaderBar o diálogo ganha o botão de fechar (X), além do Esc.
     let view = adw::ToolbarView::new();
+    view.set_top_bar_style(adw::ToolbarStyle::Flat);
     view.add_top_bar(&adw::HeaderBar::new());
     view.set_content(Some(&body));
     dialog.set_child(Some(&view));
@@ -276,14 +274,12 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         move |v: bool| f(&sh.params).store(v, Relaxed)
     };
 
-    // Estado da conexão: conectado, desconectado, reconectando ou erro.
+    theme::install();
+
+    // Estado da conexão em destaque: conectado, desconectado, reconectando ou erro.
     let state_group = adw::PreferencesGroup::new();
-    let state_icon = gtk::Image::from_icon_name("network-offline-symbolic");
-    state_icon.set_pixel_size(24);
-    let state_row = adw::ActionRow::builder().title("Desconectado").build();
-    state_row.add_css_class("title-2");
-    state_row.add_prefix(&state_icon);
-    state_group.add(&state_row);
+    let hero = widgets::hero();
+    state_group.add(&hero.root);
 
     // Conexão
     let conn = adw::PreferencesGroup::builder().title("Conexão").build();
@@ -313,17 +309,13 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
             .valign(gtk::Align::Center)
             .build();
 
-        qr_card.add_css_class("card");
+        qr_card.add_css_class("mb-qr");
         qr_card.set_overflow(gtk::Overflow::Hidden);
 
         let frame = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .halign(gtk::Align::Center)
             .valign(gtk::Align::Center)
-            .margin_top(12)
-            .margin_bottom(12)
-            .margin_start(12)
-            .margin_end(12)
             .build();
 
         frame.append(&area);
@@ -339,7 +331,8 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
             .css_classes(["dim-label"])
             .build(),
     );
-    conn.add(&qr_box);
+    let qr_group = adw::PreferencesGroup::new();
+    qr_group.add(&qr_box);
 
     let url_row = adw::ActionRow::builder()
         .title(if mdns {
@@ -418,22 +411,19 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .subtitle_selectable(true)
         .build();
     conn.add(&fp_row);
-    let (in_row, in_bar) = meter("Entrada");
-    let (out_row, out_bar) = meter("Saída tratada");
-    conn.add(&in_row);
-    conn.add(&out_row);
 
     // Tratamento: um preset resolve para a maioria; o resto fica em "Avançado".
     let fx = adw::PreferencesGroup::builder()
-        .title("Tratamento de áudio")
+        .title("Perfil de voz")
         .build();
 
-    let preset_names: Vec<&str> = dsp::Preset::ALL.iter().map(|p| p.name()).collect();
-    let preset_row = adw::ComboRow::builder()
-        .title("Perfil de voz")
-        .model(&gtk::StringList::new(&preset_names))
+    let preset_desc = gtk::Label::builder()
+        .xalign(0.0)
+        .margin_top(2)
+        .margin_bottom(10)
+        .margin_start(4)
+        .css_classes(["mb-profile-desc"])
         .build();
-    fx.add(&preset_row);
 
     let adv = adw::ExpanderRow::builder()
         .title("Ajustes avançados")
@@ -487,20 +477,18 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     for row in [&gate_row, &thr_row, &ratio_row, &makeup_row] {
         adv.add_row(row);
     }
-    fx.add(&adv);
-
     // Aplica o preset e espelha os valores nos controles avançados.
     let sync = {
         let sh = shared.clone();
-        let preset_row = preset_row.clone();
-        move || {
+        let preset_desc = preset_desc.clone();
+        move |index: usize| {
             let preset = dsp::Preset::ALL
-                .get(preset_row.selected() as usize)
+                .get(index)
                 .copied()
                 .unwrap_or(dsp::Preset::Chamada);
             let prm = &sh.params;
             prm.apply_preset(preset);
-            preset_row.set_subtitle(preset.description());
+            preset_desc.set_label(preset.description());
 
             let flag = |f: fn(&dsp::Params) -> &std::sync::atomic::AtomicBool| f(prm).load(Relaxed);
             denoise.set_active(flag(|x| &x.denoise));
@@ -516,15 +504,28 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
             makeup_scale.set_value(prm.makeup_db() as f64);
         }
     };
-    // Perfil inicial: "Chamada" (índice 1) — o mais seguro para uso geral.
-    preset_row.set_selected(1);
-    sync();
-    preset_row.connect_selected_notify(move |_| sync());
+    // Perfil inicial: "Chamada" (índice 1), o mais seguro para uso geral.
+    let preset_names: Vec<&str> = dsp::Preset::ALL.iter().map(|p| p.name()).collect();
+    let preset_bar = widgets::segmented(&preset_names, 1, sync);
+    // O seletor e a descrição entram antes dos ajustes avançados.
+    // Só debug: MICBRIDGE_DEMO=<estado> mostra os ajustes avançados e fecha o pareamento.
+    #[cfg(debug_assertions)]
+    if std::env::var("MICBRIDGE_DEMO").is_ok() {
+        adv.set_expanded(true);
+        shared.close_pairing();
+    }
+    fx.add(&preset_bar);
+    fx.add(&preset_desc);
+    // Em grupo à parte: o libadwaita põe as linhas de lista antes dos demais widgets.
+    let adv_group = adw::PreferencesGroup::new();
+    adv_group.add(&adv);
 
     let page = adw::PreferencesPage::new();
     page.add(&state_group);
-    page.add(&conn);
+    page.add(&qr_group);
     page.add(&fx);
+    page.add(&adv_group);
+    page.add(&conn);
     let view = adw::ToolbarView::new();
     view.add_top_bar(&adw::HeaderBar::new());
     view.set_content(Some(&page));
@@ -532,17 +533,22 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     let win = adw::ApplicationWindow::builder()
         .application(app)
         .title("MicBridge")
-        .default_width(520)
-        .default_height(680)
+        .default_width(560)
+        .default_height(780)
         .content(&view)
         .hide_on_close(true)
         .build();
+
+    // add_css_class, e não css_classes(): este último apaga `csd`/`background`, que dão à
+    // janela os cantos arredondados e a sombra.
+    win.add_css_class("mb-window");
 
     let (qr_win, qr_url) = (win.clone(), pair_url.clone());
     qr_btn.connect_clicked(move |_| show_qr(&qr_win, &qr_url));
 
     // Atualiza medidores e status (20 Hz).
     let mut fp_loaded = false;
+    let mut last_frames = shared.params.frames();
     glib::timeout_add_local(Duration::from_millis(50), move || {
         // Escala dB -> 0..1 (-60..0 dB).
         let norm =
@@ -551,7 +557,7 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         if pair_row.is_active() != (left > 0) {
             pair_row.set_active(left > 0);
         }
-        qr_box.set_visible(left > 0);
+        qr_group.set_visible(left > 0);
         pair_row.set_subtitle(&if left > 0 {
             format!("Aberto: fecha em {}:{:02}", left / 60, left % 60)
         } else {
@@ -570,23 +576,65 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
                 fp_loaded = true;
             }
         }
-        // Estado da conexão, bem visível.
+        // Estado da conexão, bem visível. A bolinha pulsa enquanto há voz chegando.
         let st = shared.status();
-        state_row.set_title(st.label);
-        state_row.set_subtitle(&st.detail);
-        let (icon, class) = match st.link {
-            Link::Connected => ("emblem-ok-symbolic", "success"),
-            Link::Connecting | Link::Reconnecting => ("view-refresh-symbolic", "warning"),
-            Link::Error => ("dialog-error-symbolic", "error"),
-            Link::Disconnected => ("network-offline-symbolic", "dim-label"),
-        };
-        state_icon.set_icon_name(Some(icon));
-        for c in ["success", "warning", "error", "dim-label"] {
-            state_icon.remove_css_class(c);
+        let frames = shared.params.frames();
+        let voice = shared.params.out_level() > 0.005 && frames != last_frames;
+        last_frames = frames;
+        hero.set_state(st.link, st.label, &st.detail, voice);
+        hero.set_levels(
+            norm(shared.params.in_level()),
+            norm(shared.params.out_level()),
+        );
+        // Só debug: força um estado para conferir o visual (conectado, voz, conectando, erro).
+        #[cfg(debug_assertions)]
+        if let Ok(demo) = std::env::var("MICBRIDGE_DEMO") {
+            let ok = state::Link::Connected;
+            let (link, label, detail, speaking, input, output) = match demo.as_str() {
+                "voice" => (
+                    ok,
+                    "Conectado",
+                    "Recebendo áudio do celular",
+                    true,
+                    0.62,
+                    0.78,
+                ),
+                "hot" => (
+                    ok,
+                    "Conectado",
+                    "Recebendo áudio do celular",
+                    true,
+                    0.84,
+                    0.95,
+                ),
+                "warn" => (
+                    state::Link::Reconnecting,
+                    "Reconectando",
+                    "Conexão perdida. Aguardando o celular voltar…",
+                    false,
+                    0.0,
+                    0.0,
+                ),
+                "error" => (
+                    state::Link::Error,
+                    "Erro",
+                    "Microfone virtual indisponível: recriando…",
+                    false,
+                    0.0,
+                    0.0,
+                ),
+                _ => (
+                    ok,
+                    "Conectado",
+                    "Recebendo áudio do celular",
+                    false,
+                    0.2,
+                    0.3,
+                ),
+            };
+            hero.set_state(link, label, detail, speaking);
+            hero.set_levels(input, output);
         }
-        state_icon.add_css_class(class);
-        in_bar.set_value(norm(shared.params.in_level()));
-        out_bar.set_value(norm(shared.params.out_level()));
         glib::ControlFlow::Continue
     });
 
@@ -594,4 +642,39 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     if show {
         win.present();
     }
+    #[cfg(debug_assertions)]
+    snapshot_and_quit(&win, app);
+}
+
+/// Só em build de debug: com `MICBRIDGE_SNAPSHOT=/caminho.png`, salva uma captura da
+/// janela depois de 2 s e encerra. Serve para conferir o visual (ver a skill libadwaita-design).
+#[cfg(debug_assertions)]
+fn snapshot_and_quit(win: &adw::ApplicationWindow, app: &adw::Application) {
+    let Ok(path) = std::env::var("MICBRIDGE_SNAPSHOT") else {
+        return;
+    };
+    let (win, app) = (win.clone(), app.clone());
+    // MICBRIDGE_SNAPSHOT_SIZE=LARGURAxALTURA captura a janela maior (ver a página inteira).
+    if let Some((w, h)) = std::env::var("MICBRIDGE_SNAPSHOT_SIZE")
+        .ok()
+        .and_then(|v| v.split_once('x').map(|(w, h)| (w.parse(), h.parse())))
+        .and_then(|(w, h)| Some((w.ok()?, h.ok()?)))
+    {
+        win.set_default_size(w, h);
+    }
+    glib::timeout_add_local_once(Duration::from_secs(2), move || {
+        let paintable = gtk::WidgetPaintable::new(Some(&win));
+        let snapshot = gtk::Snapshot::new();
+        paintable.snapshot(&snapshot, win.width() as f64, win.height() as f64);
+        let texture = snapshot
+            .to_node()
+            .zip(win.native().and_then(|n| n.renderer()))
+            .map(|(node, renderer)| renderer.render_texture(&node, None));
+        match texture.map(|t| t.save_to_png(&path)) {
+            Some(Ok(())) => eprintln!("captura salva em {path}"),
+            Some(Err(e)) => eprintln!("falha ao salvar a captura: {e}"),
+            None => eprintln!("falha ao capturar a janela (sem nó de renderização)"),
+        }
+        app.quit();
+    });
 }

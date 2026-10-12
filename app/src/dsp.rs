@@ -131,7 +131,7 @@ impl Preset {
             Preset::Chamada => "Chamada",
             Preset::Podcast => "Podcast",
             Preset::Streaming => "Streaming",
-            Preset::Bruto => "Sem tratamento",
+            Preset::Bruto => "Original",
         }
     }
 
@@ -141,7 +141,7 @@ impl Preset {
             Preset::Chamada => "Reuniões: remove ruído e deixa a voz clara",
             Preset::Podcast => "Voz encorpada e com volume uniforme",
             Preset::Streaming => "Corta teclado e ventilador com firmeza",
-            Preset::Bruto => "Apenas proteção contra estouro",
+            Preset::Bruto => "Sem tratamento: só a proteção contra estouro",
         }
     }
 }

@@ -214,11 +214,40 @@ fn show_qr(parent: &adw::ApplicationWindow, url: &str) {
     let Some(area) = qr_area(url, 300) else {
         return;
     };
-    adw::Dialog::builder()
+    let dialog = adw::Dialog::builder()
         .title("Abrir no celular")
-        .child(&area)
-        .build()
-        .present(Some(parent));
+        .follows_content_size(true)
+        .build();
+
+    let close_btn = gtk::Button::builder()
+        .label("Fechar")
+        .halign(gtk::Align::Center)
+        .build();
+    close_btn.add_css_class("pill");
+    close_btn.add_css_class("suggested-action");
+    let d = dialog.clone();
+    close_btn.connect_clicked(move |_| {
+        d.close();
+    });
+
+    let body = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(18)
+        .margin_top(12)
+        .margin_bottom(24)
+        .margin_start(24)
+        .margin_end(24)
+        .build();
+    body.append(&area);
+    body.append(&close_btn);
+
+    // Com HeaderBar o diálogo ganha o botão de fechar (X), além do Esc.
+    let view = adw::ToolbarView::new();
+    view.add_top_bar(&adw::HeaderBar::new());
+    view.set_content(Some(&body));
+    dialog.set_child(Some(&view));
+    dialog.set_default_widget(Some(&close_btn));
+    dialog.present(Some(parent));
 }
 
 fn autostart_path() -> std::path::PathBuf {

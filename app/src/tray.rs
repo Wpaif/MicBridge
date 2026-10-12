@@ -2,48 +2,17 @@
 //! a extensão AppIndicator.
 
 use crate::state::{Link, Shared};
+use crate::tray_icon::{self, Look};
 use ksni::{Category, Icon, MenuItem, ToolTip, Tray, TrayMethods, menu::StandardItem};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-/// PNG -> pixmap ARGB32 (big-endian) exigido pelo StatusNotifierItem.
-fn pixmap(png_bytes: &[u8]) -> Icon {
-    let mut reader = png::Decoder::new(std::io::Cursor::new(png_bytes))
-        .read_info()
-        .expect("png embutido");
-    let mut buf = vec![0; reader.output_buffer_size().expect("png embutido")];
-    let info = reader.next_frame(&mut buf).expect("png embutido");
-    let data = buf[..info.buffer_size()]
-        .chunks_exact(4)
-        .flat_map(|p| [p[3], p[0], p[1], p[2]]) // RGBA -> ARGB
-        .collect();
-    Icon {
-        width: info.width as i32,
-        height: info.height as i32,
-        data,
-    }
-}
-
-fn icons(link: Link) -> Vec<Icon> {
-    match link {
-        Link::Connected => vec![
-            pixmap(include_bytes!("../data/tray-active-32.png")),
-            pixmap(include_bytes!("../data/tray-active-64.png")),
-        ],
-        Link::Connecting | Link::Reconnecting => vec![
-            pixmap(include_bytes!("../data/tray-warn-32.png")),
-            pixmap(include_bytes!("../data/tray-warn-64.png")),
-        ],
-        Link::Error => vec![
-            pixmap(include_bytes!("../data/tray-error-32.png")),
-            pixmap(include_bytes!("../data/tray-error-64.png")),
-        ],
-        Link::Disconnected => vec![
-            pixmap(include_bytes!("../data/tray-idle-32.png")),
-            pixmap(include_bytes!("../data/tray-idle-64.png")),
-        ],
-    }
-}
+/// Nível RMS de saída (linear) a partir do qual consideramos que há voz (~-46 dBFS).
+const SPEAKING_RMS: f32 = 0.005;
+/// A bolinha segue "falando" por um instante, para não piscar entre as palavras.
+const SPEAKING_HOLD: Duration = Duration::from_millis(600);
+/// Metade do ciclo de piscar.
+const BLINK_MS: u128 = 500;
 
 #[derive(Debug, Clone, Copy)]
 pub enum TrayEvent {
@@ -53,7 +22,7 @@ pub enum TrayEvent {
 
 struct MicTray {
     tx: async_channel::Sender<TrayEvent>,
-    link: Link,
+    look: Look,
     label: &'static str,
     detail: String,
 }
@@ -70,13 +39,13 @@ impl Tray for MicTray {
     }
     // Ícone próprio embutido no binário: não depende do tema de ícones instalado.
     fn icon_pixmap(&self) -> Vec<Icon> {
-        icons(self.link)
+        tray_icon::icons(self.look)
     }
     fn tool_tip(&self) -> ToolTip {
         ToolTip {
             title: "MicBridge".into(),
             description: format!("{}: {}", self.label, self.detail),
-            icon_pixmap: icons(self.link),
+            icon_pixmap: tray_icon::icons(self.look),
             ..Default::default()
         }
     }
@@ -89,11 +58,11 @@ impl Tray for MicTray {
             StandardItem {
                 label: format!(
                     "{} {}",
-                    match self.link {
-                        Link::Connected => "●",
-                        Link::Connecting | Link::Reconnecting => "◐",
-                        Link::Error => "✕",
-                        Link::Disconnected => "○",
+                    match self.look.link {
+                        Link::Connected => "🟢",
+                        Link::Connecting | Link::Reconnecting => "🟡",
+                        Link::Error => "🔴",
+                        Link::Disconnected => "⚪",
                     },
                     self.label
                 ),
@@ -125,12 +94,18 @@ impl Tray for MicTray {
     }
 }
 
-/// Deve ser chamado dentro do runtime tokio. Reflete o estado da conexão no ícone.
+/// Deve ser chamado dentro do runtime tokio. Reflete o estado da conexão no ícone,
+/// pisca nos estados transitórios e pulsa quando há voz chegando.
 pub async fn spawn(tx: async_channel::Sender<TrayEvent>, shared: Arc<Shared>) {
     let st = shared.status();
+    let idle = Look {
+        link: st.link,
+        speaking: false,
+        phase: 0,
+    };
     let tray = MicTray {
         tx,
-        link: st.link,
+        look: idle,
         label: st.label,
         detail: st.detail,
     };
@@ -138,16 +113,41 @@ pub async fn spawn(tx: async_channel::Sender<TrayEvent>, shared: Arc<Shared>) {
         Ok(h) => h,
         Err(e) => return tracing::warn!("bandeja indisponível: {e}"),
     };
-    let mut last = (st.link, st.label, String::new());
+
+    let started = Instant::now();
+    let mut speak_until = started;
+    let mut last_frames = shared.params.frames();
+    let mut last = (idle, st.label, String::new());
     loop {
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let now = Instant::now();
         let st = shared.status();
-        let now = (st.link, st.label, st.detail.clone());
-        if now != last {
-            last = now;
+
+        // Voz: o contador de frames garante que o nível medido não é um valor antigo.
+        let frames = shared.params.frames();
+        if frames != last_frames && shared.params.out_level() > SPEAKING_RMS {
+            speak_until = now + SPEAKING_HOLD;
+        }
+        last_frames = frames;
+        let speaking = st.link == Link::Connected && now < speak_until;
+
+        let phase = if Look::animated(st.link, speaking) {
+            ((now - started).as_millis() / BLINK_MS % 2) as u8
+        } else {
+            0
+        };
+        let look = Look {
+            link: st.link,
+            speaking,
+            phase,
+        };
+
+        let current = (look, st.label, st.detail.clone());
+        if current != last {
+            last = current;
             let updated = handle
                 .update(|t| {
-                    t.link = st.link;
+                    t.look = look;
                     t.label = st.label;
                     t.detail = st.detail;
                 })

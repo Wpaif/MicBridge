@@ -4,6 +4,7 @@ mod server;
 mod state;
 mod tls;
 mod tray;
+mod tray_icon;
 mod web;
 
 use adw::prelude::*;

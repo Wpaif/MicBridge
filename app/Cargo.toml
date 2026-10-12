@@ -19,7 +19,6 @@ ksni = "0.3.6"
 libc = "0.2.190"
 nnnoiseless = "0.5.2"
 opus = "0.3"
-png = "0.18.1"
 qrcode = { version = "0.14.1", default-features = false }
 rcgen = "0.14"
 rtc = "0.21"

@@ -112,10 +112,15 @@ fn main() -> glib::ExitCode {
 fn scale_row(
     title: &str,
     range: (f64, f64),
+    step: f64,
     value: f64,
     on_change: impl Fn(f32) + 'static,
-) -> adw::ActionRow {
-    let scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, range.0, range.1, 1.0);
+) -> (adw::ActionRow, gtk::Scale) {
+    let scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, range.0, range.1, step);
+    // Sem isso o GTK arredonda para inteiro e desfaz valores como razão 2,5.
+    let digits = if step < 1.0 { 1 } else { 0 };
+    scale.set_digits(digits);
+    scale.set_round_digits(digits);
     scale.set_value(value);
     scale.set_width_request(200);
     scale.set_draw_value(true);
@@ -123,7 +128,7 @@ fn scale_row(
     scale.connect_value_changed(move |s| on_change(s.value() as f32));
     let row = adw::ActionRow::builder().title(title).build();
     row.add_suffix(&scale);
-    row
+    (row, scale)
 }
 
 fn switch_row(title: &str, active: bool, on_change: impl Fn(bool) + 'static) -> adw::SwitchRow {
@@ -406,42 +411,103 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     conn.add(&in_row);
     conn.add(&out_row);
 
-    // Tratamento
+    // Tratamento: um preset resolve para a maioria; o resto fica em "Avançado".
     let fx = adw::PreferencesGroup::builder()
         .title("Tratamento de áudio")
         .build();
-    fx.add(&switch_row(
-        "Cancelamento de ruído (RNNoise)",
-        true,
-        p(|x| &x.denoise),
-    ));
-    fx.add(&switch_row("Noise gate", true, p(|x| &x.gate)));
+
+    let preset_names: Vec<&str> = dsp::Preset::ALL.iter().map(|p| p.name()).collect();
+    let preset_row = adw::ComboRow::builder()
+        .title("Perfil de voz")
+        .model(&gtk::StringList::new(&preset_names))
+        .build();
+    fx.add(&preset_row);
+
+    let adv = adw::ExpanderRow::builder()
+        .title("Ajustes avançados")
+        .subtitle("Opcional: só mexa se quiser refinar o som")
+        .build();
+
+    let denoise = switch_row("Cancelamento de ruído (RNNoise)", true, p(|x| &x.denoise));
+    let highpass = switch_row("Filtro de graves (tira zumbido)", true, p(|x| &x.highpass));
+    let gate = switch_row("Noise gate", true, p(|x| &x.gate));
     let sh = shared.clone();
-    fx.add(&scale_row(
+    let (gate_row, gate_scale) = scale_row(
         "Limiar do gate (dB)",
         (-80.0, -20.0),
+        1.0,
         -55.0,
         move |v| sh.params.set_gate_db(v),
-    ));
-    fx.add(&switch_row("Compressor", true, p(|x| &x.compressor)));
+    );
+    let deesser = switch_row("Suavizar chiados (\"s\")", true, p(|x| &x.deesser));
+    let presence = switch_row("Realçar clareza da voz", true, p(|x| &x.presence));
+    let comp = switch_row("Compressor", true, p(|x| &x.compressor));
     let sh = shared.clone();
-    fx.add(&scale_row(
+    let (thr_row, thr_scale) = scale_row(
         "Limiar do compressor (dB)",
         (-50.0, 0.0),
+        1.0,
         -20.0,
         move |v| sh.params.set_comp_threshold_db(v),
-    ));
+    );
     let sh = shared.clone();
-    fx.add(&scale_row("Razão", (1.0, 10.0), 3.0, move |v| {
+    let (ratio_row, ratio_scale) = scale_row("Razão", (1.0, 10.0), 0.5, 4.0, move |v| {
         sh.params.set_comp_ratio(v)
-    }));
+    });
+    let auto_gain = switch_row("Volume automático", true, p(|x| &x.auto_gain));
     let sh = shared.clone();
-    fx.add(&scale_row(
-        "Ganho final (dB)",
-        (-12.0, 18.0),
-        4.0,
-        move |v| sh.params.set_makeup_db(v),
-    ));
+    let (makeup_row, makeup_scale) =
+        scale_row("Ganho manual (dB)", (0.0, 24.0), 1.0, 0.0, move |v| {
+            sh.params.set_makeup_db(v)
+        });
+    // O ganho manual só vale com o volume automático desligado.
+    auto_gain
+        .bind_property("active", &makeup_row, "sensitive")
+        .invert_boolean()
+        .sync_create()
+        .build();
+
+    for row in [
+        &denoise, &highpass, &gate, &deesser, &presence, &comp, &auto_gain,
+    ] {
+        adv.add_row(row);
+    }
+    for row in [&gate_row, &thr_row, &ratio_row, &makeup_row] {
+        adv.add_row(row);
+    }
+    fx.add(&adv);
+
+    // Aplica o preset e espelha os valores nos controles avançados.
+    let sync = {
+        let sh = shared.clone();
+        let preset_row = preset_row.clone();
+        move || {
+            let preset = dsp::Preset::ALL
+                .get(preset_row.selected() as usize)
+                .copied()
+                .unwrap_or(dsp::Preset::Chamada);
+            let prm = &sh.params;
+            prm.apply_preset(preset);
+            preset_row.set_subtitle(preset.description());
+
+            let flag = |f: fn(&dsp::Params) -> &std::sync::atomic::AtomicBool| f(prm).load(Relaxed);
+            denoise.set_active(flag(|x| &x.denoise));
+            highpass.set_active(flag(|x| &x.highpass));
+            gate.set_active(flag(|x| &x.gate));
+            deesser.set_active(flag(|x| &x.deesser));
+            presence.set_active(flag(|x| &x.presence));
+            comp.set_active(flag(|x| &x.compressor));
+            auto_gain.set_active(flag(|x| &x.auto_gain));
+            gate_scale.set_value(prm.gate_threshold() as f64);
+            thr_scale.set_value(prm.comp_threshold() as f64);
+            ratio_scale.set_value(prm.comp_ratio() as f64);
+            makeup_scale.set_value(prm.makeup_db() as f64);
+        }
+    };
+    // Perfil inicial: "Chamada" (índice 1) — o mais seguro para uso geral.
+    preset_row.set_selected(1);
+    sync();
+    preset_row.connect_selected_notify(move |_| sync());
 
     let page = adw::PreferencesPage::new();
     page.add(&state_group);

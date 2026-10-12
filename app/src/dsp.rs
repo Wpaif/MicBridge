@@ -135,6 +135,22 @@ impl Preset {
         }
     }
 
+    /// Identificador estável, usado para guardar a escolha em disco. Diferente de `name()`,
+    /// não muda se o texto exibido for renomeado.
+    pub fn key(self) -> &'static str {
+        match self {
+            Preset::Natural => "natural",
+            Preset::Chamada => "chamada",
+            Preset::Podcast => "podcast",
+            Preset::Streaming => "streaming",
+            Preset::Bruto => "bruto",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Preset> {
+        Self::ALL.into_iter().find(|p| p.key() == key)
+    }
+
     pub fn description(self) -> &'static str {
         match self {
             Preset::Natural => "Voz limpa, processamento leve",

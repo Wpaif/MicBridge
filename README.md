@@ -25,7 +25,7 @@ seleciona no Discord, OBS, Meet etc.
 
 - 📱 **Celular como microfone** pela página web, sem instalar app no celular
 - ⚡ **Baixa latência** com WebRTC (Opus sobre UDP, sem STUN, apenas LAN)
-- 🎚️ **Perfis de voz de um clique**: Natural, Chamada, Podcast, Streaming ou sem tratamento
+- 🎚️ **Perfis de voz de um clique**: Natural, Chamada, Podcast, Streaming ou Original (sem tratamento); o app lembra o último escolhido
 - 🔇 **Cancelamento de ruído** com RNNoise e **filtro de graves** contra zumbido e vibração de mesa
 - 🚪 **Noise gate** com hold e limiar ajustável
 - 🗣️ **De-esser** (suaviza chiados) e **realce de clareza** da voz

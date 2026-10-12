@@ -34,7 +34,12 @@ fn main() -> glib::ExitCode {
 
     // Instância única: registra no D-Bus antes de subir servidores e bandeja.
     // Se já houver uma instância rodando, apenas pede que ela mostre a janela.
-    let app = adw::Application::builder().application_id(APP_ID).build();
+    // Só debug: MICBRIDGE_APP_ID permite rodar ao lado do app instalado (ver skill libadwaita-design).
+    #[cfg(debug_assertions)]
+    let app_id = std::env::var("MICBRIDGE_APP_ID").unwrap_or_else(|_| APP_ID.into());
+    #[cfg(not(debug_assertions))]
+    let app_id = APP_ID;
+    let app = adw::Application::builder().application_id(app_id).build();
     if let Err(e) = app.register(None::<&gtk::gio::Cancellable>) {
         tracing::warn!("registro do GApplication: {e}");
     } else if app.is_remote() {
@@ -528,12 +533,15 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     let win = adw::ApplicationWindow::builder()
         .application(app)
         .title("MicBridge")
-        .css_classes(["mb-window"])
         .default_width(560)
         .default_height(780)
         .content(&view)
         .hide_on_close(true)
         .build();
+
+    // add_css_class, e não css_classes(): este último apaga `csd`/`background`, que dão à
+    // janela os cantos arredondados e a sombra.
+    win.add_css_class("mb-window");
 
     let (qr_win, qr_url) = (win.clone(), pair_url.clone());
     qr_btn.connect_clicked(move |_| show_qr(&qr_win, &qr_url));
@@ -664,7 +672,8 @@ fn snapshot_and_quit(win: &adw::ApplicationWindow, app: &adw::Application) {
             .map(|(node, renderer)| renderer.render_texture(&node, None));
         match texture.map(|t| t.save_to_png(&path)) {
             Some(Ok(())) => eprintln!("captura salva em {path}"),
-            _ => eprintln!("falha ao capturar a janela"),
+            Some(Err(e)) => eprintln!("falha ao salvar a captura: {e}"),
+            None => eprintln!("falha ao capturar a janela (sem nó de renderização)"),
         }
         app.quit();
     });

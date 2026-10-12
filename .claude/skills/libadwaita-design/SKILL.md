@@ -22,6 +22,10 @@ Leia `DESIGN.md` na raiz antes de mexer em cores, espaçamentos ou componentes. 
   "Ajustes avançados".
 - Animação só para estados vivos (conectando, erro, voz). Nunca decorativa.
 - Antes de criar um widget novo, veja `app/src/widgets.rs`; reaproveite.
+- **Classe CSS na janela: use `add_css_class`, nunca `.css_classes([...])` no construtor.** Essa
+  propriedade apaga as classes `csd`/`background`, e a janela perde os cantos arredondados e a
+  sombra. Pelo mesmo motivo, não pinte o nó `window` com `background`: ele cobre o retângulo
+  inteiro e some o arredondamento; pinte o conteúdo (`toolbarview`).
 
 ## Dialeto de CSS do GTK (limites)
 
@@ -31,23 +35,30 @@ Sem `gap`, `backdrop-filter`, `text-transform`, `flex`/`grid`. Existem: `linear-
 
 ## Conferir o visual
 
-O build de debug captura a janela e sai. Feche antes o app instalado (instância única) e use
-dados temporários, para o QR de primeiro pareamento aparecer e não tocar no pareamento real:
+O build de debug captura a janela e sai. Use outro id de aplicativo (para não esbarrar na
+instância única do app instalado) e dados temporários (o QR de primeiro pareamento aparece e o
+pareamento real não é tocado):
 
 ```sh
 cd app && cargo build
-XDG_DATA_HOME=/tmp/mbshot MICBRIDGE_SNAPSHOT=/tmp/mb.png MICBRIDGE_SNAPSHOT_SIZE=560x1100 \
-  ./target/debug/micbridge
+XDG_DATA_HOME=/tmp/mbshot MICBRIDGE_APP_ID=dev.wilian.MicBridgeDev \
+  MICBRIDGE_SNAPSHOT=/tmp/mb.png MICBRIDGE_SNAPSHOT_SIZE=560x1100 ./target/debug/micbridge
 ```
+
+A captura às vezes falha na primeira tentativa; repita.
 
 Abra `/tmp/mb.png` (ferramenta Read). Variáveis (só em build de debug):
 
 - `MICBRIDGE_SNAPSHOT=<png>`: salva a captura 2 s depois de abrir e encerra.
 - `MICBRIDGE_SNAPSHOT_SIZE=LARGURAxALTURA`: janela maior, para ver a página inteira.
+- `MICBRIDGE_APP_ID=<id>`: roda ao lado do app instalado.
+- `MICBRIDGE_NO_THEME=1`: libadwaita puro, para comparar (por exemplo, os cantos).
 - `MICBRIDGE_DEMO=<estado>`: força o estado (`connected`, `voice`, `hot`, `warn`, `error`),
   fecha o pareamento e expande "Ajustes avançados".
 
-Confira sempre: pareamento aberto (QR) e fechado, e os estados de status. O app é só no
+Confira sempre: pareamento aberto (QR) e fechado, e os estados de status. Para os cantos, o
+PNG deve ter alfa < 255 nos pixels de canto (o libadwaita puro dá `0,0,0,0`); alfa 255 em todos
+os cantos significa janela quadrada. O app é só no
 tema escuro (`ForceDark`); não é preciso validar o claro.
 
 ## Página do celular

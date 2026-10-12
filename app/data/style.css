@@ -9,7 +9,9 @@ window.mb-window *:not(.destructive-action):not(.error):not(.success):not(.warni
   --accent-fg-color: #ffffff;
 }
 
-window.mb-window {
+/* O degradê vai no conteúdo, e não no `window`: pintar o próprio `window` cobre o retângulo
+   inteiro e some o arredondamento dos cantos que o libadwaita aplica. */
+window.mb-window toolbarview {
   background: linear-gradient(180deg, #15171e 0%, #0d0f14 100%);
 }
 

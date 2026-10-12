@@ -4,6 +4,12 @@ const CSS: &str = include_str!("../data/style.css");
 
 /// Aplica o tema escuro e o CSS próprio a todas as janelas. Chamar uma única vez.
 pub fn install() {
+    // Só debug: MICBRIDGE_NO_THEME=1 mostra o libadwaita puro, para comparar.
+    #[cfg(debug_assertions)]
+    if std::env::var_os("MICBRIDGE_NO_THEME").is_some() {
+        return;
+    }
+
     // O visual (vidro translúcido, brilhos) foi desenhado para o escuro.
     adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
 

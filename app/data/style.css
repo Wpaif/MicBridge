@@ -159,7 +159,7 @@ levelbar.mb-meter.clip block.filled {
   padding: 3px;
 }
 
-.mb-segmented > button {
+.mb-segmented button {
   background: transparent;
   box-shadow: none;
   border-radius: 9px;
@@ -170,12 +170,12 @@ levelbar.mb-meter.clip block.filled {
   transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease;
 }
 
-.mb-segmented > button:hover {
+.mb-segmented button:hover {
   background: rgba(255, 255, 255, 0.07);
   color: #ffffff;
 }
 
-.mb-segmented > button:checked {
+.mb-segmented button:checked {
   background: linear-gradient(180deg, #7893ff, #5b78ee);
   color: #ffffff;
   box-shadow: 0 3px 12px rgba(91, 120, 238, 0.5);
@@ -191,4 +191,77 @@ levelbar.mb-meter.clip block.filled {
   border-radius: 16px;
   padding: 14px;
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+/* Área de trabalho de áudio: painéis sóbrios, com espaço para os controles. */
+window.mb-window toolbarview {
+  background: #14161b;
+}
+
+window.mb-window headerbar {
+  background: #1b1e24;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+window.mb-window list.boxed-list {
+  background: #20232a;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.mb-hero {
+  background: #1c1f26;
+  border-radius: 12px;
+  box-shadow: none;
+  padding: 24px;
+}
+
+.mb-hero-title {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.mb-sidebar {
+  padding: 18px;
+  background: #191c22;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+}
+
+.mb-sidebar row title {
+  font-size: 13px;
+}
+
+.mb-studio flowboxchild {
+  padding: 0;
+  background: transparent;
+}
+
+.mb-meter-value {
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: #d2dbef;
+}
+
+.mb-meter-tick {
+  font-family: monospace;
+  font-size: 10px;
+  opacity: 0.55;
+}
+
+levelbar.mb-meter trough,
+levelbar.mb-meter block {
+  min-height: 14px;
+  border-radius: 3px;
+}
+
+.mb-segmented button:checked {
+  background: #526bc2;
+  box-shadow: none;
+}
+
+.mb-segmented > flowboxchild {
+  padding: 0;
+  background: transparent;
 }

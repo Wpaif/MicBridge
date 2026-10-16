@@ -130,6 +130,9 @@ pub struct Status {
 
 pub struct Shared {
     pub params: dsp::Params,
+    lifecycle: Mutex<()>,
+    pub recorder: crate::recording::Recorder,
+    pub playback: crate::recording::playback::Playback,
     /// Token do QR code (válido só com a janela de pareamento aberta).
     pub pair_token: String,
     link: AtomicU8,
@@ -147,6 +150,9 @@ impl Shared {
         let first_run = store.devices.is_empty();
         let s = Self {
             params: Default::default(),
+            lifecycle: Mutex::new(()),
+            recorder: crate::recording::Recorder::new(),
+            playback: crate::recording::playback::Playback::new(),
             pair_token: random_hex(16),
             link: AtomicU8::new(Link::Disconnected as u8),
             link_since: AtomicU64::new(now_secs()),
@@ -161,6 +167,23 @@ impl Shared {
             s.open_pairing();
         }
         s
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Relaxed)
+    }
+    pub fn start_recording(&self) -> Option<crate::recording::RecordingId> {
+        let _transaction = self.lifecycle.lock().unwrap();
+        if self.link() != Link::Connected {
+            return None;
+        }
+        self.playback.stop();
+        Some(self.recorder.start(self.generation()))
+    }
+    pub fn stop_audio_tools(&self) {
+        let _transaction = self.lifecycle.lock().unwrap();
+        self.playback.stop();
+        self.recorder.disconnect(self.generation());
     }
 
     // ── pareamento ──
@@ -209,20 +232,30 @@ impl Shared {
     // ── conexão ──
     /// Nova geração a cada negociação: eventos de conexões antigas são ignorados.
     pub fn next_generation(&self) -> u64 {
+        let _transaction = self.lifecycle.lock().unwrap();
+        self.recorder.disconnect(self.generation.load(Relaxed));
         self.generation.fetch_add(1, Relaxed) + 1
     }
     pub fn is_current(&self, generation: u64) -> bool {
         self.generation.load(Relaxed) == generation
     }
     pub fn set_link(&self, link: Link) {
+        let _transaction = self.lifecycle.lock().unwrap();
+        self.update_link(link);
+    }
+    fn update_link(&self, link: Link) {
+        if matches!(link, Link::Disconnected | Link::Reconnecting | Link::Error) {
+            self.recorder.disconnect(self.generation.load(Relaxed));
+        }
         if self.link.swap(link as u8, Relaxed) != link as u8 {
             self.link_since.store(now_secs(), Relaxed);
         }
     }
     /// Só aplica se `generation` ainda for a conexão atual.
     pub fn set_link_for(&self, generation: u64, link: Link) {
+        let _transaction = self.lifecycle.lock().unwrap();
         if self.is_current(generation) {
-            self.set_link(link);
+            self.update_link(link);
         }
     }
     pub fn set_error(&self, msg: Option<String>) {
@@ -289,5 +322,103 @@ impl Shared {
                 },
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod recording_tests {
+    use super::*;
+    #[test]
+    fn connection_loss_stops_capture_without_waiting_for_packets() {
+        for link in [Link::Disconnected, Link::Reconnecting, Link::Error] {
+            let s = Shared::new();
+            let generation = s.next_generation();
+            s.set_link(Link::Connected);
+            s.recorder.start(generation);
+            s.set_link_for(generation, link);
+            assert!(s.recorder.active_id(generation).is_none(), "{link:?}");
+        }
+    }
+    #[test]
+    fn disconnected_backend_rejects_start_even_before_ui_refresh() {
+        let s = Shared::new();
+        s.start_recording();
+        assert!(s.recorder.active_id(s.generation()).is_none());
+        s.set_link(Link::Connected);
+        s.start_recording();
+        assert!(s.recorder.active_id(s.generation()).is_some());
+        s.set_link(Link::Disconnected);
+        s.start_recording();
+        assert!(s.recorder.active_id(s.generation()).is_none());
+    }
+    #[test]
+    fn stale_callback_is_serialized_with_generation_selection_and_capture_start() {
+        use std::sync::{Arc, mpsc};
+        use std::time::Duration;
+        let s = Arc::new(Shared::new());
+        let old = s.next_generation();
+        s.set_link(Link::Connected);
+        let guard = s.lifecycle.lock().unwrap();
+        let (begun_tx, begun_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let other = s.clone();
+        let thread = std::thread::spawn(move || {
+            begun_tx.send(()).unwrap();
+            other.set_link_for(old, Link::Reconnecting);
+            done_tx.send(()).unwrap();
+        });
+        begun_rx.recv().unwrap();
+        let completed_while_locked = done_rx.recv_timeout(Duration::from_millis(50)).is_ok();
+        // Simulate the atomic middle of the new-generation/start transaction
+        // while holding its coordinator lock; the callback must wait, then recheck.
+        let new = old + 1;
+        s.generation.store(new, Relaxed);
+        let id = s.recorder.start(new);
+        drop(guard);
+        thread.join().unwrap();
+        assert!(
+            !completed_while_locked,
+            "callback bypassed lifecycle transaction"
+        );
+        assert_eq!(s.recorder.active_id(new), Some(id));
+        assert_eq!(s.link(), Link::Connected);
+    }
+    #[test]
+    fn capture_start_and_generation_advance_wait_for_lifecycle_transaction() {
+        use std::sync::{Arc, mpsc};
+        use std::time::Duration;
+        for advance in [false, true] {
+            let s = Arc::new(Shared::new());
+            s.set_link(Link::Connected);
+            let guard = s.lifecycle.lock().unwrap();
+            let (tx, rx) = mpsc::channel();
+            let other = s.clone();
+            let thread = std::thread::spawn(move || {
+                if advance {
+                    other.next_generation();
+                } else {
+                    other.start_recording();
+                }
+                let _ = tx.send(());
+            });
+            let bypassed = rx.recv_timeout(Duration::from_millis(50)).is_ok();
+            drop(guard);
+            thread.join().unwrap();
+            assert!(
+                !bypassed,
+                "start/generation transition bypassed coordinator lock"
+            );
+        }
+    }
+    #[test]
+    fn reconnect_stops_old_capture_and_stale_callbacks_do_not_stop_new_one() {
+        let s = Shared::new();
+        let old = s.next_generation();
+        s.recorder.start(old);
+        let new = s.next_generation();
+        assert!(s.recorder.active_id(old).is_none());
+        let id = s.recorder.start(new);
+        s.set_link_for(old, Link::Disconnected);
+        assert_eq!(s.recorder.active_id(new), Some(id));
     }
 }

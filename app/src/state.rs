@@ -131,6 +131,7 @@ pub struct Status {
 pub struct Shared {
     pub params: dsp::Params,
     pub recorder: crate::recording::Recorder,
+    pub playback: crate::recording::playback::Playback,
     /// Token do QR code (válido só com a janela de pareamento aberta).
     pub pair_token: String,
     link: AtomicU8,
@@ -149,6 +150,7 @@ impl Shared {
         let s = Self {
             params: Default::default(),
             recorder: crate::recording::Recorder::new(),
+            playback: crate::recording::playback::Playback::new(),
             pair_token: random_hex(16),
             link: AtomicU8::new(Link::Disconnected as u8),
             link_since: AtomicU64::new(now_secs()),
@@ -163,6 +165,18 @@ impl Shared {
             s.open_pairing();
         }
         s
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Relaxed)
+    }
+    pub fn start_recording(&self) -> crate::recording::RecordingId {
+        self.playback.stop();
+        self.recorder.start(self.generation())
+    }
+    pub fn stop_audio_tools(&self) {
+        self.playback.stop();
+        self.recorder.disconnect(self.generation());
     }
 
     // ── pareamento ──

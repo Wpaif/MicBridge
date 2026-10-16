@@ -50,6 +50,8 @@ fn main() -> glib::ExitCode {
     }
 
     let shared = Arc::new(Shared::new());
+    let shutdown_shared = shared.clone();
+    app.connect_shutdown(move |_| shutdown_shared.stop_audio_tools());
 
     // Runtime tokio (WebRTC + HTTP) em thread própria; GTK fica na principal.
     let rt = tokio::runtime::Runtime::new().expect("tokio");

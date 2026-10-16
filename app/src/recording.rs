@@ -1,4 +1,5 @@
 //! Captura local de áudio original e tratado.
+pub mod playback;
 pub mod wav;
 use std::sync::Arc;
 pub type RecordingId = u64;

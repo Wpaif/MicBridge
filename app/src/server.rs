@@ -6,7 +6,7 @@
 //! O celular se identifica pelo cookie de pareamento.
 
 use crate::state::{Link, Shared};
-use crate::{dsp, output, tls, web};
+use crate::{dsp, output, recording, tls, web};
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use axum::{
@@ -202,6 +202,7 @@ impl PeerConnectionEventHandler for Handler {
 
 /// RTP/Opus -> PCM -> DSP -> PipeWire.
 async fn pump(track: Arc<dyn TrackRemote>, shared: Arc<Shared>, generation: u64) -> Result<()> {
+    let _capture_session = recording::CaptureSession::new(shared.recorder.clone(), generation);
     let mut decoder = opus::Decoder::new(48_000, opus::Channels::Mono)?;
     let mut dsp = dsp::Processor::new();
     let mut sink = output::ResilientSink::new();
@@ -225,7 +226,7 @@ async fn pump(track: Arc<dyn TrackRemote>, shared: Arc<Shared>, generation: u64)
             }
             if gap == 2 {
                 let n = decoder.decode_float(&[], &mut pcm[..960], false)?;
-                emit(&mut dsp, &mut sink, &mut pcm[..n], &shared).await?;
+                emit(&mut dsp, &mut sink, &mut pcm[..n], &shared, generation).await?;
             }
         }
         last_seq = Some(seq);
@@ -234,7 +235,7 @@ async fn pump(track: Arc<dyn TrackRemote>, shared: Arc<Shared>, generation: u64)
             continue;
         }
         let n = decoder.decode_float(&pkt.payload, &mut pcm, false)?;
-        emit(&mut dsp, &mut sink, &mut pcm[..n], &shared).await?;
+        emit(&mut dsp, &mut sink, &mut pcm[..n], &shared, generation).await?;
     }
     Ok(())
 }
@@ -244,10 +245,9 @@ async fn emit(
     sink: &mut output::ResilientSink,
     pcm: &mut [f32],
     shared: &Shared,
+    generation: u64,
 ) -> Result<()> {
-    for frame in pcm.chunks_exact_mut(dsp::FRAME) {
-        dsp.process(frame, &shared.params);
-    }
+    recording::process_block(dsp, pcm, &shared.params, &shared.recorder, generation);
     sink.write_mono(pcm).await;
     Ok(())
 }

@@ -130,6 +130,7 @@ pub struct Status {
 
 pub struct Shared {
     pub params: dsp::Params,
+    pub recorder: crate::recording::Recorder,
     /// Token do QR code (válido só com a janela de pareamento aberta).
     pub pair_token: String,
     link: AtomicU8,
@@ -147,6 +148,7 @@ impl Shared {
         let first_run = store.devices.is_empty();
         let s = Self {
             params: Default::default(),
+            recorder: crate::recording::Recorder::new(),
             pair_token: random_hex(16),
             link: AtomicU8::new(Link::Disconnected as u8),
             link_since: AtomicU64::new(now_secs()),
@@ -209,12 +211,16 @@ impl Shared {
     // ── conexão ──
     /// Nova geração a cada negociação: eventos de conexões antigas são ignorados.
     pub fn next_generation(&self) -> u64 {
+        self.recorder.disconnect(self.generation.load(Relaxed));
         self.generation.fetch_add(1, Relaxed) + 1
     }
     pub fn is_current(&self, generation: u64) -> bool {
         self.generation.load(Relaxed) == generation
     }
     pub fn set_link(&self, link: Link) {
+        if matches!(link, Link::Disconnected | Link::Reconnecting | Link::Error) {
+            self.recorder.disconnect(self.generation.load(Relaxed));
+        }
         if self.link.swap(link as u8, Relaxed) != link as u8 {
             self.link_since.store(now_secs(), Relaxed);
         }
@@ -289,5 +295,32 @@ impl Shared {
                 },
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod recording_tests {
+    use super::*;
+    #[test]
+    fn connection_loss_stops_capture_without_waiting_for_packets() {
+        for link in [Link::Disconnected, Link::Reconnecting, Link::Error] {
+            let s = Shared::new();
+            let generation = s.next_generation();
+            s.set_link(Link::Connected);
+            s.recorder.start(generation);
+            s.set_link_for(generation, link);
+            assert!(s.recorder.active_id(generation).is_none(), "{link:?}");
+        }
+    }
+    #[test]
+    fn reconnect_stops_old_capture_and_stale_callbacks_do_not_stop_new_one() {
+        let s = Shared::new();
+        let old = s.next_generation();
+        s.recorder.start(old);
+        let new = s.next_generation();
+        assert!(s.recorder.active_id(old).is_none());
+        let id = s.recorder.start(new);
+        s.set_link_for(old, Link::Disconnected);
+        assert_eq!(s.recorder.active_id(new), Some(id));
     }
 }

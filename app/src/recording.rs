@@ -222,6 +222,40 @@ fn finalize(inner: &Inner) {
     }
 }
 
+pub fn process_block(
+    processor: &mut crate::dsp::Processor,
+    pcm: &mut [f32],
+    params: &crate::dsp::Params,
+    recorder: &Recorder,
+    generation: Generation,
+) {
+    let capture = recorder.active_id(generation).map(|id| (id, pcm.to_vec()));
+    for frame in pcm.chunks_exact_mut(crate::dsp::FRAME) {
+        processor.process(frame, params);
+    }
+    if let Some((id, original)) = capture {
+        recorder.push(id, generation, &original, pcm);
+    }
+}
+pub struct CaptureSession {
+    recorder: Recorder,
+    generation: Generation,
+}
+impl CaptureSession {
+    pub fn new(recorder: Recorder, generation: Generation) -> Self {
+        Self {
+            recorder,
+            generation,
+        }
+    }
+}
+
+impl Drop for CaptureSession {
+    fn drop(&mut self) {
+        self.recorder.disconnect(self.generation);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,6 +323,58 @@ mod tests {
         assert!(finish(&r, id).is_none());
         assert_eq!(r.status().state, TakeState::Incomplete);
         assert!(r.status().message.is_some());
+    }
+    #[test]
+    fn real_dsp_records_both_sides_without_changing_output() {
+        for n in [480, 960, 1080] {
+            let p = crate::dsp::Params::default();
+            p.apply_preset(crate::dsp::Preset::Bruto);
+            p.set_makeup_db(6.0);
+            let original = vec![0.01; n];
+            let mut live = original.clone();
+            let mut reference = original.clone();
+            let off = Recorder::new();
+            process_block(
+                &mut crate::dsp::Processor::new(),
+                &mut reference,
+                &p,
+                &off,
+                1,
+            );
+            let r = Recorder::new();
+            let id = r.start(1);
+            process_block(&mut crate::dsp::Processor::new(), &mut live, &p, &r, 1);
+            let take = finish(&r, id).expect("original e tratado capturados");
+            assert_eq!(take.original, original);
+            assert_eq!(take.treated, live);
+            assert_eq!(live, reference);
+            assert!((live[0] - 0.019952623).abs() < 1e-7);
+            if n == 1080 {
+                assert_eq!(&live[960..], &[0.01; 120]);
+            }
+        }
+    }
+    #[test]
+    fn pump_exit_guard_finishes_current_capture_on_error_or_track_end() {
+        let r = Recorder::new();
+        let id = r.start(1);
+        r.push(id, 1, &[0.1], &[0.2]);
+        {
+            let _guard = CaptureSession::new(r.clone(), 1);
+        }
+        assert!(r.active_id(1).is_none());
+        assert!(finish(&r, id).is_some());
+    }
+    #[test]
+    fn stale_block_cannot_be_relabelled_as_new_recording() {
+        let r = Recorder::new();
+        let old = r.start(1);
+        let sampled_id = r.active_id(1).unwrap();
+        let original = [0.1];
+        let new = r.start(1);
+        assert_ne!(old, new);
+        r.push(sampled_id, 1, &original, &[0.2]);
+        assert!(finish(&r, new).is_none());
     }
     #[test]
     fn full_queue_never_waits_and_preserves_accepted_prefix() {

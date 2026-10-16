@@ -38,7 +38,7 @@ mudança no áudio. Atualizações futuras do DSP exigem avaliar essa referênci
 A primeira execução verde do teste GTK atingiu uma falha nativa ao destruir uma
 janela nunca apresentada. Backtrace com G_DEBUG=fatal-criticals/gdb identificou
 `gtk_window_destroy`/superfície GDK ausente. O fixture foi corrigido para apresentar
- e realizar a janela antes da destruição, seguindo os testes GTK existentes.
+e realizar a janela antes da destruição, seguindo os testes GTK existentes.
 
 Comandos:
 
@@ -53,3 +53,28 @@ cargo test --offline --manifest-path app/Cargo.toml effect_ui::graphical_tests -
 As verificações de interface usam DSP real e sessão GTK; não simulam uma chamada
 com celular nem substituem a escuta manual. Revisão e integração são registradas
 após a validação final.
+
+## Revisão independente
+
+Um achado importante foi reproduzido em RED: após troca de geração, um pacote
+atrasado da conexão anterior incrementava o contador global e podia parecer
+áudio novo. A telemetria agora fica em um slot por geração. O pump captura o
+publicador antes de processar; processadores antigos só escrevem em seu próprio
+slot, mesmo se forem criados tardiamente. Shared troca o slot na transação de
+nova geração, e GTK usa seu contador local e valida a geração. A seleção do
+publicador usa mutex uma vez na criação do pump; publicar cada frame usa apenas
+atômicos. O construtor DSP genérico usado nos testes captura no primeiro frame.
+
+A regressão pausa entre gerações, entrega frames antigos antes/depois dos novos
+e exige ausência de atualização e preservação da medição atual. O PCM dos cinco
+perfis permanece idêntico à referência após a correção.
+
+## Resultado final
+
+85 testes aprovados, zero falhas, três testes gráficos excluídos por padrão e
+executados separadamente com sucesso (indicadores, retorno e A/B). Build offline,
+formatação e diff aprovados. Leitura dos indicadores usa um único snapshot por
+atualização. Layout amplo inspecionado em 1600×950; uma tentativa anterior de
+captura em 1600×1400 não produziu nó de renderização e não conta como validação.
+A interação/valores dos três controles foi verificada no teste GTK com DSP real.
+Sem validação auditiva de uma chamada com celular nesta etapa.

@@ -9,6 +9,7 @@ pub mod effects;
 use effects::{EffectSnapshot, GateState};
 use nnnoiseless::DenoiseState;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
+use std::sync::{Arc, Mutex};
 
 pub const SAMPLE_RATE: f32 = 48_000.0;
 /// RNNoise processa frames de 10 ms a 48 kHz.
@@ -62,7 +63,7 @@ pub struct Params {
     /// Frames processados (com wrap). Quem observa o nível compara com a leitura
     /// anterior para saber se ainda chega áudio, e não um valor antigo.
     frames: AtomicU32,
-    effects: effects::EffectMeter,
+    effects: Mutex<Arc<effects::EffectMeter>>,
 }
 
 fn atomic_f32(v: f32) -> AtomicU32 {
@@ -100,7 +101,7 @@ impl Default for Params {
             in_level: atomic_f32(0.0),
             out_level: atomic_f32(0.0),
             frames: AtomicU32::new(0),
-            effects: effects::EffectMeter::default(),
+            effects: Mutex::new(Arc::new(effects::EffectMeter::new(0))),
         }
     }
 }
@@ -215,8 +216,18 @@ impl Params {
             .store(finite_clamp(v, 0.0, 24.0, 10.0).to_bits(), Relaxed);
     }
 
+    pub(crate) fn begin_effects(&self, generation: u64) {
+        *self.effects.lock().unwrap() = Arc::new(effects::EffectMeter::new(generation));
+    }
+    fn effect_publisher(&self) -> Arc<effects::EffectMeter> {
+        self.effects.lock().unwrap().clone()
+    }
+    pub fn effect_reading(&self) -> effects::EffectReading {
+        self.effect_publisher().reading()
+    }
+    #[cfg(test)]
     pub fn effects(&self) -> EffectSnapshot {
-        self.effects.snapshot()
+        self.effect_reading().levels
     }
 
     pub fn in_level(&self) -> f32 {
@@ -364,9 +375,21 @@ pub struct Processor {
 
     // Ganho automático em dB (suavizado por frame).
     agc_gain_db: f32,
+    effect_meter: Option<Arc<effects::EffectMeter>>,
 }
 
 impl Processor {
+    pub fn for_generation(params: &Params, generation: u64) -> Self {
+        let active = params.effect_publisher();
+        let meter = if active.reading().generation == generation {
+            active
+        } else {
+            Arc::new(effects::EffectMeter::new(generation))
+        };
+        let mut processor = Self::new();
+        processor.effect_meter = Some(meter);
+        processor
+    }
     pub fn new() -> Self {
         Self {
             denoiser: DenoiseState::new(),
@@ -385,6 +408,7 @@ impl Processor {
             deess_env: 0.0,
 
             agc_gain_db: 0.0,
+            effect_meter: None,
         }
     }
 
@@ -508,11 +532,15 @@ impl Processor {
             }
         }
 
-        p.effects.publish(EffectSnapshot {
-            gate: gate_state,
-            compression_db,
-            auto_gain_db: auto_gain_enabled.then_some(self.agc_gain_db),
-        });
+        // Production binds once in for_generation, before processing any packet.
+        // The generic constructor binds on its first frame (offline DSP/tests).
+        self.effect_meter
+            .get_or_insert_with(|| p.effect_publisher())
+            .publish(EffectSnapshot {
+                gate: gate_state,
+                compression_db,
+                auto_gain_db: auto_gain_enabled.then_some(self.agc_gain_db),
+            });
         p.out_level.store(rms(frame).to_bits(), Relaxed);
         p.frames.fetch_add(1, Relaxed);
     }

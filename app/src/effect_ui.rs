@@ -1,4 +1,4 @@
-use crate::dsp::effects::{EffectSnapshot, GateState};
+use crate::dsp::effects::{EffectReading, EffectSnapshot, GateState};
 use std::time::Duration;
 
 #[derive(Debug, PartialEq)]
@@ -54,6 +54,20 @@ impl Activity {
             last_audio: None,
         }
     }
+    fn observe_effects(
+        &mut self,
+        reading: EffectReading,
+        generation: u64,
+        connected: bool,
+        now: Duration,
+    ) -> bool {
+        self.observe(
+            generation,
+            reading.frames,
+            connected && reading.generation == generation,
+            now,
+        )
+    }
     fn observe(&mut self, generation: u64, frames: u32, connected: bool, now: Duration) -> bool {
         if !connected || self.generation != generation {
             *self = Self::new(generation, frames);
@@ -76,6 +90,39 @@ mod tests {
             compression_db: Some(4.25),
             auto_gain_db: Some(-2.0),
         }
+    }
+    #[test]
+    fn delayed_old_generation_cannot_refresh_or_overwrite_new_effects() {
+        use crate::dsp::{FRAME, Params, Preset, Processor};
+        let p = Params::default();
+        p.apply_preset(Preset::Bruto);
+        p.begin_effects(1);
+        p.auto_gain
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let mut old = Processor::for_generation(&p, 1);
+        let mut a = Activity::new(1, 0);
+        old.process(&mut [0.1; FRAME], &p);
+        assert!(a.observe_effects(p.effect_reading(), 1, true, Duration::from_millis(10)));
+        p.begin_effects(2);
+        assert!(!a.observe_effects(p.effect_reading(), 2, true, Duration::from_millis(20)));
+        let mut late = Processor::for_generation(&p, 1);
+        late.process(&mut [0.8; FRAME], &p);
+        old.process(&mut [0.2; FRAME], &p);
+        assert!(
+            !a.observe_effects(p.effect_reading(), 2, true, Duration::from_millis(30)),
+            "old packet appeared as fresh generation-2 audio"
+        );
+        let mut current = Processor::for_generation(&p, 2);
+        current.process(&mut [0.3; FRAME], &p);
+        assert!(a.observe_effects(p.effect_reading(), 2, true, Duration::from_millis(40)));
+        let expected = p.effects();
+        old.process(&mut [0.4; FRAME], &p);
+        assert_eq!(
+            p.effects(),
+            expected,
+            "old producer overwrote current levels"
+        );
+        assert!(!a.observe_effects(p.effect_reading(), 2, true, Duration::from_millis(340)));
     }
     #[test]
     fn presentation_distinguishes_disabled_stale_and_measured_effects() {
@@ -151,18 +198,19 @@ impl Indicators {
     pub fn new(params: &Params, generation: u64, rows: [&adw::SwitchRow; 3]) -> Self {
         let mut result = Self {
             rows: rows.map(|r| r.downgrade()),
-            activity: Activity::new(generation, params.frames()),
+            activity: Activity::new(generation, params.effect_reading().frames),
         };
         result.update(params, generation, false, Duration::ZERO);
         result
     }
     pub fn update(&mut self, params: &Params, generation: u64, connected: bool, now: Duration) {
         use std::sync::atomic::Ordering::Relaxed;
+        let reading = params.effect_reading();
         let fresh = self
             .activity
-            .observe(generation, params.frames(), connected, now);
+            .observe_effects(reading, generation, connected, now);
         let flags = [&params.gate, &params.compressor, &params.auto_gain].map(|v| v.load(Relaxed));
-        let value = presentation(params.effects(), flags, fresh);
+        let value = presentation(reading.levels, flags, fresh);
         for (row, subtitle) in self
             .rows
             .iter()
@@ -207,6 +255,7 @@ mod graphical_tests {
             );
         }
         let p = Params::default();
+        p.begin_effects(1);
         p.apply_preset(Preset::Bruto);
         p.gate.store(true, Relaxed);
         p.compressor.store(true, Relaxed);

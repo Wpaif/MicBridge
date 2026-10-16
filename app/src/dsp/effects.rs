@@ -14,12 +14,39 @@ pub struct EffectSnapshot {
     pub auto_gain_db: Option<f32>,
 }
 
-use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+use std::sync::atomic::{
+    AtomicU32, AtomicU64,
+    Ordering::{Acquire, Relaxed, Release},
+};
 /// Uma única leitura atômica, sem mutex no DSP. Ganhos quantizados em 0,01 dB
 /// somente para exibição; precisão e amostras do processamento permanecem intactas.
-#[derive(Default)]
-pub(super) struct EffectMeter(AtomicU64);
+pub(super) struct EffectMeter {
+    generation: u64,
+    levels: AtomicU64,
+    frames: AtomicU32,
+}
+#[derive(Clone, Copy)]
+pub struct EffectReading {
+    pub generation: u64,
+    pub frames: u32,
+    pub levels: EffectSnapshot,
+}
 impl EffectMeter {
+    pub fn new(generation: u64) -> Self {
+        Self {
+            generation,
+            levels: AtomicU64::new(0),
+            frames: AtomicU32::new(0),
+        }
+    }
+    pub fn reading(&self) -> EffectReading {
+        let frames = self.frames.load(Acquire);
+        EffectReading {
+            generation: self.generation,
+            frames,
+            levels: self.snapshot(),
+        }
+    }
     pub fn publish(&self, value: EffectSnapshot) {
         let finite = |v: f32| if v.is_finite() { v } else { 0.0 };
         let comp =
@@ -32,16 +59,17 @@ impl EffectMeter {
             GateState::Holding => 2,
             GateState::Attenuating => 3,
         };
-        self.0.store(
+        self.levels.store(
             gate | (comp << 2)
                 | ((agc as u16 as u64) << 17)
                 | ((value.compression_db.is_some() as u64) << 33)
                 | ((value.auto_gain_db.is_some() as u64) << 34),
             Relaxed,
         );
+        self.frames.fetch_add(1, Release);
     }
     pub fn snapshot(&self) -> EffectSnapshot {
-        let bits = self.0.load(Relaxed);
+        let bits = self.levels.load(Relaxed);
         EffectSnapshot {
             gate: match bits & 3 {
                 1 => GateState::Open,

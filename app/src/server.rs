@@ -203,6 +203,8 @@ impl PeerConnectionEventHandler for Handler {
 /// RTP/Opus -> PCM -> DSP -> PipeWire.
 async fn pump(track: Arc<dyn TrackRemote>, shared: Arc<Shared>, generation: u64) -> Result<()> {
     let _capture_session = recording::CaptureSession::new(shared.recorder.clone(), generation);
+    let _monitor_session =
+        crate::local_audio::MonitorSession::new(shared.local_audio.clone(), generation);
     let mut decoder = opus::Decoder::new(48_000, opus::Channels::Mono)?;
     let mut dsp = dsp::Processor::new();
     let mut sink = output::ResilientSink::new();
@@ -248,6 +250,7 @@ async fn emit(
     generation: u64,
 ) -> Result<()> {
     recording::process_block(dsp, pcm, &shared.params, &shared.recorder, generation);
+    crate::monitor::submit_processed(&shared.monitor, generation, pcm);
     sink.write_mono(pcm).await;
     Ok(())
 }

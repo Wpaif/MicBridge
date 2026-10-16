@@ -70,3 +70,7 @@ As capturas visuais em 1400×900 e 420×780 foram inspecionadas. Um teste real d
 - Corridas gerais preexistentes de negociação de rede não foram redesenhadas nesta branch.
 
 Não houve sugestões menores adiadas pela revisão. Não foi iniciado o próximo recurso.
+
+## Validação manual posterior
+
+O usuário testou a gravação A/B manualmente e informou que tudo funcionou corretamente.

@@ -57,12 +57,18 @@ pub(super) fn spawn(
                         close_gate(&core, id);
                         continue;
                     }
+                    let Some(serial) = target.serial.as_deref().filter(|s| s.parse::<u64>().is_ok()) else {
+                        fail(&core, id, "A saída não possui identificação estável. Atualize a lista e escolha outra saída.".into());
+                        continue;
+                    };
                     let mut child = match Command::new(&executable)
                         .args([
                             "--playback",
                             "--raw",
                             "--target",
-                            &target.name,
+                            serial,
+                            "--properties",
+                            "node.dont-fallback=true node.dont-reconnect=true node.name=micbridge_monitor",
                             "--rate",
                             "48000",
                             "--channels",

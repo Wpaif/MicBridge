@@ -21,6 +21,7 @@ enum Intent {
     Replay {
         take: Arc<Take>,
         version: Version,
+        lease: Arc<AtomicBool>,
     },
 }
 struct Coordinator {
@@ -32,6 +33,7 @@ struct Inner {
     control: Mutex<Coordinator>,
     monitor: Monitor,
     playback: Playback,
+    commit: Arc<Mutex<()>>,
 }
 #[derive(Clone)]
 pub struct LocalAudio {
@@ -40,6 +42,8 @@ pub struct LocalAudio {
 impl LocalAudio {
     pub fn new(monitor: Monitor, playback: Playback, devices: DeviceCatalog) -> Self {
         let (tx, rx) = watch::channel(Intent::Stop);
+        let commit = Arc::new(Mutex::new(()));
+        let worker_commit = commit.clone();
         let worker_monitor = monitor.clone();
         let worker_playback = playback.clone();
         std::thread::Builder::new()
@@ -49,7 +53,13 @@ impl LocalAudio {
                     .enable_all()
                     .build()
                     .expect("runtime de saídas locais");
-                rt.block_on(run(worker_monitor, worker_playback, devices, rx));
+                rt.block_on(run(
+                    worker_monitor,
+                    worker_playback,
+                    devices,
+                    rx,
+                    worker_commit,
+                ));
             })
             .expect("thread de saídas locais");
         Self {
@@ -61,6 +71,7 @@ impl LocalAudio {
                 }),
                 monitor,
                 playback,
+                commit,
             }),
         }
     }
@@ -70,10 +81,12 @@ impl LocalAudio {
         target: OutputDevice,
         lease: Arc<AtomicBool>,
     ) -> u64 {
+        let _commit = self.inner.commit.lock().unwrap();
         let mut c = self.inner.control.lock().unwrap();
         if let Some((_, old)) = c.lease.take() {
             old.store(false, SeqCst);
         }
+        cancel_replay(&c);
         self.inner.monitor.disable();
         self.inner.playback.stop();
         c.next += 1;
@@ -89,13 +102,19 @@ impl LocalAudio {
         id
     }
     pub fn request_playback(&self, take: Arc<Take>, version: Version) {
+        let _commit = self.inner.commit.lock().unwrap();
         let mut c = self.inner.control.lock().unwrap();
         if let Some((_, lease)) = c.lease.take() {
             lease.store(false, SeqCst);
         }
+        cancel_replay(&c);
         self.inner.monitor.disable();
         self.inner.playback.stop();
-        c.tx.send_replace(Intent::Replay { take, version });
+        c.tx.send_replace(Intent::Replay {
+            take,
+            version,
+            lease: Arc::new(AtomicBool::new(true)),
+        });
     }
     fn stop_monitor_locked(&self, c: &mut Coordinator) {
         if let Some((_, lease)) = c.lease.take() {
@@ -108,28 +127,34 @@ impl LocalAudio {
         }
     }
     pub fn stop_monitor(&self) {
+        let _commit = self.inner.commit.lock().unwrap();
         let mut c = self.inner.control.lock().unwrap();
         self.stop_monitor_locked(&mut c);
     }
     pub fn stop_playback(&self) {
+        let _commit = self.inner.commit.lock().unwrap();
         let c = self.inner.control.lock().unwrap();
         self.inner.playback.stop();
+        cancel_replay(&c);
         let is_replay = matches!(*c.tx.borrow(), Intent::Replay { .. });
         if is_replay {
             c.tx.send_replace(Intent::Stop);
         }
     }
     pub fn disconnect(&self, generation: u64) {
+        let _commit = self.inner.commit.lock().unwrap();
         let mut c = self.inner.control.lock().unwrap();
         if c.lease.as_ref().is_some_and(|(g, _)| *g == generation) {
             self.stop_monitor_locked(&mut c);
         }
     }
     pub fn shutdown(&self) {
+        let _commit = self.inner.commit.lock().unwrap();
         let mut c = self.inner.control.lock().unwrap();
         if let Some((_, lease)) = c.lease.take() {
             lease.store(false, SeqCst);
         }
+        cancel_replay(&c);
         self.inner.monitor.disable();
         self.inner.playback.stop();
         c.tx.send_replace(Intent::Stop);
@@ -140,6 +165,7 @@ async fn run(
     playback: Playback,
     devices: DeviceCatalog,
     mut commands: watch::Receiver<Intent>,
+    commit: Arc<Mutex<()>>,
 ) {
     let mut pending = None;
     loop {
@@ -158,9 +184,13 @@ async fn run(
         };
         match intent {
             Intent::Stop => {}
-            Intent::Replay { take, version } => {
+            Intent::Replay {
+                take,
+                version,
+                lease,
+            } => {
                 if settled.is_ok() {
-                    playback.play(take, version);
+                    commit_replay(&playback, take, version, &lease, &commit);
                 }
             }
             Intent::Monitor {
@@ -211,11 +241,13 @@ async fn run(
                             }
                         }
                         Ok(_) => {
+                            devices.refresh();
                             lease.store(false, SeqCst);
                             monitor.report_failure(id,"A saída selecionada foi removida ou substituída. Escolha o dispositivo e ative novamente.".into());
                             break;
                         }
                         Err(e) => {
+                            devices.refresh();
                             lease.store(false, SeqCst);
                             monitor.report_failure(id, e);
                             break;
@@ -230,6 +262,23 @@ async fn run(
         }
     }
     let _ = tokio::join!(monitor.stop_and_wait(), playback.stop_and_wait());
+}
+fn cancel_replay(c: &Coordinator) {
+    if let Intent::Replay { lease, .. } = &*c.tx.borrow() {
+        lease.store(false, SeqCst);
+    }
+}
+fn commit_replay(
+    playback: &Playback,
+    take: Arc<Take>,
+    version: Version,
+    lease: &AtomicBool,
+    commit: &Mutex<()>,
+) {
+    let _guard = commit.lock().unwrap();
+    if lease.load(SeqCst) {
+        playback.play(take, version);
+    }
 }
 pub struct MonitorSession {
     audio: LocalAudio,
@@ -283,6 +332,53 @@ mod tests {
             treated: vec![0.2],
         })
     }
+    #[test]
+    fn cancelled_replay_at_publication_boundary_cannot_restart() {
+        for cancellation in 0..3 {
+            let p = Fixture::new(SLEEP);
+            let playback = Playback::with_command(p.executable.clone(), vec![]);
+            let lease = Arc::new(AtomicBool::new(true));
+            let commit = Arc::new(Mutex::new(()));
+            let (tx, _rx) = watch::channel(Intent::Replay {
+                take: take(),
+                version: Version::Original,
+                lease: lease.clone(),
+            });
+            // Hold the actor exactly at its final publication boundary, after ACKs.
+            let audio = LocalAudio {
+                inner: Arc::new(Inner {
+                    control: Mutex::new(Coordinator {
+                        tx,
+                        next: 0,
+                        lease: None,
+                    }),
+                    monitor: Monitor::new(),
+                    playback: playback.clone(),
+                    commit: commit.clone(),
+                }),
+            };
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(playback.stop_and_wait()).unwrap();
+            match cancellation {
+                0 => audio.stop_playback(), // Also used when starting capture.
+                1 => audio.shutdown(),
+                _ => {
+                    audio.request_monitor(1, output(), Arc::new(AtomicBool::new(true)));
+                }
+            }
+            let stopped = playback.status().operation;
+            commit_replay(&playback, take(), Version::Original, &lease, &commit);
+            assert_eq!(
+                playback.status().operation,
+                stopped,
+                "obsolete replay replaced cancellation"
+            );
+            assert!(!playback.status().playing);
+            assert!(p.pid().is_none());
+            audio.shutdown();
+        }
+    }
+
     #[test]
     fn backend_rejects_disconnected_unselected_and_removed_output() {
         let m = Fixture::new(SLEEP);
@@ -413,6 +509,7 @@ mod tests {
         wait(|| !alive(pid));
         assert_eq!(s.status().link, Link::Connected);
         assert_eq!(s.monitor_output(), Some(output()));
+        wait(|| !s.devices.snapshot().busy && s.devices.snapshot().devices.is_empty());
     }
     #[test]
     fn disconnect_and_pump_exit_do_not_restart_after_reconnection() {

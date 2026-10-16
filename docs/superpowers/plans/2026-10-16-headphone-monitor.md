@@ -46,7 +46,7 @@
 
 Contratos entre tarefas:
 
-- `OutputDevice { id: u32, serial: Option<String>, name: String, label: String }`; `same_instance(&self, other: &Self) -> bool` compara nome, ID e serial quando disponível. Sem serial, comparar ID e nome; a limitação de reutilização simultânea desses dois campos deve ser registrada.
+- `OutputDevice { id: u32, serial: Option<String>, name: String, label: String }`; `same_instance(&self, other: &Self) -> bool` compara nome, ID e serial quando disponível. Sem serial válido, a listagem permanece possível, mas a abertura deve falhar localmente para impedir reutilização silenciosa do nome.
 - `devices::parse(json: &str) -> Result<Vec<OutputDevice>, String>`; aceitar apenas `PipeWire:Interface:Node`, `Audio/Sink`, nome não vazio, ID válido; excluir `vdo_input` e nodes com prefixo interno `micbridge_monitor`.
 - `devices::query() -> impl Future<Output = Result<Vec<OutputDevice>, String>>`: executar `pw-dump` com timeout, cancelar/recolher filho em erro ou timeout.
 - `DeviceCatalog::new()`, `refresh() -> u64`, `snapshot() -> DeviceSnapshot`; snapshot contém query ID, lista, busy e erro. Apenas a consulta mais recente publica resultados.
@@ -66,72 +66,72 @@ Contratos entre tarefas:
 **Files:** criar `monitor/devices.rs`; declarar `monitor`/`devices` no módulo novo e em `main.rs`.
 **Interfaces:** produz OutputDevice, parse/query e DeviceCatalog acima; consumidor é o coordenador/UI das Tasks 4/5.
 
-- [ ] Confirmar branch/árvore limpa; executar `cargo test --offline --manifest-path app/Cargo.toml`. Esperado: 50 testes aprovados, teste GTK separado. Registrar BASE no ledger específico deste plano.
-- [ ] Escrever testes `parse_filters_sinks_and_preserves_distinct_identities`: fixture com hardware, saída virtual, fontes, `vdo_input`, `micbridge_monitor_*`, nomes amigáveis iguais e IDs diferentes; afirmar exatamente os nomes/identidades aceitos.
-- [ ] Escrever `parse_handles_missing_fields_and_invalid_json`: omitir name/classe/ID e não aceitar node incompleto; description ausente usa name; serial numérico/string é normalizado; JSON inválido ou raiz que não é array retorna erro.
-- [ ] Escrever testes de processo para sucesso, exit não zero e timeout de 2 s. Testes de parser não dependem de áudio; substituir somente o executável por um processo controlado nos testes do worker.
-- [ ] Escrever `stale_device_query_does_not_overwrite_newer_result` e `same_name_with_new_serial_is_another_device`; o worker de consulta antiga fica controladamente atrasado enquanto a consulta nova conclui.
-- [ ] Rodar `cargo test --offline --manifest-path app/Cargo.toml monitor::devices` e observar falhas; implementar parser e serviço com IDs monotônicos. Limitar saída de `pw-dump` a 8 MiB; excesso gera erro e encerra o processo.
-- [ ] Rodar testes focados e suíte completa, refatorar em verde; commit `feat(audio): lista saídas disponíveis para retorno no fone`.
+- [x] Confirmar branch/árvore limpa; executar `cargo test --offline --manifest-path app/Cargo.toml`. Esperado: 50 testes aprovados, teste GTK separado. Registrar BASE no ledger específico deste plano.
+- [x] Escrever testes `parse_filters_sinks_and_preserves_distinct_identities`: fixture com hardware, saída virtual, fontes, `vdo_input`, `micbridge_monitor_*`, nomes amigáveis iguais e IDs diferentes; afirmar exatamente os nomes/identidades aceitos.
+- [x] Escrever `parse_handles_missing_fields_and_invalid_json`: omitir name/classe/ID e não aceitar node incompleto; description ausente usa name; serial numérico/string é normalizado; JSON inválido ou raiz que não é array retorna erro.
+- [x] Escrever testes de processo para sucesso, exit não zero e timeout de 2 s. Testes de parser não dependem de áudio; substituir somente o executável por um processo controlado nos testes do worker.
+- [x] Escrever `stale_device_query_does_not_overwrite_newer_result` e `same_name_with_new_serial_is_another_device`; o worker de consulta antiga fica controladamente atrasado enquanto a consulta nova conclui.
+- [x] Rodar `cargo test --offline --manifest-path app/Cargo.toml monitor::devices` e observar falhas; implementar parser e serviço com IDs monotônicos. Limitar saída de `pw-dump` a 8 MiB; excesso gera erro e encerra o processo.
+- [x] Rodar testes focados e suíte completa, refatorar em verde; commit `feat(audio): lista saídas disponíveis para retorno no fone`.
 
 ### Task 2: Ganho independente e fila limitada
 
 **Files:** criar `monitor/gain.rs` e núcleo em `monitor.rs`.
 **Interfaces:** produz GainRamp, MonitorStatus e produtor Monitor; worker de processo completo é Task 3.
 
-- [ ] Escrever `volume_ramps_over_240_samples`: com entrada constante 1, volume de 25 para 100%, exigir primeiro ganho 0,253125, amostra 240 em 1 e as posteriores em 1. Usar tolerância 1e-6.
-- [ ] Escrever casos 0/25/100% estáveis, nova mudança no meio da rampa a partir do ganho corrente, NaN/infinito mantendo alvo anterior e percentuais finitos fora da faixa limitados a 0..100. Amostras não finitas viram zero no retorno.
-- [ ] Escrever `bounded_queue_stops_monitor_without_waiting_for_consumer`: consumidor pausado, seis blocos de 480 aceitos, sétimo interrompe com Failed; usar timeout do produtor em thread controlada para não deixar a suíte travada se houver regressão.
-- [ ] Escrever testes de sessão/geração antiga, desativação com fila pendente e ativação nova: nada antigo é aceito nem tocado. O volume inicial deve ser 25% a cada nova instância, mas mantido entre sessões na mesma execução.
-- [ ] Rodar `cargo test --offline --manifest-path app/Cargo.toml monitor` e observar falhas. Implementar fila de capacidade seis, tamanho por bloco limitado a 480, envio sem espera e validação de lease/IDs no produtor e consumidor.
-- [ ] Rodar suíte, refatorar em verde; commit `feat(audio): adiciona fila e volume independente do retorno`.
+- [x] Escrever `volume_ramps_over_240_samples`: com entrada constante 1, volume de 25 para 100%, exigir primeiro ganho 0,253125, amostra 240 em 1 e as posteriores em 1. Usar tolerância 1e-6.
+- [x] Escrever casos 0/25/100% estáveis, nova mudança no meio da rampa a partir do ganho corrente, NaN/infinito mantendo alvo anterior e percentuais finitos fora da faixa limitados a 0..100. Amostras não finitas viram zero no retorno.
+- [x] Escrever `bounded_queue_stops_monitor_without_waiting_for_consumer`: consumidor pausado, seis blocos de 480 aceitos, sétimo interrompe com Failed; usar timeout do produtor em thread controlada para não deixar a suíte travada se houver regressão.
+- [x] Escrever testes de sessão/geração antiga, desativação com fila pendente e ativação nova: nada antigo é aceito nem tocado. O volume inicial deve ser 25% a cada nova instância, mas mantido entre sessões na mesma execução.
+- [x] Rodar `cargo test --offline --manifest-path app/Cargo.toml monitor` e observar falhas. Implementar fila de capacidade seis, tamanho por bloco limitado a 480, envio sem espera e validação de lease/IDs no produtor e consumidor.
+- [x] Rodar suíte, refatorar em verde; commit `feat(audio): adiciona fila e volume independente do retorno`.
 
 ### Task 3: Worker de reprodução ao vivo e confirmação de parada
 
 **Files:** `monitor.rs`, `recording/playback.rs`; usar `output::DieWithParent` existente.
 **Interfaces:** implementa Monitor::open/stop_and_wait e Playback::stop_and_wait para a Task 4.
 
-- [ ] Escrever teste com processo controlado que recebe PCM f32 e argumentos reais: `--playback --raw --target <node.name> --rate 48000 --channels 1 --format f32 --latency 20ms --media-role Music -`; verificar alvo e bytes após ganho.
-- [ ] Escrever testes de falha no spawn, escrita e exit, e cancelamento durante escrita bloqueada: processo terminado/recolhido antes de resolver stop_and_wait; falha não pode alterar a conexão nem reiniciar sozinha.
-- [ ] Escrever `coalesced_stop_acknowledges_child_reaping` para A/B e retorno: comandos Stop/Play substituídos rapidamente não podem perder a confirmação de encerramento. Associar confirmações ao número da operação; uma confirmação mais nova somente satisfaz a antiga se o filho anterior já tiver sido recolhido.
-- [ ] Escrever `stale_open_or_process_exit_cannot_publish_new_session_status`; invalidar lease durante abertura e escrita e verificar que não há áudio nem estado Active de sessão antiga.
-- [ ] Rodar testes novos e observar falhas. Implementar workers canceláveis, confirmações de parada reais e IDs de operação. Revalidar lease antes de aceitar áudio e publicar Active; um processo aberto tarde é encerrado sem enviar PCM.
-- [ ] Rodar suíte completa e testes anteriores A/B, refatorar em verde; commit `feat(audio): reproduz retorno com parada confirmada do fluxo`.
+- [x] Escrever teste com processo controlado que recebe PCM f32 e argumentos reais: `--playback --raw --target <object.serial> --properties "node.dont-fallback=true node.dont-reconnect=true node.name=micbridge_monitor" --rate 48000 --channels 1 --format f32 --latency 20ms --media-role Music -`; verificar alvo e bytes após ganho.
+- [x] Escrever testes de falha no spawn, escrita e exit, e cancelamento durante escrita bloqueada: processo terminado/recolhido antes de resolver stop_and_wait; falha não pode alterar a conexão nem reiniciar sozinha.
+- [x] Escrever `coalesced_stop_acknowledges_child_reaping` para A/B e retorno: comandos Stop/Play substituídos rapidamente não podem perder a confirmação de encerramento. Associar confirmações ao número da operação; uma confirmação mais nova somente satisfaz a antiga se o filho anterior já tiver sido recolhido.
+- [x] Escrever `stale_open_or_process_exit_cannot_publish_new_session_status`; invalidar lease durante abertura e escrita e verificar que não há áudio nem estado Active de sessão antiga.
+- [x] Rodar testes novos e observar falhas. Implementar workers canceláveis, confirmações de parada reais e IDs de operação. Revalidar lease antes de aceitar áudio e publicar Active; um processo aberto tarde é encerrado sem enviar PCM.
+- [x] Rodar suíte completa e testes anteriores A/B, refatorar em verde; commit `feat(audio): reproduz retorno com parada confirmada do fluxo`.
 
 ### Task 4: Coordenação de modos e integração ao pump
 
 **Files:** criar `local_audio.rs`; modificar `state.rs`, `server.rs`, `recording_ui.rs`, `main.rs`.
 **Interfaces:** produz LocalAudio e métodos Shared acima; consome Monitor, Playback e devices::query.
 
-- [ ] Escrever testes backend recusando ativação desconectada, sem escolha e com alvo removido/substituído. Usar a transação lifecycle existente para seleção de geração e emissão da lease; cancelar quando mudar conexão/seleção.
-- [ ] Escrever `stale_validation_after_disconnect_cannot_activate` e `new_selection_invalidates_pending_activation`: pausar consulta, mudar conexão/saída e liberar resposta; nenhuma sessão antiga fica ativa.
-- [ ] Escrever testes A/B→retorno e retorno→A/B com processos controlados: provar que o PID anterior desapareceu antes de o novo iniciar. Novos comandos substituem intenções antigas; desligar/cancelar durante a espera deixa ambos parados. Não aguardar futures segurando o mutex lifecycle.
-- [ ] Escrever `processed_audio_is_unchanged_with_monitoring`: DSP real + gravação simultânea, comparar PCM principal e buffers A/B byte a byte com retorno ligado/desligado. Verificar blocos de 480, 960, 5760 e 120 amostras.
-- [ ] Escrever caso de 5760 amostras com consumidor pausado: fila limitada leva a Failed local, saída principal e gravação continuam completas. Não aumentar a fila silenciosamente para caber o pacote.
-- [ ] Escrever testes de desconexão, reconexão e fim/erro do pump, retirada/troca de identidade do destino e shutdown: desativação descarta pendências, sem religamento automático. Iniciar uma gravação A/B preserva o retorno ativo.
-- [ ] Rodar os testes e observar falhas; implementar ator LocalAudio. Antes de abrir retorno, consultar saídas novamente e comparar a identidade selecionada; falhas de validação aparecem apenas no status local.
-- [ ] Integrar submit_processed após recording::process_block e antes de sink.write_mono; dividir com chunks(480), sem modificar pcm. Migrar as callbacks de reprodução A/B para os métodos Shared coordenados. Gravar teste continua parando A/B, mas não o retorno.
-- [ ] Rodar suíte completa, refatorar em verde; commit `feat(audio): coordena retorno e comparação A/B sem bloquear chamadas`.
+- [x] Escrever testes backend recusando ativação desconectada, sem escolha e com alvo removido/substituído. Usar a transação lifecycle existente para seleção de geração e emissão da lease; cancelar quando mudar conexão/seleção.
+- [x] Escrever `stale_validation_after_disconnect_cannot_activate` e `new_selection_invalidates_pending_activation`: pausar consulta, mudar conexão/saída e liberar resposta; nenhuma sessão antiga fica ativa.
+- [x] Escrever testes A/B→retorno e retorno→A/B com processos controlados: provar que o PID anterior desapareceu antes de o novo iniciar. Novos comandos substituem intenções antigas; desligar/cancelar durante a espera deixa ambos parados. Não aguardar futures segurando o mutex lifecycle.
+- [x] Escrever `processed_audio_is_unchanged_with_monitoring`: DSP real + gravação simultânea, comparar PCM principal e buffers A/B byte a byte com retorno ligado/desligado. Verificar blocos de 480, 960, 5760 e 120 amostras.
+- [x] Escrever caso de 5760 amostras com consumidor pausado: fila limitada leva a Failed local, saída principal e gravação continuam completas. Não aumentar a fila silenciosamente para caber o pacote.
+- [x] Escrever testes de desconexão, reconexão e fim/erro do pump, retirada/troca de identidade do destino e shutdown: desativação descarta pendências, sem religamento automático. Iniciar uma gravação A/B preserva o retorno ativo.
+- [x] Rodar os testes e observar falhas; implementar ator LocalAudio. Antes de abrir retorno, consultar saídas novamente e comparar a identidade selecionada; falhas de validação aparecem apenas no status local.
+- [x] Integrar submit_processed após recording::process_block e antes de sink.write_mono; dividir com chunks(480), sem modificar pcm. Migrar as callbacks de reprodução A/B para os métodos Shared coordenados. Gravar teste continua parando A/B, mas não o retorno.
+- [x] Rodar suíte completa, refatorar em verde; commit `feat(audio): coordena retorno e comparação A/B sem bloquear chamadas`.
 
 ### Task 5: Painel GTK e atualização de dispositivos
 
 **Files:** criar `monitor_ui.rs`; modificar `main.rs`, `DESIGN.md` e `README.md`.
 **Interfaces:** consome os contratos de catálogo, Shared e MonitorStatus; produz panel acima.
 
-- [ ] Escrever testes da apresentação: desligado inicialmente/25%, sem destino impede ativação, Opening indica espera, Active permite desligar, Failed apresenta erro; nenhuma falha local substitui o status da conexão.
-- [ ] Escrever testes preservando seleção por identidade após refresh, nomes amigáveis iguais com distinção visível e dispositivo removido marcado como indisponível sem seleção automática de outro.
-- [ ] Escrever teste de renovação inicial/manual e timer de 2 s somente enquanto ativo, sem consultas sobrepostas ilimitadas; resposta antiga não altera seleção ou erro mais recente.
-- [ ] Escrever teste gráfico separado, `#[ignore = "requer sessão gráfica GTK"]`: acionar seleção, volume, ligar/desligar com serviços/processos controlados; destruir janela durante consulta pendente e provar que ela não fica retida.
-- [ ] Rodar testes e observar falhas; implementar painel “Retorno no fone” junto ao teste de voz, lista com escolha explícita e Atualizar, volume e switch. Exibir “Use fones para evitar que o som volte ao microfone” e “O retorno tem atraso de monitoramento”.
-- [ ] Listagem, validação e espera de processos em workers; GTK apenas publica intenções e observa snapshots. Parar timer quando painel for destruído, usando referência fraca ao widget.
-- [ ] Rodar suíte e teste GTK explicitamente em sessão gráfica, inspecionar janela ampla e estreita; atualizar documentação. Commit `feat(ui): adiciona controles de retorno no fone`.
+- [x] Escrever testes da apresentação: desligado inicialmente/25%, sem destino impede ativação, Opening indica espera, Active permite desligar, Failed apresenta erro; nenhuma falha local substitui o status da conexão.
+- [x] Escrever testes preservando seleção por identidade após refresh, nomes amigáveis iguais com distinção visível e dispositivo removido marcado como indisponível sem seleção automática de outro.
+- [x] Escrever teste de renovação inicial/manual e timer de 2 s somente enquanto ativo, sem consultas sobrepostas ilimitadas; resposta antiga não altera seleção ou erro mais recente.
+- [x] Escrever teste gráfico separado, `#[ignore = "requer sessão gráfica GTK"]`: acionar seleção, volume, ligar/desligar com serviços/processos controlados; destruir janela durante consulta pendente e provar que ela não fica retida.
+- [x] Rodar testes e observar falhas; implementar painel “Retorno no fone” junto ao teste de voz, lista com escolha explícita e Atualizar, volume e switch. Exibir “Use fones para evitar que o som volte ao microfone” e “O retorno tem atraso de monitoramento”.
+- [x] Listagem, validação e espera de processos em workers; GTK apenas publica intenções e observa snapshots. Parar timer quando painel for destruído, usando referência fraca ao widget.
+- [x] Rodar suíte e teste GTK explicitamente em sessão gráfica, inspecionar janela ampla e estreita; atualizar documentação. Commit `feat(ui): adiciona controles de retorno no fone`.
 
 ### Task 6: Revisão e merge
 
 **Files:** criar `docs/testing/headphone-monitor.md`, atualizar checkboxes e ledger deste plano.
 
-- [ ] Rodar `cargo test --offline --manifest-path app/Cargo.toml`, `cargo build --offline --manifest-path app/Cargo.toml`, `cargo fmt --manifest-path app/Cargo.toml --check` e `git diff --check`. Esperado: zero falhas; teste gráfico explicitamente executado em separado.
-- [ ] Fazer uma revisão independente da branch completa, incluindo Review Focus. Corrigir achados importantes com testes de regressão RED→GREEN e suíte verde.
-- [ ] Verificar listagem e abertura de saída no PipeWire real disponível, sem afirmar validação auditiva de fala se não realizada. Registrar limitações, diferenças da especificação e resultados em `docs/testing/headphone-monitor.md`.
+- [x] Rodar `cargo test --offline --manifest-path app/Cargo.toml`, `cargo build --offline --manifest-path app/Cargo.toml`, `cargo fmt --manifest-path app/Cargo.toml --check` e `git diff --check`. Esperado: zero falhas; teste gráfico explicitamente executado em separado.
+- [x] Fazer uma revisão independente da branch completa, incluindo Review Focus. Corrigir achados importantes com testes de regressão RED→GREEN e suíte verde.
+- [x] Verificar listagem e abertura de saída no PipeWire real disponível, sem afirmar validação auditiva de fala se não realizada. Registrar limitações, diferenças da especificação e resultados em `docs/testing/headphone-monitor.md`.
 - [ ] Registrar commits no padrão português, confirmar árvore limpa e fazer merge local `--no-ff` na `main`, já autorizado pelo usuário; reexecutar suíte após merge e preservar branch para organização.
 - [ ] Informar hash, resultados e o que requer teste manual no fone; não iniciar a funcionalidade seguinte neste lote.

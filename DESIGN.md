@@ -47,8 +47,8 @@ libadwaita. Textos em português do Brasil, curtos e diretos.
 - Controles segmentados: raio 12 px por fora, 9 px por dentro.
 - Espaçamento em múltiplos de 6 px: 6, 12, 18, 24.
 - Janela padrão **1200 × 800**, mínimo **420 × 400**; área de áudio expansível, sem limite central de largura.
-- Acima de 1000 px: áudio à esquerda, conexão à direita em painel de aproximadamente 340 px.
-- Até 1000 px: módulos e conexão em uma coluna, com rolagem vertical.
+- Acima de 1100 px: áudio à esquerda, conexão à direita em painel de aproximadamente 340 px.
+- Até 1100 px: módulos e conexão em uma coluna, com rolagem vertical.
 - Os módulos se distribuem em até duas colunas; o seletor de perfis quebra linhas em larguras menores.
 
 ## Componentes

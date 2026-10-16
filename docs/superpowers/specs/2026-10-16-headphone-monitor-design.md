@@ -59,7 +59,7 @@ Se a fila encher, interromper o retorno e informar que ele não acompanhou o
 a validade da sessão antes de reproduzir blocos; desativar descarta pendências.
 
 Um worker dedicado escreve PCM f32 mono no `pw-cat`, com alvo explícito pelo
-nome do node, taxa de 48000 Hz e pedido de latência de 20 ms. O pedido ao
+serial do node, sem fallback ou reconexão automática, taxa de 48000 Hz e pedido de latência de 20 ms. O pedido ao
 PipeWire e o limite da fila não representam uma medição da latência total:
 não exibir um número como se incluísse celular, rede, Opus, RNNoise e hardware.
 
@@ -72,7 +72,8 @@ Nenhum reinício automático deve reproduzir blocos de uma sessão anterior.
 Listar saídas com `pw-dump` e analisar o JSON com serde_json, já disponível.
 Aceitar nodes de classe `Audio/Sink` com `node.name` válido. O destino deve
 continuar identificado por nome e, durante uma ativação, por identidade do
-node (por exemplo serial), para detectar substituições após reconexões.
+node (serial), para detectar substituições após reconexões. Sem serial válido,
+a abertura falha localmente em vez de usar um nome que possa ser reutilizado.
 Listagem ocorre em worker, com timeout de 2 s e cancelamento do processo.
 Dados inválidos/indisponibilidade geram mensagem no painel, sem travar GTK.
 

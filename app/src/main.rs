@@ -636,7 +636,7 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .build();
     // Em telas estreitas os mesmos widgets passam para uma única coluna.
     let compact = adw::Breakpoint::new(
-        adw::BreakpointCondition::parse("max-width: 1000px").expect("breakpoint válido"),
+        adw::BreakpointCondition::parse("max-width: 1100px").expect("breakpoint válido"),
     );
     compact.add_setter(
         &hero.meters,
@@ -663,24 +663,23 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
 
     let recording_panel = recording_ui::panel(shared.clone(), &win);
     let monitor_panel = monitor_ui::panel(shared.clone());
-    let local_panels = gtk::FlowBox::builder()
-        .selection_mode(gtk::SelectionMode::None)
-        .min_children_per_line(1)
-        .max_children_per_line(2)
-        .column_spacing(18)
-        .row_spacing(18)
+    let local_panels = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(18)
         .homogeneous(true)
         .build();
     for panel in [&recording_panel, &monitor_panel] {
         panel.set_width_request(310);
+        panel.set_hexpand(true);
         panel.set_valign(gtk::Align::Start);
-        local_panels.insert(panel, -1);
+        local_panels.append(panel);
     }
     compact.add_setter(
         &local_panels,
-        "max-children-per-line",
-        Some(&1u32.to_value()),
+        "orientation",
+        Some(&gtk::Orientation::Vertical.to_value()),
     );
+    compact.add_setter(&local_panels, "homogeneous", Some(&false.to_value()));
     studio.insert_child_after(&local_panels, Some(&fx));
 
     // add_css_class, e não css_classes(): este último apaga `csd`/`background`, que dão à

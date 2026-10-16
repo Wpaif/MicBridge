@@ -410,6 +410,18 @@ mod worker_tests {
         }
     }
     #[tokio::test]
+    async fn missing_identity_fails_without_name_fallback() {
+        let f = Fixture::new(SLEEP);
+        let m = Monitor::with_executable(f.executable.clone());
+        let mut output = target();
+        output.serial = None;
+        m.open(1, 7, output, Arc::new(AtomicBool::new(true)));
+        wait(|| m.status().phase != MonitorPhase::Opening);
+        assert_eq!(m.status().phase, MonitorPhase::Failed);
+        assert!(f.pid().is_none());
+        m.stop_and_wait().await.unwrap();
+    }
+    #[tokio::test]
     async fn monitor_worker_sends_explicit_target_and_scaled_pcm() {
         let f = Fixture::new("printf '%s\\n' \"$@\" > '@DIR@/args'; cat > '@DIR@/pcm'");
         let m = Monitor::with_executable(f.executable.clone());
@@ -431,7 +443,9 @@ mod worker_tests {
                 "--playback",
                 "--raw",
                 "--target",
-                "headphones.target",
+                "11",
+                "--properties",
+                "node.dont-fallback=true node.dont-reconnect=true node.name=micbridge_monitor",
                 "--rate",
                 "48000",
                 "--channels",

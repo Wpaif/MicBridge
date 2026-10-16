@@ -126,7 +126,7 @@ fn scale_row(
     scale.set_digits(digits);
     scale.set_round_digits(digits);
     scale.set_value(value);
-    scale.set_width_request(200);
+    scale.set_width_request(140);
     scale.set_draw_value(true);
     scale.set_valign(gtk::Align::Center);
     scale.connect_value_changed(move |s| on_change(s.value() as f32));
@@ -337,11 +337,13 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
 
     let url_row = adw::ActionRow::builder()
         .title(if mdns {
-            "Endereço do servidor (nome fixo)"
+            "Servidor · nome fixo"
         } else {
-            "Endereço do servidor (IP, pode mudar)"
+            "Servidor · IP local"
         })
         .subtitle(&url)
+        .title_lines(2)
+        .subtitle_lines(2)
         .subtitle_selectable(true)
         .build();
     let qr_btn = gtk::Button::builder()
@@ -365,6 +367,7 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     // Janela de pareamento: novos celulares só entram enquanto estiver aberta.
     let pair_row = adw::SwitchRow::builder()
         .title("Aceitar novo celular")
+        .subtitle_lines(2)
         .active(shared.pairing_remaining() > 0)
         .build();
     {
@@ -383,6 +386,7 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     // Celulares pareados (persistem entre execuções).
     let devices_row = adw::ActionRow::builder()
         .title("Celulares pareados")
+        .title_lines(2)
         .build();
     let forget_btn = gtk::Button::builder()
         .label("Esquecer todos")
@@ -407,10 +411,23 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
 
     // Impressão digital do certificado: confira no celular ao aceitar o aviso.
     let fp_row = adw::ActionRow::builder()
-        .title("Impressão digital do certificado (SHA-256)")
+        .title("Certificado · SHA-256")
+        .subtitle_lines(2)
         .subtitle("aguardando o servidor…")
         .subtitle_selectable(true)
         .build();
+    let fp_copy = gtk::Button::builder()
+        .icon_name("edit-copy-symbolic")
+        .tooltip_text("Copiar impressão digital completa")
+        .valign(gtk::Align::Center)
+        .css_classes(["flat"])
+        .build();
+    fp_copy.connect_clicked(|button| {
+        if let Some(fp) = tls::fingerprint() {
+            button.clipboard().set_text(&fp);
+        }
+    });
+    fp_row.add_suffix(&fp_copy);
     conn.add(&fp_row);
 
     // Tratamento: um preset resolve para a maioria; o resto fica em "Avançado".
@@ -426,13 +443,21 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .css_classes(["mb-profile-desc"])
         .build();
 
-    let adv = adw::ExpanderRow::builder()
-        .title("Ajustes avançados")
-        .subtitle("Opcional: só mexa se quiser refinar o som")
+    let cleanup = adw::PreferencesGroup::builder()
+        .title("01 · Limpeza")
+        .build();
+    let tone = adw::PreferencesGroup::builder()
+        .title("02 · Timbre")
+        .build();
+    let dynamics = adw::PreferencesGroup::builder()
+        .title("03 · Dinâmica")
+        .build();
+    let gain = adw::PreferencesGroup::builder()
+        .title("04 · Volume")
         .build();
 
-    let denoise = switch_row("Cancelamento de ruído (RNNoise)", true, p(|x| &x.denoise));
-    let highpass = switch_row("Filtro de graves (tira zumbido)", true, p(|x| &x.highpass));
+    let denoise = switch_row("Redução de ruído", true, p(|x| &x.denoise));
+    let highpass = switch_row("Filtro de graves", true, p(|x| &x.highpass));
     let gate = switch_row("Noise gate", true, p(|x| &x.gate));
     let sh = shared.clone();
     let (gate_row, gate_scale) = scale_row(
@@ -446,13 +471,9 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     let presence = switch_row("Realçar clareza da voz", true, p(|x| &x.presence));
     let comp = switch_row("Compressor", true, p(|x| &x.compressor));
     let sh = shared.clone();
-    let (thr_row, thr_scale) = scale_row(
-        "Limiar do compressor (dB)",
-        (-50.0, 0.0),
-        1.0,
-        -20.0,
-        move |v| sh.params.set_comp_threshold_db(v),
-    );
+    let (thr_row, thr_scale) = scale_row("Limiar (dB)", (-50.0, 0.0), 1.0, -20.0, move |v| {
+        sh.params.set_comp_threshold_db(v)
+    });
     let sh = shared.clone();
     let (ratio_row, ratio_scale) = scale_row("Razão", (1.0, 10.0), 0.5, 4.0, move |v| {
         sh.params.set_comp_ratio(v)
@@ -470,14 +491,18 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .sync_create()
         .build();
 
-    for row in [
-        &denoise, &highpass, &gate, &deesser, &presence, &comp, &auto_gain,
-    ] {
-        adv.add_row(row);
-    }
-    for row in [&gate_row, &thr_row, &ratio_row, &makeup_row] {
-        adv.add_row(row);
-    }
+    cleanup.add(&denoise);
+    cleanup.add(&highpass);
+    cleanup.add(&gate);
+    cleanup.add(&gate_row);
+    tone.add(&deesser);
+    tone.add(&presence);
+    dynamics.add(&comp);
+    dynamics.add(&thr_row);
+    dynamics.add(&ratio_row);
+    gain.add(&auto_gain);
+    gain.add(&makeup_row);
+
     // Aplica o preset e espelha os valores nos controles avançados.
     let sync = {
         let sh = shared.clone();
@@ -513,37 +538,119 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .unwrap_or(1);
     let preset_names: Vec<&str> = dsp::Preset::ALL.iter().map(|p| p.name()).collect();
     let preset_bar = widgets::segmented(&preset_names, initial, sync);
-    // O seletor e a descrição entram antes dos ajustes avançados.
-    // Só debug: MICBRIDGE_DEMO=<estado> mostra os ajustes avançados e fecha o pareamento.
     #[cfg(debug_assertions)]
     if std::env::var("MICBRIDGE_DEMO").is_ok() {
-        adv.set_expanded(true);
         shared.close_pairing();
     }
     fx.add(&preset_bar);
     fx.add(&preset_desc);
-    // Em grupo à parte: o libadwaita põe as linhas de lista antes dos demais widgets.
-    let adv_group = adw::PreferencesGroup::new();
-    adv_group.add(&adv);
 
-    let page = adw::PreferencesPage::new();
-    page.add(&state_group);
-    page.add(&qr_group);
-    page.add(&fx);
-    page.add(&adv_group);
-    page.add(&conn);
+    let modules = gtk::FlowBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .min_children_per_line(1)
+        .max_children_per_line(2)
+        .column_spacing(18)
+        .row_spacing(18)
+        .homogeneous(true)
+        .valign(gtk::Align::Start)
+        .build();
+    for group in [&cleanup, &tone, &dynamics, &gain] {
+        group.set_width_request(310);
+        group.set_hexpand(true);
+        group.set_valign(gtk::Align::Start);
+        modules.insert(group, -1);
+    }
+
+    let studio = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(18)
+        .hexpand(true)
+        .css_classes(["mb-studio"])
+        .build();
+    studio.append(&state_group);
+    studio.append(&fx);
+    studio.append(&modules);
+    let note = gtk::Label::builder()
+        .label("48 kHz · Mono → Estéreo · Limitador de segurança ativo")
+        .xalign(0.0)
+        .css_classes(["dim-label", "caption"])
+        .build();
+    studio.append(&note);
+
+    let sidebar = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(24)
+        .width_request(310)
+        .css_classes(["mb-sidebar"])
+        .build();
+    sidebar.append(&qr_group);
+    sidebar.append(&conn);
+    let sidebar_clamp = adw::Clamp::builder()
+        .maximum_size(340)
+        .tightening_threshold(340)
+        .hexpand(false)
+        .valign(gtk::Align::Start)
+        .child(&sidebar)
+        .build();
+
+    let workspace = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(30)
+        .margin_top(24)
+        .margin_bottom(24)
+        .margin_start(24)
+        .margin_end(24)
+        .valign(gtk::Align::Start)
+        .build();
+    workspace.append(&studio);
+    workspace.append(&sidebar_clamp);
+    let scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vexpand(true)
+        .child(&workspace)
+        .build();
     let view = adw::ToolbarView::new();
-    view.add_top_bar(&adw::HeaderBar::new());
-    view.set_content(Some(&page));
+    let header = adw::HeaderBar::new();
+    header.set_title_widget(Some(&adw::WindowTitle::new("MicBridge", "ESTÚDIO DE VOZ")));
+    view.add_top_bar(&header);
+    view.set_content(Some(&scroll));
 
     let win = adw::ApplicationWindow::builder()
         .application(app)
         .title("MicBridge")
-        .default_width(560)
-        .default_height(780)
+        .default_width(1200)
+        .default_height(800)
+        .width_request(420)
+        .height_request(400)
         .content(&view)
         .hide_on_close(true)
         .build();
+    // Em telas estreitas os mesmos widgets passam para uma única coluna.
+    let compact = adw::Breakpoint::new(
+        adw::BreakpointCondition::parse("max-width: 1000px").expect("breakpoint válido"),
+    );
+    compact.add_setter(
+        &hero.meters,
+        "orientation",
+        Some(&gtk::Orientation::Vertical.to_value()),
+    );
+    compact.add_setter(&hero.meters, "spacing", Some(&12i32.to_value()));
+    compact.add_setter(
+        &workspace,
+        "orientation",
+        Some(&gtk::Orientation::Vertical.to_value()),
+    );
+    compact.add_setter(&sidebar, "width-request", Some(&(-1i32).to_value()));
+    compact.add_setter(&sidebar_clamp, "maximum-size", Some(&2000i32.to_value()));
+    compact.add_setter(
+        &sidebar_clamp,
+        "tightening-threshold",
+        Some(&2000i32.to_value()),
+    );
+    compact.add_setter(&modules, "max-children-per-line", Some(&1u32.to_value()));
+    compact.add_setter(&workspace, "margin-start", Some(&12i32.to_value()));
+    compact.add_setter(&workspace, "margin-end", Some(&12i32.to_value()));
+    win.add_breakpoint(compact);
 
     // add_css_class, e não css_classes(): este último apaga `csd`/`background`, que dão à
     // janela os cantos arredondados e a sombra.

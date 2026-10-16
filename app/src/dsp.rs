@@ -512,6 +512,10 @@ impl Processor {
             } else {
                 self.gate_open = false;
             }
+        } else if self.gate_open {
+            // A fala voltou à faixa de sustentação: o hold mede silêncio
+            // consecutivo, não a soma das pausas ao longo de uma frase.
+            self.gate_hold = GATE_HOLD_FRAMES;
         }
 
         // O gate atenua o sinal em vez de zerá-lo completamente.
@@ -634,6 +638,68 @@ mod tests {
         for frame in input.chunks_exact_mut(FRAME) {
             proc.process(frame, p);
         }
+    }
+
+    fn gate_only() -> Params {
+        let p = Params::default();
+        p.apply_preset(Preset::Bruto);
+        p.set_makeup_db(0.0);
+        p.gate.store(true, Relaxed);
+        p.set_gate_db(-40.0);
+        p
+    }
+
+    #[test]
+    fn gate_preserva_fala_baixa_entre_pausas_curtas() {
+        let p = gate_only();
+        let mut proc = Processor::new();
+        // Abre com voz acima de -40 dBFS.
+        for frame in sine(500.0, 0.04, 10).chunks_exact_mut(FRAME) {
+            proc.process(frame, &p);
+        }
+        // -43 dBFS: abaixo da abertura, mas acima do fechamento (-44).
+        // Cada pausa tem só 100 ms, menor que o hold de 200 ms.
+        for pause in 0..6 {
+            for _ in 0..10 {
+                proc.process(&mut [0.0; FRAME], &p);
+            }
+            let mut quiet = sine(500.0, 0.01, 20);
+            for (i, frame) in quiet.chunks_exact_mut(FRAME).enumerate() {
+                proc.process(frame, &p);
+                assert!(
+                    rms(frame) > 0.0065,
+                    "fala atenuada após pausa {pause}, frame {i}: RMS {}",
+                    rms(frame)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn gate_fecha_apos_pausa_longa_e_reabre_com_voz() {
+        let p = gate_only();
+        let mut proc = Processor::new();
+        for frame in sine(500.0, 0.04, 10).chunks_exact_mut(FRAME) {
+            proc.process(frame, &p);
+        }
+        let mut background = sine(500.0, 0.001, 100);
+        for frame in background.chunks_exact_mut(FRAME) {
+            proc.process(frame, &p);
+        }
+        assert!(rms(&background[background.len() - FRAME..]) < 0.00004);
+        let mut voice = sine(500.0, 0.04, 2);
+        for frame in voice.chunks_exact_mut(FRAME) {
+            proc.process(frame, &p);
+        }
+        assert!(rms(&voice[FRAME..]) > 0.027);
+    }
+
+    #[test]
+    fn gate_nao_abre_com_ruido_na_faixa_de_histerese() {
+        let p = gate_only();
+        let mut quiet = sine(500.0, 0.01, 100);
+        run(&p, &mut quiet);
+        assert!(rms(&quiet[quiet.len() - FRAME..]) < 0.0003);
     }
 
     #[test]

@@ -307,6 +307,7 @@ mod tests {
         for shutdown in [false, true] {
             let d = Temp::new();
             let mut shared = crate::state::Shared::new();
+            shared.set_link(crate::state::Link::Connected);
             shared.playback = player(&d, "echo $$ > \"$1/pid\"; exec sleep 30");
             shared.playback.play(take(), Version::Original);
             wait(|| {

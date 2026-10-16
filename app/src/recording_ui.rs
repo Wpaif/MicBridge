@@ -62,7 +62,12 @@ fn export_selection(
     if dest.needs_confirmation() && !confirmed {
         return Ok(ExportOutcome::Cancelled);
     }
-    crate::recording::wav::export(take, &dest.original, &dest.treated).map_err(|e| {
+    let result = if confirmed {
+        crate::recording::wav::export_with_overwrite(take, &dest.original, &dest.treated, true)
+    } else {
+        crate::recording::wav::export(take, &dest.original, &dest.treated)
+    };
+    result.map_err(|e| {
         if e.completed.is_empty() {
             format!("Não foi possível exportar: {}", e.source)
         } else {

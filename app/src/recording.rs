@@ -55,6 +55,7 @@ struct Inner {
     next: AtomicU64,
     failed: AtomicU64,
     producers: AtomicUsize,
+    queued: AtomicUsize,
     data: Mutex<Data>,
 }
 #[derive(Clone)]
@@ -71,6 +72,7 @@ impl Recorder {
             next: AtomicU64::new(0),
             failed: AtomicU64::new(0),
             producers: AtomicUsize::new(0),
+            queued: AtomicUsize::new(0),
             data: Mutex::new(Data {
                 status: RecordingStatus {
                     id: 0,
@@ -147,7 +149,9 @@ impl Recorder {
                     original: original.to_vec(),
                     treated: treated.to_vec(),
                 };
+                self.inner.queued.fetch_add(1, SeqCst);
                 if self.inner.tx.try_send(pair).is_err() {
+                    self.inner.queued.fetch_sub(1, SeqCst);
                     self.fail(id);
                 }
             }
@@ -182,21 +186,24 @@ impl Recorder {
 }
 fn consume(inner: &Inner, pair: Pair) {
     let mut d = inner.data.lock().unwrap();
-    if d.status.id != pair.id || d.status.state != TakeState::Recording {
-        return;
+    if d.status.id == pair.id && d.status.state == TakeState::Recording {
+        let n = pair.original.len().min(MAX_SAMPLES - d.original.len());
+        d.original.extend_from_slice(&pair.original[..n]);
+        d.treated.extend_from_slice(&pair.treated[..n]);
+        d.status.samples = d.original.len();
+        if d.status.samples == MAX_SAMPLES {
+            let _ = inner.active.compare_exchange(pair.id, 0, SeqCst, SeqCst);
+        }
     }
-    let n = pair.original.len().min(MAX_SAMPLES - d.original.len());
-    d.original.extend_from_slice(&pair.original[..n]);
-    d.treated.extend_from_slice(&pair.treated[..n]);
-    d.status.samples = d.original.len();
-    if d.status.samples == MAX_SAMPLES {
-        let _ = inner.active.compare_exchange(pair.id, 0, SeqCst, SeqCst);
-    }
+    // Includes stale blocks: finalization must wait for every accepted entry,
+    // including entries queued after the worker's last empty-queue observation.
+    inner.queued.fetch_sub(1, SeqCst);
 }
 fn finalize(inner: &Inner) {
     let mut d = inner.data.lock().unwrap();
     if inner.active.load(SeqCst) != 0
         || inner.producers.load(SeqCst) != 0
+        || inner.queued.load(SeqCst) != 0
         || d.status.state != TakeState::Recording
     {
         return;
@@ -377,6 +384,26 @@ mod tests {
         assert_ne!(old, new);
         r.push(sampled_id, 1, &original, &[0.2]);
         assert!(finish(&r, new).is_none());
+    }
+    #[test]
+    fn finalizer_from_old_epoch_must_not_discard_newly_accepted_block() {
+        let (r, rx) = Recorder::with_channel(1);
+        let old = r.start(1);
+        r.stop(old);
+        // Worker has just drained an empty queue for the old capture.
+        let new = r.start(2);
+        r.push(new, 2, &[0.1], &[0.2]);
+        r.stop(new);
+        // It resumes after the new capture accepted a block and stopped.
+        finalize(&r.inner);
+        assert_eq!(r.status().state, TakeState::Recording);
+        for pair in rx.try_iter() {
+            consume(&r.inner, pair);
+        }
+        finalize(&r.inner);
+        let t = r.take(new).unwrap();
+        assert_eq!(t.original, [0.1]);
+        assert_eq!(t.treated, [0.2]);
     }
     #[test]
     fn full_queue_never_waits_and_preserves_accepted_prefix() {

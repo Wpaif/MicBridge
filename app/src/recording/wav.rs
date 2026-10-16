@@ -72,7 +72,22 @@ fn same_destination(a: &Path, b: &Path) -> bool {
         _ => false,
     }
 }
+/// Export without permission to replace any existing destination.
 pub fn export(take: &Take, original: &Path, treated: &Path) -> Result<(), ExportError> {
+    export_with_overwrite(take, original, treated, false)
+}
+/// Only pass `overwrite = true` after explicit confirmation for both paths.
+pub fn export_with_overwrite(
+    take: &Take,
+    original: &Path,
+    treated: &Path,
+    overwrite: bool,
+) -> Result<(), ExportError> {
+    use std::{
+        fs::{File, OpenOptions},
+        io::Write,
+        os::unix::fs::{MetadataExt, OpenOptionsExt},
+    };
     let mut completed = Vec::new();
     if take.original.is_empty()
         || take.original.len() != take.treated.len()
@@ -86,12 +101,61 @@ pub fn export(take: &Take, original: &Path, treated: &Path) -> Result<(), Export
             ),
         });
     }
-    for (path, samples) in [(original, &take.original), (treated, &take.treated)] {
-        let result = encode(samples).and_then(|bytes| std::fs::write(path, bytes));
-        if let Err(source) = result {
-            return Err(ExportError { completed, source });
+    // Reject dangling and non-dangling symbolic links before creating either WAV.
+    // O_NOFOLLOW below also closes the race between this check and open().
+    for path in [original, treated] {
+        if let Ok(metadata) = std::fs::symlink_metadata(path) {
+            if !metadata.is_file() {
+                return Err(ExportError {
+                    completed,
+                    source: io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Escolha arquivos regulares, sem links simbólicos, para os dois WAVs",
+                    ),
+                });
+            }
         }
-        completed.push(path.to_owned());
+    }
+    let mut opened: Vec<File> = Vec::new();
+    for (path, samples) in [(original, &take.original), (treated, &take.treated)] {
+        let result = (|| -> io::Result<File> {
+            let bytes = encode(samples)?;
+            let mut options = OpenOptions::new();
+            options
+                .write(true)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+            if overwrite {
+                options.create(true);
+            } else {
+                options.create_new(true);
+            }
+            let mut file = options.open(path)?;
+            let metadata = file.metadata()?;
+            if !metadata.is_file()
+                || opened.iter().any(|other| {
+                    other
+                        .metadata()
+                        .is_ok_and(|m| m.dev() == metadata.dev() && m.ino() == metadata.ino())
+                })
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Os destinos precisam ser arquivos regulares distintos",
+                ));
+            }
+            // Opening must not truncate until the actual file identity is checked.
+            file.set_len(0)?;
+            file.write_all(&bytes)?;
+            file.flush()?;
+            Ok(file)
+        })();
+        match result {
+            Ok(file) => {
+                opened.push(file);
+                completed.push(path.to_owned());
+            }
+            Err(source) => return Err(ExportError { completed, source }),
+        }
     }
     Ok(())
 }
@@ -194,6 +258,28 @@ mod tests {
         let e = export(&take(), &a, &bad).unwrap_err();
         assert_eq!(e.completed, [a.clone()]);
         assert!(a.exists());
+    }
+    #[test]
+    fn rejects_dangling_symlink_alias_before_creating_original() {
+        let d = Temp::new();
+        let a = d.0.join("a.wav");
+        let b = d.0.join("b.wav");
+        std::os::unix::fs::symlink(&a, &b).unwrap();
+        assert!(export(&take(), &a, &b).is_err());
+        assert!(!a.exists());
+    }
+    #[test]
+    fn unconfirmed_export_never_overwrites_an_existing_destination() {
+        let d = Temp::new();
+        let a = d.0.join("a.wav");
+        let b = d.0.join("b.wav");
+        // This also covers a destination created after the chooser's initial check:
+        // the writer must protect it without depending on that check.
+        assert!(!b.exists());
+        std::fs::write(&b, b"must survive").unwrap();
+        let error = export(&take(), &a, &b).unwrap_err();
+        assert_eq!(std::fs::read(&b).unwrap(), b"must survive");
+        assert_eq!(error.completed, [a]);
     }
     #[test]
     fn rejects_empty_or_unpaired_take() {

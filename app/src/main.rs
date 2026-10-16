@@ -1,4 +1,5 @@
 mod dsp;
+mod monitor;
 mod output;
 mod recording;
 mod recording_ui;

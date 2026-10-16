@@ -133,5 +133,7 @@ Contratos entre tarefas:
 - [x] Rodar `cargo test --offline --manifest-path app/Cargo.toml`, `cargo build --offline --manifest-path app/Cargo.toml`, `cargo fmt --manifest-path app/Cargo.toml --check` e `git diff --check`. Esperado: zero falhas; teste gráfico explicitamente executado em separado.
 - [x] Fazer uma revisão independente da branch completa, incluindo Review Focus. Corrigir achados importantes com testes de regressão RED→GREEN e suíte verde.
 - [x] Verificar listagem e abertura de saída no PipeWire real disponível, sem afirmar validação auditiva de fala se não realizada. Registrar limitações, diferenças da especificação e resultados em `docs/testing/headphone-monitor.md`.
-- [ ] Registrar commits no padrão português, confirmar árvore limpa e fazer merge local `--no-ff` na `main`, já autorizado pelo usuário; reexecutar suíte após merge e preservar branch para organização.
-- [ ] Informar hash, resultados e o que requer teste manual no fone; não iniciar a funcionalidade seguinte neste lote.
+- [x] Registrar commits no padrão português, confirmar árvore limpa e fazer merge local `--no-ff` na `main`, já autorizado pelo usuário; reexecutar suíte após merge e preservar branch para organização.
+- [x] Informar hash, resultados e o que requer teste manual no fone; não iniciar a funcionalidade seguinte neste lote.
+
+Resultado: merge local `0dc7d6e` na `main`; suíte pós-merge com 78 aprovados e dois gráficos já executados separadamente. Branch preservada; sem push. Ver `docs/testing/headphone-monitor.md`.

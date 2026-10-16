@@ -73,3 +73,9 @@ conecte o celular, escolha o fone, ative o retorno em 25%, fale, varie o volume 
 alterne com A/B. Retire a saída e confirme interrupção sem troca para alto-falantes.
 A fila limitada pode desligar o retorno sob sobrecarga; isso mantém o áudio principal
 independente e exige reativação explícita. Nenhuma funcionalidade seguinte foi iniciada.
+
+## Integração
+
+Merge local `0dc7d6e` na `main`, com branch `feat/headphone-monitor` preservada.
+Suíte repetida após o merge: 78 aprovados, zero falhas, dois gráficos excluídos
+por padrão (ambos executados explicitamente antes do merge). Sem push remoto.

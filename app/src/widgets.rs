@@ -11,11 +11,14 @@ const METER_CLIP: f64 = 0.90;
 /// Card de status em destaque: bolinha, estado, detalhe e medidores de entrada/saída.
 pub struct Hero {
     pub root: gtk::Box,
+    pub meters: gtk::Box,
     dot: gtk::Box,
     title: gtk::Label,
     detail: gtk::Label,
     in_bar: gtk::LevelBar,
     out_bar: gtk::LevelBar,
+    in_value: gtk::Label,
+    out_value: gtk::Label,
 }
 
 pub fn hero() -> Hero {
@@ -46,25 +49,32 @@ pub fn hero() -> Hero {
     head.append(&dot);
     head.append(&texts);
 
-    let (in_row, in_bar) = meter("ENTRADA");
-    let (out_row, out_bar) = meter("SAÍDA TRATADA");
+    let (in_row, in_bar, in_value) = meter("ENTRADA");
+    let (out_row, out_bar, out_value) = meter("SAÍDA TRATADA");
 
     let root = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
-        .spacing(18)
+        .spacing(12)
         .css_classes(["mb-hero"])
         .build();
+    let meters = gtk::Box::builder().spacing(24).homogeneous(true).build();
+    in_row.set_hexpand(true);
+    out_row.set_hexpand(true);
+    meters.append(&in_row);
+    meters.append(&out_row);
     root.append(&head);
-    root.append(&in_row);
-    root.append(&out_row);
+    root.append(&meters);
 
     Hero {
         root,
+        meters,
         dot,
         title,
         detail,
         in_bar,
         out_bar,
+        in_value,
+        out_value,
     }
 }
 
@@ -91,6 +101,13 @@ impl Hero {
     pub fn set_levels(&self, input: f64, output: f64) {
         set_level(&self.in_bar, input);
         set_level(&self.out_bar, output);
+        for (label, value) in [(&self.in_value, input), (&self.out_value, output)] {
+            label.set_label(&if value <= 0.0 {
+                "−∞ dBFS".to_string()
+            } else {
+                format!("{:.1} dBFS", value * 60.0 - 60.0)
+            });
+        }
     }
 }
 
@@ -105,7 +122,7 @@ fn set_level(bar: &gtk::LevelBar, value: f64) {
     }
 }
 
-fn meter(label: &str) -> (gtk::Box, gtk::LevelBar) {
+fn meter(label: &str) -> (gtk::Box, gtk::LevelBar, gtk::Label) {
     let bar = gtk::LevelBar::for_interval(0.0, 1.0);
     // Sem os níveis padrão do GTK: a cor segue as classes `hot`/`clip` acima.
     for name in ["low", "high", "full"] {
@@ -122,10 +139,43 @@ fn meter(label: &str) -> (gtk::Box, gtk::LevelBar) {
         .css_classes(["mb-meter-label"])
         .build();
 
-    let row = gtk::Box::builder().spacing(12).build();
-    row.append(&text);
+    let value = gtk::Label::builder()
+        .label("−∞ dBFS")
+        .xalign(1.0)
+        .hexpand(true)
+        .css_classes(["mb-meter-value"])
+        .build();
+    let head = gtk::Box::builder().spacing(12).build();
+    head.append(&text);
+    head.append(&value);
+    let ticks = gtk::DrawingArea::builder().content_height(14).build();
+    ticks.set_draw_func(|_, cr, width, _| {
+        cr.set_source_rgba(0.85, 0.88, 0.93, 0.55);
+        cr.select_font_face(
+            "monospace",
+            gtk::cairo::FontSlant::Normal,
+            gtk::cairo::FontWeight::Normal,
+        );
+        cr.set_font_size(10.0);
+        for (i, text) in ["−60", "−48", "−36", "−24", "−12", "0 dBFS"]
+            .iter()
+            .enumerate()
+        {
+            let extent = cr.text_extents(text).map(|e| e.width()).unwrap_or(0.0);
+            let x = (width as f64 * i as f64 / 5.0 - extent / 2.0)
+                .clamp(0.0, (width as f64 - extent).max(0.0));
+            cr.move_to(x, 11.0);
+            let _ = cr.show_text(text);
+        }
+    });
+    let row = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(8)
+        .build();
+    row.append(&head);
     row.append(&bar);
-    (row, bar)
+    row.append(&ticks);
+    (row, bar, value)
 }
 
 /// Controle segmentado (um botão por opção). Chama `on_select` com o índice, inclusive
@@ -134,10 +184,14 @@ pub fn segmented(
     labels: &[&str],
     selected: usize,
     on_select: impl Fn(usize) + 'static,
-) -> gtk::Box {
+) -> gtk::FlowBox {
     let on_select = Rc::new(on_select);
-    let root = gtk::Box::builder()
-        .spacing(2)
+    let root = gtk::FlowBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .min_children_per_line(1)
+        .max_children_per_line(5)
+        .column_spacing(2)
+        .row_spacing(2)
         .homogeneous(true)
         .css_classes(["mb-segmented"])
         .build();
@@ -157,7 +211,7 @@ pub fn segmented(
                 cb(i);
             }
         });
-        root.append(&button);
+        root.insert(&button, -1);
         buttons.push(button);
     }
     if let Some(b) = buttons.get(selected) {

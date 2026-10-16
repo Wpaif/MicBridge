@@ -8,7 +8,7 @@ use tokio::process::{Child, ChildStdin, Command};
 pub const SINK: &str = "vdo_input";
 const SOURCE: &str = "vdo_mic";
 
-trait DieWithParent {
+pub(crate) trait DieWithParent {
     fn die_with_parent(&mut self) -> &mut Self;
 }
 

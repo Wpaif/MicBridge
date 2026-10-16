@@ -1,5 +1,7 @@
 mod dsp;
 mod output;
+mod recording;
+mod recording_ui;
 mod server;
 mod settings;
 mod state;
@@ -49,6 +51,8 @@ fn main() -> glib::ExitCode {
     }
 
     let shared = Arc::new(Shared::new());
+    let shutdown_shared = shared.clone();
+    app.connect_shutdown(move |_| shutdown_shared.stop_audio_tools());
 
     // Runtime tokio (WebRTC + HTTP) em thread própria; GTK fica na principal.
     let rt = tokio::runtime::Runtime::new().expect("tokio");
@@ -651,6 +655,9 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     compact.add_setter(&workspace, "margin-start", Some(&12i32.to_value()));
     compact.add_setter(&workspace, "margin-end", Some(&12i32.to_value()));
     win.add_breakpoint(compact);
+
+    let recording_panel = recording_ui::panel(shared.clone(), &win);
+    studio.insert_child_after(&recording_panel, Some(&fx));
 
     // add_css_class, e não css_classes(): este último apaga `csd`/`background`, que dão à
     // janela os cantos arredondados e a sombra.

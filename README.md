@@ -178,3 +178,23 @@ Escolha um **Perfil de voz** e pronto. Para refinar, abra **Ajustes avançados**
 ## 📄 Licença
 
 Projeto pessoal, sem licença definida.
+
+## Teste de voz e comparação A/B
+
+No painel **Teste de voz**, toque em **Gravar teste**, fale e depois em **Parar gravação**.
+A captura termina automaticamente após 30 segundos de áudio recebido. Você pode ouvir
+**Original** (PCM recebido antes dos efeitos locais) e **Tratado** (resultado do DSP).
+A reprodução usa a saída padrão do sistema; use fones para evitar realimentação.
+Iniciar outro teste encerra a reprodução e substitui o anterior. Uma desconexão finaliza
+o trecho capturado: reconectar não continua a gravação antiga.
+
+**Exportar WAVs** permite escolher um destino e grava dois arquivos mono a 48 kHz,
+PCM de 16 bits: o original e um arquivo com sufixo `-tratado.wav`. O aplicativo pede
+confirmação antes de substituir arquivos existentes. Cancelar não grava nada. Falhas
+informam se apenas um dos arquivos foi concluído. Nenhum teste é salvo automaticamente.
+
+O RNNoise introduz atraso interno; as versões preservam as posições de captura antes e
+depois do DSP, sem compensar esse atraso. O teste serve para comparar timbre, volume e
+cortes, e não para medir a latência total entre celular e saída. Se a fila de captura
+lotar, a gravação termina como **Teste incompleto**, preservando o trecho disponível;
+o áudio ao vivo continua sem esperar pelo gravador.

@@ -17,7 +17,9 @@ use std::sync::{
 use tokio::{io::AsyncWriteExt, process::Command, sync::watch};
 #[derive(Clone)]
 enum Request {
-    Stop,
+    Stop {
+        operation: u64,
+    },
     Play {
         operation: u64,
         take: Arc<Take>,
@@ -28,6 +30,7 @@ struct Inner {
     tx: watch::Sender<Request>,
     status: Arc<Mutex<PlaybackStatus>>,
     next: AtomicU64,
+    settled: watch::Receiver<u64>,
 }
 #[derive(Clone)]
 pub struct Playback {
@@ -58,8 +61,9 @@ impl Playback {
             .collect(),
         )
     }
-    fn with_command(executable: PathBuf, args: Vec<OsString>) -> Self {
-        let (tx, mut rx) = watch::channel(Request::Stop);
+    pub(crate) fn with_command(executable: PathBuf, args: Vec<OsString>) -> Self {
+        let (tx, mut rx) = watch::channel(Request::Stop { operation: 0 });
+        let (settled_tx, settled) = watch::channel(0u64);
         let status = Arc::new(Mutex::new(PlaybackStatus::default()));
         let worker_status = status.clone();
         std::thread::Builder::new().name("micbridge-playback".into()).spawn(move || {
@@ -71,6 +75,9 @@ impl Playback {
                         Some(request)=>request,
                         None=>{if rx.changed().await.is_err() {break;}rx.borrow_and_update().clone()}
                     };
+                    let operation=match &request {Request::Stop{operation}|Request::Play{operation,..}=>*operation};
+                    // The previous child's kill/wait completed before this command is acknowledged.
+                    settled_tx.send_replace(operation);
                     let Request::Play {operation,take,version}=request else {continue};
                     let samples=match version {Version::Original=>&take.original,Version::Treated=>&take.treated};
                     if samples.is_empty() {complete(&worker_status,operation,Some("Teste sem áudio para reproduzir".into()));continue;}
@@ -107,6 +114,7 @@ impl Playback {
                 tx,
                 status,
                 next: AtomicU64::new(0),
+                settled,
             }),
         }
     }
@@ -126,14 +134,34 @@ impl Playback {
             version,
         });
     }
-    pub fn stop(&self) {
+    pub fn stop_and_wait(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), String>> + Send + 'static {
+        let (operation, mut settled) = self.request_stop();
+        async move {
+            loop {
+                if *settled.borrow_and_update() >= operation {
+                    return Ok(());
+                }
+                settled
+                    .changed()
+                    .await
+                    .map_err(|_| "Worker A/B encerrou antes de confirmar a parada".to_string())?;
+            }
+        }
+    }
+    fn request_stop(&self) -> (u64, watch::Receiver<u64>) {
         let mut status = self.inner.status.lock().unwrap();
         let operation = self.inner.next.fetch_add(1, SeqCst) + 1;
         *status = PlaybackStatus {
             operation,
             ..PlaybackStatus::default()
         };
-        self.inner.tx.send_replace(Request::Stop);
+        self.inner.tx.send_replace(Request::Stop { operation });
+        (operation, self.inner.settled.clone())
+    }
+    pub fn stop(&self) {
+        self.request_stop();
     }
     pub fn status(&self) -> PlaybackStatus {
         self.inner.status.lock().unwrap().clone()
@@ -323,6 +351,40 @@ mod tests {
             assert!(!shared.playback.status().playing);
             wait(|| !alive(&pid));
         }
+    }
+    #[tokio::test]
+    async fn coalesced_stop_acknowledges_child_reaping() {
+        let d = Temp::new();
+        let p = player(&d, "echo $$ > \"$1/pid\"; exec sleep 30");
+        p.play(take(), Version::Original);
+        wait(|| {
+            std::fs::read_to_string(d.0.join("pid")).is_ok_and(|p| p.trim().parse::<u32>().is_ok())
+        });
+        let old = std::fs::read_to_string(d.0.join("pid")).unwrap();
+        let stopped = p.stop_and_wait();
+        p.play(take(), Version::Treated);
+        tokio::time::timeout(Duration::from_secs(2), stopped)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!alive(&old));
+        p.stop_and_wait().await.unwrap();
+    }
+    #[tokio::test]
+    async fn stop_ack_proves_child_reaped_before_it_resolves() {
+        let d = Temp::new();
+        let p = player(&d, "echo $$ > \"$1/pid\"; exec sleep 30");
+        p.play(take(), Version::Original);
+        wait(|| {
+            std::fs::read_to_string(d.0.join("pid"))
+                .is_ok_and(|pid| pid.trim().parse::<u32>().is_ok())
+        });
+        let pid = std::fs::read_to_string(d.0.join("pid")).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), p.stop_and_wait())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!alive(&pid));
     }
     #[test]
     fn drop_cancels_blocked_write_and_reaps_child() {

@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod audio_test;
 mod dsp;
 mod monitor;
 mod output;

@@ -5,6 +5,8 @@
 //! Para leigos, basta escolher um `Preset`; os controles individuais
 //! continuam disponíveis para quem quiser ajustar.
 
+pub mod effects;
+use effects::{EffectSnapshot, GateState};
 use nnnoiseless::DenoiseState;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
 
@@ -60,6 +62,7 @@ pub struct Params {
     /// Frames processados (com wrap). Quem observa o nível compara com a leitura
     /// anterior para saber se ainda chega áudio, e não um valor antigo.
     frames: AtomicU32,
+    effects: effects::EffectMeter,
 }
 
 fn atomic_f32(v: f32) -> AtomicU32 {
@@ -97,6 +100,7 @@ impl Default for Params {
             in_level: atomic_f32(0.0),
             out_level: atomic_f32(0.0),
             frames: AtomicU32::new(0),
+            effects: effects::EffectMeter::default(),
         }
     }
 }
@@ -209,6 +213,10 @@ impl Params {
     pub fn set_makeup_db(&self, v: f32) {
         self.makeup_db
             .store(finite_clamp(v, 0.0, 24.0, 10.0).to_bits(), Relaxed);
+    }
+
+    pub fn effects(&self) -> EffectSnapshot {
+        self.effects.snapshot()
     }
 
     pub fn in_level(&self) -> f32 {
@@ -430,14 +438,15 @@ impl Processor {
         }
 
         // 2. Noise gate.
-        if p.gate.load(Relaxed) {
-            self.gate(frame, p.gate_threshold());
+        let gate_state = if p.gate.load(Relaxed) {
+            self.gate(frame, p.gate_threshold())
         } else {
             // Evita reabertura lenta caso o gate seja desligado na UI.
             self.gate_open = true;
             self.gate_hold = 0;
             self.gate_gain = 1.0;
-        }
+            GateState::Disabled
+        };
 
         // 3. De-esser e EQ de presença.
         if p.deesser.load(Relaxed) {
@@ -456,12 +465,15 @@ impl Processor {
         }
 
         // 4. Compressor.
-        if p.compressor.load(Relaxed) {
-            self.compress(frame, p.comp_threshold(), p.comp_ratio());
-        }
+        let compression_db = if p.compressor.load(Relaxed) {
+            Some(self.compress(frame, p.comp_threshold(), p.comp_ratio()))
+        } else {
+            None
+        };
 
         // 5. Ganho automático ou manual, e limitador de pico.
-        let makeup = if p.auto_gain.load(Relaxed) {
+        let auto_gain_enabled = p.auto_gain.load(Relaxed);
+        let makeup = if auto_gain_enabled {
             self.auto_gain(frame);
             1.0
         } else {
@@ -496,11 +508,16 @@ impl Processor {
             }
         }
 
+        p.effects.publish(EffectSnapshot {
+            gate: gate_state,
+            compression_db,
+            auto_gain_db: auto_gain_enabled.then_some(self.agc_gain_db),
+        });
         p.out_level.store(rms(frame).to_bits(), Relaxed);
         p.frames.fetch_add(1, Relaxed);
     }
 
-    fn gate(&mut self, frame: &mut [f32], threshold_db: f32) {
+    fn gate(&mut self, frame: &mut [f32], threshold_db: f32) -> GateState {
         let level_db = lin_to_db(rms(frame));
 
         if level_db >= threshold_db {
@@ -536,6 +553,13 @@ impl Processor {
         for sample in frame.iter_mut() {
             self.gate_gain += a * (target - self.gate_gain);
             *sample *= self.gate_gain;
+        }
+        if !self.gate_open {
+            GateState::Attenuating
+        } else if level_db < threshold_db - GATE_HYSTERESIS_DB {
+            GateState::Holding
+        } else {
+            GateState::Open
         }
     }
 
@@ -588,7 +612,8 @@ impl Processor {
         }
     }
 
-    fn compress(&mut self, frame: &mut [f32], threshold_db: f32, ratio: f32) {
+    fn compress(&mut self, frame: &mut [f32], threshold_db: f32, ratio: f32) -> f32 {
+        let mut max_reduction = 0.0_f32;
         let attack = coef(COMP_ATTACK_MS);
         let release = coef(COMP_RELEASE_MS);
         let ratio = finite_clamp(ratio, 1.0, 20.0, 6.0);
@@ -611,9 +636,11 @@ impl Processor {
             // Relação de compressão: 1:1 não reduz o ganho.
             let gain_reduction_db = over_db * (1.0 - 1.0 / ratio);
 
+            max_reduction = max_reduction.max(gain_reduction_db);
             let gain = db_to_lin(-gain_reduction_db);
             *sample *= gain;
         }
+        max_reduction
     }
 }
 
@@ -649,6 +676,104 @@ mod tests {
         p
     }
 
+    #[test]
+    fn effect_metrics_follow_gate_open_hold_close_and_bypass() {
+        let p = gate_only();
+        let mut proc = Processor::new();
+        proc.process(&mut [0.04; FRAME], &p);
+        assert_eq!(p.effects().gate, GateState::Open);
+        for _ in 0..GATE_HOLD_FRAMES {
+            proc.process(&mut [0.0; FRAME], &p);
+            assert_eq!(p.effects().gate, GateState::Holding);
+        }
+        proc.process(&mut [0.0; FRAME], &p);
+        assert_eq!(p.effects().gate, GateState::Attenuating);
+        p.gate.store(false, Relaxed);
+        proc.process(&mut [0.0; FRAME], &p);
+        assert_eq!(p.effects().gate, GateState::Disabled);
+    }
+    #[test]
+    fn effect_metrics_report_compressor_applied_reduction_and_bypass() {
+        let p = Params::default();
+        p.apply_preset(Preset::Bruto);
+        p.set_makeup_db(0.0);
+        p.compressor.store(true, Relaxed);
+        p.set_comp_threshold_db(-20.0);
+        p.set_comp_ratio(2.0);
+        let mut proc = Processor::new();
+        for _ in 0..100 {
+            proc.process(&mut [0.1; FRAME], &p);
+        }
+        assert!(p.effects().compression_db.unwrap().abs() < 0.01);
+        // Constant -12 dBFS, threshold -20 dB, ratio 2 => 4 dB reduction.
+        let mut frame = [db_to_lin(-12.0); FRAME];
+        for _ in 0..100 {
+            frame.fill(db_to_lin(-12.0));
+            proc.process(&mut frame, &p);
+        }
+        assert!((p.effects().compression_db.unwrap() - 4.0).abs() < 0.02);
+        assert!((-lin_to_db(frame[FRAME - 1] / db_to_lin(-12.0)) - 4.0).abs() < 0.02);
+        p.set_comp_ratio(1.0);
+        proc.process(&mut frame, &p);
+        assert_eq!(p.effects().compression_db, Some(0.0));
+        p.compressor.store(false, Relaxed);
+        proc.process(&mut frame, &p);
+        assert_eq!(p.effects().compression_db, None);
+    }
+    #[test]
+    fn effect_metrics_report_agc_gain_freeze_and_bypass() {
+        let p = Params::default();
+        p.apply_preset(Preset::Bruto);
+        p.auto_gain.store(true, Relaxed);
+        let mut proc = Processor::new();
+        let mut frame = [0.01; FRAME];
+        proc.process(&mut frame, &p);
+        assert!(p.effects().auto_gain_db.unwrap() > 0.0);
+        assert!(
+            (p.effects().auto_gain_db.unwrap() - lin_to_db(frame[FRAME - 1] / 0.01)).abs() < 0.011
+        );
+        let held = p.effects().auto_gain_db;
+        proc.process(&mut [0.0; FRAME], &p);
+        assert_eq!(p.effects().auto_gain_db, held);
+        for _ in 0..100 {
+            proc.process(&mut [0.5; FRAME], &p);
+        }
+        assert!(p.effects().auto_gain_db.unwrap() < 0.0);
+        p.auto_gain.store(false, Relaxed);
+        proc.process(&mut [0.0; FRAME], &p);
+        assert_eq!(p.effects().auto_gain_db, None);
+    }
+    #[test]
+    fn effect_observation_preserves_baseline_pcm_for_all_presets() {
+        use sha2::{Digest, Sha256};
+        let mut hash = Sha256::new();
+        for preset in Preset::ALL {
+            let p = Params::default();
+            p.apply_preset(preset);
+            let mut proc = Processor::new();
+            let mut signal = sine(500.0, 0.3, 160);
+            for (i, frame) in signal.chunks_exact_mut(FRAME).enumerate() {
+                if (40..80).contains(&i) {
+                    frame.fill(0.0);
+                }
+                if i == 120 {
+                    frame[0] = f32::NAN;
+                    frame[1] = f32::INFINITY;
+                }
+                proc.process(frame, &p);
+                for sample in frame {
+                    hash.update(sample.to_bits().to_le_bytes());
+                }
+            }
+        }
+        assert_eq!(
+            hash.finalize()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>(),
+            "34ab2a0ead907b3adbb84782900a6007d65f1c8f90aa5c7273f385d9ecad9a81"
+        );
+    }
     #[test]
     fn gate_preserva_fala_baixa_entre_pausas_curtas() {
         let p = gate_only();

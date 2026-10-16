@@ -91,3 +91,12 @@ A seleção permanece identificada por node/serial; se desaparecer, fica marcada
 indisponível. Não selecionar outro dispositivo automaticamente. Estados de preparação,
 atividade e erro aparecem no painel sem substituir o estado principal da conexão.
 Os avisos orientam o uso de fones e informam o atraso sem inventar medição de latência.
+
+## Atuação dos efeitos
+
+Os estados do gate e os ganhos do compressor/volume automático aparecem como
+subtítulos dos respectivos controles. O gate distingue aberto, espera e atenuação;
+valores de ganho usam dB e sinal explícito no ajuste automático. Estados textuais
+independem de cor. Efeito desativado mostra “Desligado”; conexão inativa ou 300 ms
+sem novos frames mostra “Sem áudio” nos efeitos habilitados. Reutilizar a atualização
+existente de 20 Hz, sem criar outro timer nem reter widgets pelos indicadores.

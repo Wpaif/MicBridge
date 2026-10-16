@@ -1,4 +1,9 @@
+#[cfg(test)]
+mod audio_test;
 mod dsp;
+mod local_audio;
+mod monitor;
+mod monitor_ui;
 mod output;
 mod recording;
 mod recording_ui;
@@ -631,7 +636,7 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .build();
     // Em telas estreitas os mesmos widgets passam para uma única coluna.
     let compact = adw::Breakpoint::new(
-        adw::BreakpointCondition::parse("max-width: 1000px").expect("breakpoint válido"),
+        adw::BreakpointCondition::parse("max-width: 1100px").expect("breakpoint válido"),
     );
     compact.add_setter(
         &hero.meters,
@@ -654,10 +659,28 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     compact.add_setter(&modules, "max-children-per-line", Some(&1u32.to_value()));
     compact.add_setter(&workspace, "margin-start", Some(&12i32.to_value()));
     compact.add_setter(&workspace, "margin-end", Some(&12i32.to_value()));
-    win.add_breakpoint(compact);
+    win.add_breakpoint(compact.clone());
 
     let recording_panel = recording_ui::panel(shared.clone(), &win);
-    studio.insert_child_after(&recording_panel, Some(&fx));
+    let monitor_panel = monitor_ui::panel(shared.clone());
+    let local_panels = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(18)
+        .homogeneous(true)
+        .build();
+    for panel in [&recording_panel, &monitor_panel] {
+        panel.set_width_request(310);
+        panel.set_hexpand(true);
+        panel.set_valign(gtk::Align::Start);
+        local_panels.append(panel);
+    }
+    compact.add_setter(
+        &local_panels,
+        "orientation",
+        Some(&gtk::Orientation::Vertical.to_value()),
+    );
+    compact.add_setter(&local_panels, "homogeneous", Some(&false.to_value()));
+    studio.insert_child_after(&local_panels, Some(&fx));
 
     // add_css_class, e não css_classes(): este último apaga `csd`/`background`, que dão à
     // janela os cantos arredondados e a sombra.

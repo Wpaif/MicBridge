@@ -198,3 +198,21 @@ depois do DSP, sem compensar esse atraso. O teste serve para comparar timbre, vo
 cortes, e não para medir a latência total entre celular e saída. Se a fila de captura
 lotar, a gravação termina como **Teste incompleto**, preservando o trecho disponível;
 o áudio ao vivo continua sem esperar pelo gravador.
+
+## Retorno no fone
+
+No painel **Retorno no fone**, escolha a saída de áudio e ative **Ouvir voz tratada**.
+O retorno começa desligado, com volume de 25%. Esse controle afeta apenas o que você
+ouve localmente: chamadas, gravações e perfis continuam usando o mesmo áudio tratado.
+Use fones para evitar que o som volte ao microfone. Há atraso de monitoramento;
+o aplicativo não apresenta a latência solicitada ao PipeWire como latência total.
+
+**Atualizar saídas** renova a lista. Trocar o dispositivo, desconectar o celular,
+remover a saída ou uma falha de reprodução desliga o retorno; escolha e ative novamente
+quando estiver pronto. O aplicativo nunca muda automaticamente para outra saída.
+O microfone virtual do próprio MicBridge não aparece como destino de retorno.
+
+Ouvir uma gravação A/B encerra primeiro o retorno ao vivo. Ligar o retorno encerra
+primeiro a reprodução A/B. Gravar um novo teste pode continuar com o retorno ligado.
+Se o retorno não acompanhar o áudio, ele é interrompido e o painel informa a falha;
+a saída para chamadas não espera por ele.

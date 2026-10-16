@@ -47,8 +47,8 @@ libadwaita. Textos em português do Brasil, curtos e diretos.
 - Controles segmentados: raio 12 px por fora, 9 px por dentro.
 - Espaçamento em múltiplos de 6 px: 6, 12, 18, 24.
 - Janela padrão **1200 × 800**, mínimo **420 × 400**; área de áudio expansível, sem limite central de largura.
-- Acima de 1000 px: áudio à esquerda, conexão à direita em painel de aproximadamente 340 px.
-- Até 1000 px: módulos e conexão em uma coluna, com rolagem vertical.
+- Acima de 1100 px: áudio à esquerda, conexão à direita em painel de aproximadamente 340 px.
+- Até 1100 px: módulos e conexão em uma coluna, com rolagem vertical.
 - Os módulos se distribuem em até duas colunas; o seletor de perfis quebra linhas em larguras menores.
 
 ## Componentes
@@ -82,3 +82,12 @@ em janelas pequenas. Reprodução ativa recebe destaque de seleção; gravação
 falhas de reprodução e exportação parcial são descritas em texto. Exportação usa o
 seletor nativo e confirmação explícita para substituição dos dois arquivos. A reprodução
 é exclusiva e sai no dispositivo padrão do sistema; o painel orienta o uso de fones.
+
+## Retorno no fone
+
+Painel junto ao teste A/B, com escolha explícita de saída, botão de atualização,
+interruptor e volume independente de 0 a 100% (inicial 25%). Retorno inicia desligado.
+A seleção permanece identificada por node/serial; se desaparecer, fica marcada como
+indisponível. Não selecionar outro dispositivo automaticamente. Estados de preparação,
+atividade e erro aparecem no painel sem substituir o estado principal da conexão.
+Os avisos orientam o uso de fones e informam o atraso sem inventar medição de latência.

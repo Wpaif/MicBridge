@@ -1,5 +1,6 @@
 mod dsp;
 mod output;
+mod recording;
 mod server;
 mod settings;
 mod state;

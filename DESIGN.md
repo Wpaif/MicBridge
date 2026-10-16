@@ -73,3 +73,12 @@ cor `accent`. Deve funcionar com uma mão, com alvo de toque de pelo menos 48 px
 
 Contraste mínimo 4,5:1 para texto; status nunca só por cor (sempre acompanhado do texto do
 estado); animações respeitam `prefers-reduced-motion` na página web.
+
+## Teste de voz
+
+Painel abaixo dos perfis, com captura de até 30 s, duração por amostras e botões de
+comparação original/tratado, parada e exportação WAV. Os botões quebram em linhas
+em janelas pequenas. Reprodução ativa recebe destaque de seleção; gravação incompleta,
+falhas de reprodução e exportação parcial são descritas em texto. Exportação usa o
+seletor nativo e confirmação explícita para substituição dos dois arquivos. A reprodução
+é exclusiva e sai no dispositivo padrão do sistema; o painel orienta o uso de fones.

@@ -1,6 +1,7 @@
 mod dsp;
 mod output;
 mod recording;
+mod recording_ui;
 mod server;
 mod settings;
 mod state;
@@ -654,6 +655,9 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     compact.add_setter(&workspace, "margin-start", Some(&12i32.to_value()));
     compact.add_setter(&workspace, "margin-end", Some(&12i32.to_value()));
     win.add_breakpoint(compact);
+
+    let recording_panel = recording_ui::panel(shared.clone(), &win);
+    studio.insert_child_after(&recording_panel, Some(&fx));
 
     // add_css_class, e não css_classes(): este último apaga `csd`/`background`, que dão à
     // janela os cantos arredondados e a sombra.

@@ -272,7 +272,10 @@ mod tests {
         let d = Temp::new();
         let p = player(&d, "echo $$ > \"$1/pid\"; exec sleep 30");
         p.play(take(), Version::Original);
-        wait(|| d.0.join("pid").exists());
+        wait(|| {
+            std::fs::read_to_string(d.0.join("pid"))
+                .is_ok_and(|pid| pid.trim().parse::<u32>().is_ok())
+        });
         let old = std::fs::read_to_string(d.0.join("pid")).unwrap();
         let old_op = p.status().operation;
         p.play(
@@ -283,7 +286,10 @@ mod tests {
             }),
             Version::Treated,
         );
-        wait(|| std::fs::read_to_string(d.0.join("pid")).is_ok_and(|pid| pid != old));
+        wait(|| {
+            std::fs::read_to_string(d.0.join("pid"))
+                .is_ok_and(|pid| pid != old && pid.trim().parse::<u32>().is_ok())
+        });
         assert!(!alive(&old));
         let s = p.status();
         assert!(s.operation > old_op);
@@ -303,7 +309,10 @@ mod tests {
             let mut shared = crate::state::Shared::new();
             shared.playback = player(&d, "echo $$ > \"$1/pid\"; exec sleep 30");
             shared.playback.play(take(), Version::Original);
-            wait(|| d.0.join("pid").exists());
+            wait(|| {
+                std::fs::read_to_string(d.0.join("pid"))
+                    .is_ok_and(|pid| pid.trim().parse::<u32>().is_ok())
+            });
             let pid = std::fs::read_to_string(d.0.join("pid")).unwrap();
             if shutdown {
                 shared.stop_audio_tools();
@@ -326,7 +335,10 @@ mod tests {
             }),
             Version::Original,
         );
-        wait(|| d.0.join("pid").exists());
+        wait(|| {
+            std::fs::read_to_string(d.0.join("pid"))
+                .is_ok_and(|pid| pid.trim().parse::<u32>().is_ok())
+        });
         let pid = std::fs::read_to_string(d.0.join("pid")).unwrap();
         drop(p);
         wait(|| !alive(&pid));

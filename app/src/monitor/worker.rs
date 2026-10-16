@@ -199,7 +199,7 @@ fn close_gate(core: &Inner, id: u64) {
         }
     }
 }
-fn fail(core: &Inner, id: u64, message: String) {
+pub(super) fn fail(core: &Inner, id: u64, message: String) {
     let mut s = core.status.lock().unwrap();
     if s.id != id || s.phase == super::MonitorPhase::Disabled {
         return;

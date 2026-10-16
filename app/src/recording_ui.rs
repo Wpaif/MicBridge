@@ -379,12 +379,12 @@ pub fn panel(shared: Arc<Shared>, parent: &adw::ApplicationWindow) -> gtk::Box {
         button.connect_clicked(move |_| {
             if let Some(take) = sh.recorder.take(sh.recorder.status().id) {
                 n.borrow_mut().take();
-                sh.playback.play(take, version);
+                sh.play_recording(take, version);
             }
         });
     }
     let sh = shared.clone();
-    stop_play.connect_clicked(move |_| sh.playback.stop());
+    stop_play.connect_clicked(move |_| sh.stop_recording_playback());
     let sh = shared.clone();
     let busy = exporting.clone();
     let sequence = export_sequence.clone();

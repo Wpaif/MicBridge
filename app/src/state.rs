@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::{
     Mutex,
     atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering::Relaxed},
@@ -133,6 +134,10 @@ pub struct Shared {
     lifecycle: Mutex<()>,
     pub recorder: crate::recording::Recorder,
     pub playback: crate::recording::playback::Playback,
+    pub monitor: crate::monitor::Monitor,
+    pub devices: crate::monitor::devices::DeviceCatalog,
+    pub local_audio: crate::local_audio::LocalAudio,
+    monitor_output: Mutex<Option<crate::monitor::devices::OutputDevice>>,
     /// Token do QR code (válido só com a janela de pareamento aberta).
     pub pair_token: String,
     link: AtomicU8,
@@ -146,13 +151,30 @@ pub struct Shared {
 
 impl Shared {
     pub fn new() -> Self {
+        Self::with_audio_services(
+            crate::monitor::Monitor::new(),
+            crate::recording::playback::Playback::new(),
+            crate::monitor::devices::DeviceCatalog::new(),
+        )
+    }
+    pub(crate) fn with_audio_services(
+        monitor: crate::monitor::Monitor,
+        playback: crate::recording::playback::Playback,
+        devices: crate::monitor::devices::DeviceCatalog,
+    ) -> Self {
+        let local_audio =
+            crate::local_audio::LocalAudio::new(monitor.clone(), playback.clone(), devices.clone());
         let store = Store::load();
         let first_run = store.devices.is_empty();
         let s = Self {
             params: Default::default(),
             lifecycle: Mutex::new(()),
             recorder: crate::recording::Recorder::new(),
-            playback: crate::recording::playback::Playback::new(),
+            playback,
+            monitor,
+            devices,
+            local_audio,
+            monitor_output: Mutex::new(None),
             pair_token: random_hex(16),
             link: AtomicU8::new(Link::Disconnected as u8),
             link_since: AtomicU64::new(now_secs()),
@@ -169,6 +191,60 @@ impl Shared {
         s
     }
 
+    pub fn start_monitor(
+        &self,
+        target: crate::monitor::devices::OutputDevice,
+    ) -> Result<crate::monitor::MonitorId, String> {
+        let _transaction = self.lifecycle.lock().unwrap();
+        if self.link() != Link::Connected {
+            return Err("Conecte o celular para ativar o retorno".into());
+        }
+        if !self
+            .monitor_output
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|d| d.same_instance(&target))
+        {
+            return Err("Escolha uma saída para o retorno".into());
+        }
+        let devices = self.devices.snapshot();
+        if devices.error.is_some() || !devices.devices.iter().any(|d| d.same_instance(&target)) {
+            return Err("Saída indisponível. Atualize os dispositivos.".into());
+        }
+        Ok(self.local_audio.request_monitor(
+            self.generation(),
+            target,
+            Arc::new(AtomicBool::new(true)),
+        ))
+    }
+    pub fn select_monitor_output(&self, target: Option<crate::monitor::devices::OutputDevice>) {
+        let _transaction = self.lifecycle.lock().unwrap();
+        let mut selected = self.monitor_output.lock().unwrap();
+        if *selected != target {
+            self.local_audio.stop_monitor();
+            *selected = target;
+        }
+    }
+    pub fn monitor_output(&self) -> Option<crate::monitor::devices::OutputDevice> {
+        self.monitor_output.lock().unwrap().clone()
+    }
+    pub fn stop_monitor(&self) {
+        let _transaction = self.lifecycle.lock().unwrap();
+        self.local_audio.stop_monitor();
+    }
+    pub fn play_recording(
+        &self,
+        take: Arc<crate::recording::Take>,
+        version: crate::recording::Version,
+    ) {
+        let _transaction = self.lifecycle.lock().unwrap();
+        self.local_audio.request_playback(take, version);
+    }
+    pub fn stop_recording_playback(&self) {
+        let _transaction = self.lifecycle.lock().unwrap();
+        self.local_audio.stop_playback();
+    }
     pub fn generation(&self) -> u64 {
         self.generation.load(Relaxed)
     }
@@ -177,12 +253,12 @@ impl Shared {
         if self.link() != Link::Connected {
             return None;
         }
-        self.playback.stop();
+        self.local_audio.stop_playback();
         Some(self.recorder.start(self.generation()))
     }
     pub fn stop_audio_tools(&self) {
         let _transaction = self.lifecycle.lock().unwrap();
-        self.playback.stop();
+        self.local_audio.shutdown();
         self.recorder.disconnect(self.generation());
     }
 
@@ -233,6 +309,7 @@ impl Shared {
     /// Nova geração a cada negociação: eventos de conexões antigas são ignorados.
     pub fn next_generation(&self) -> u64 {
         let _transaction = self.lifecycle.lock().unwrap();
+        self.local_audio.disconnect(self.generation());
         self.recorder.disconnect(self.generation.load(Relaxed));
         self.generation.fetch_add(1, Relaxed) + 1
     }
@@ -245,6 +322,7 @@ impl Shared {
     }
     fn update_link(&self, link: Link) {
         if matches!(link, Link::Disconnected | Link::Reconnecting | Link::Error) {
+            self.local_audio.disconnect(self.generation());
             self.recorder.disconnect(self.generation.load(Relaxed));
         }
         if self.link.swap(link as u8, Relaxed) != link as u8 {

@@ -151,6 +151,13 @@ impl Monitor {
             rx,
         )
     }
+    pub(crate) fn prepare(&self, id: u64, generation: u64, target: OutputDevice) {
+        self.reserve(id, generation, target);
+        self.inner.cancel.notify_one();
+    }
+    pub(crate) fn report_failure(&self, id: u64, error: String) {
+        worker::fail(&self.inner, id, error);
+    }
     fn reserve(&self, id: u64, generation: u64, target: OutputDevice) {
         let mut status = self.inner.status.lock().unwrap();
         self.inner.gate.store(0, SeqCst);
@@ -254,6 +261,14 @@ impl Monitor {
         self.active_id(block.generation) == Some(block.id)
     }
 }
+pub fn submit_processed(monitor: &Monitor, generation: u64, pcm: &[f32]) {
+    let Some(id) = monitor.active_id(generation) else {
+        return;
+    };
+    for block in pcm.chunks(480) {
+        monitor.push(id, generation, block);
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -263,6 +278,60 @@ mod tests {
             serial: Some("101".into()),
             name: "sink".into(),
             label: "Fone".into(),
+        }
+    }
+    #[test]
+    fn processed_audio_is_unchanged_with_monitoring_and_large_packet_failure_is_local() {
+        for n in [480, 960, 5760, 120] {
+            let params = crate::dsp::Params::default();
+            params.apply_preset(crate::dsp::Preset::Bruto);
+            let original = vec![0.01; n];
+            let mut pcm = original.clone();
+            let mut reference = original.clone();
+            let rec = crate::recording::Recorder::new();
+            let take_id = rec.start(7);
+            let (m, queue) = Monitor::with_channel();
+            m.reserve(1, 7, target());
+            m.publish(1, &AtomicBool::new(true));
+            crate::recording::process_block(
+                &mut crate::dsp::Processor::new(),
+                &mut pcm,
+                &params,
+                &rec,
+                7,
+            );
+            submit_processed(&m, 7, &pcm);
+            crate::recording::process_block(
+                &mut crate::dsp::Processor::new(),
+                &mut reference,
+                &params,
+                &crate::recording::Recorder::new(),
+                7,
+            );
+            assert_eq!(pcm, reference);
+            rec.stop(take_id);
+            let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            while rec.status().state == crate::recording::TakeState::Recording
+                && std::time::Instant::now() < end
+            {
+                std::thread::yield_now();
+            }
+            let take = rec.take(take_id).unwrap();
+            assert_eq!(take.original, original);
+            assert_eq!(take.treated, pcm);
+            let blocks: Vec<_> = queue.try_iter().collect();
+            if n == 5760 {
+                assert_eq!(m.status().phase, MonitorPhase::Failed);
+                assert_eq!(blocks.len(), 6);
+            } else {
+                assert_eq!(
+                    blocks
+                        .iter()
+                        .flat_map(|b| b.samples.clone())
+                        .collect::<Vec<_>>(),
+                    pcm
+                );
+            }
         }
     }
     #[test]

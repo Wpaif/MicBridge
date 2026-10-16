@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod audio_test;
 mod dsp;
+mod local_audio;
 mod monitor;
 mod output;
 mod recording;

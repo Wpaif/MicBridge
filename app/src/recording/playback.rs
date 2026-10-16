@@ -334,9 +334,12 @@ mod tests {
     fn starting_capture_or_shutting_down_stops_playback() {
         for shutdown in [false, true] {
             let d = Temp::new();
-            let mut shared = crate::state::Shared::new();
+            let shared = crate::state::Shared::with_audio_services(
+                crate::monitor::Monitor::new(),
+                player(&d, "echo $$ > \"$1/pid\"; exec sleep 30"),
+                crate::monitor::devices::DeviceCatalog::new(),
+            );
             shared.set_link(crate::state::Link::Connected);
-            shared.playback = player(&d, "echo $$ > \"$1/pid\"; exec sleep 30");
             shared.playback.play(take(), Version::Original);
             wait(|| {
                 std::fs::read_to_string(d.0.join("pid"))

@@ -216,3 +216,17 @@ Ouvir uma gravação A/B encerra primeiro o retorno ao vivo. Ligar o retorno enc
 primeiro a reprodução A/B. Gravar um novo teste pode continuar com o retorno ligado.
 Se o retorno não acompanhar o áudio, ele é interrompido e o painel informa a falha;
 a saída para chamadas não espera por ele.
+
+## Atuação dos efeitos
+
+Os controles de **Noise gate**, **Compressor** e **Volume automático** mostram o
+que o tratamento está fazendo enquanto recebe áudio:
+
+- Gate: **Aberto**, **Em espera** durante a pausa de sustentação ou **Atenuando**.
+- Compressor: redução de ganho em dB no último frame processado.
+- Volume automático: ajuste em dB; positivo aumenta, negativo reduz o volume.
+
+Efeitos desativados mostram **Desligado**. Sem conexão ou após 300 ms sem novos
+frames, os efeitos habilitados mostram **Sem áudio**. Silêncio recebido continua
+sendo áudio processado e pode mostrar o gate atenuando. Os indicadores observam o
+DSP e não alteram o áudio enviado às chamadas, ao teste A/B ou ao retorno.

@@ -206,7 +206,7 @@ async fn pump(track: Arc<dyn TrackRemote>, shared: Arc<Shared>, generation: u64)
     let _monitor_session =
         crate::local_audio::MonitorSession::new(shared.local_audio.clone(), generation);
     let mut decoder = opus::Decoder::new(48_000, opus::Channels::Mono)?;
-    let mut dsp = dsp::Processor::new();
+    let mut dsp = dsp::Processor::for_generation(&shared.params, generation);
     let mut sink = output::ResilientSink::new();
     let mut last_seq: Option<u16> = None;
     let mut pcm = vec![0f32; 5760]; // até 120 ms

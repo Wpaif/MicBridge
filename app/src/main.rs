@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod audio_test;
 mod dsp;
+mod effect_ui;
 mod local_audio;
 mod monitor;
 mod monitor_ui;
@@ -512,6 +513,12 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     gain.add(&auto_gain);
     gain.add(&makeup_row);
 
+    let mut effect_indicators = effect_ui::Indicators::new(
+        &shared.params,
+        shared.generation(),
+        [&gate, &comp, &auto_gain],
+    );
+
     // Aplica o preset e espelha os valores nos controles avançados.
     let sync = {
         let sh = shared.clone();
@@ -689,6 +696,7 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     let (qr_win, qr_url) = (win.clone(), pair_url.clone());
     qr_btn.connect_clicked(move |_| show_qr(&qr_win, &qr_url));
 
+    let indicators_started = std::time::Instant::now();
     // Atualiza medidores e status (20 Hz).
     let mut fp_loaded = false;
     let mut last_frames = shared.params.frames();
@@ -721,6 +729,12 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         }
         // Estado da conexão, bem visível. A bolinha pulsa enquanto há voz chegando.
         let st = shared.status();
+        effect_indicators.update(
+            &shared.params,
+            shared.generation(),
+            st.link == state::Link::Connected,
+            indicators_started.elapsed(),
+        );
         let frames = shared.params.frames();
         let voice = shared.params.out_level() > 0.005 && frames != last_frames;
         last_frames = frames;

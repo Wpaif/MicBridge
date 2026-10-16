@@ -311,7 +311,9 @@ impl Shared {
         let _transaction = self.lifecycle.lock().unwrap();
         self.local_audio.disconnect(self.generation());
         self.recorder.disconnect(self.generation.load(Relaxed));
-        self.generation.fetch_add(1, Relaxed) + 1
+        let generation = self.generation.fetch_add(1, Relaxed) + 1;
+        self.params.begin_effects(generation);
+        generation
     }
     pub fn is_current(&self, generation: u64) -> bool {
         self.generation.load(Relaxed) == generation

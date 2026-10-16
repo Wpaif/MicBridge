@@ -3,6 +3,7 @@ mod audio_test;
 mod dsp;
 mod local_audio;
 mod monitor;
+mod monitor_ui;
 mod output;
 mod recording;
 mod recording_ui;
@@ -658,10 +659,29 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     compact.add_setter(&modules, "max-children-per-line", Some(&1u32.to_value()));
     compact.add_setter(&workspace, "margin-start", Some(&12i32.to_value()));
     compact.add_setter(&workspace, "margin-end", Some(&12i32.to_value()));
-    win.add_breakpoint(compact);
+    win.add_breakpoint(compact.clone());
 
     let recording_panel = recording_ui::panel(shared.clone(), &win);
-    studio.insert_child_after(&recording_panel, Some(&fx));
+    let monitor_panel = monitor_ui::panel(shared.clone());
+    let local_panels = gtk::FlowBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .min_children_per_line(1)
+        .max_children_per_line(2)
+        .column_spacing(18)
+        .row_spacing(18)
+        .homogeneous(true)
+        .build();
+    for panel in [&recording_panel, &monitor_panel] {
+        panel.set_width_request(310);
+        panel.set_valign(gtk::Align::Start);
+        local_panels.insert(panel, -1);
+    }
+    compact.add_setter(
+        &local_panels,
+        "max-children-per-line",
+        Some(&1u32.to_value()),
+    );
+    studio.insert_child_after(&local_panels, Some(&fx));
 
     // add_css_class, e não css_classes(): este último apaga `csd`/`background`, que dão à
     // janela os cantos arredondados e a sombra.

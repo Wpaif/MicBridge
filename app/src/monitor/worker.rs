@@ -88,12 +88,7 @@ pub(super) fn spawn(
                             continue;
                         }
                     };
-                    if !lease.load(SeqCst)
-                        || core
-                            .gate
-                            .compare_exchange(id << 1, id << 1 | 1, SeqCst, SeqCst)
-                            .is_err()
-                    {
+                    if !super::Monitor::publish(&core, id, &lease) {
                         let _ = child.kill().await;
                         let _ = child.wait().await;
                         close_gate(&core, id);
@@ -172,7 +167,7 @@ async fn stream(
         };
         if block.id != id
             || block.generation != generation
-            || core.gate.load(SeqCst) != id << 1 | 1
+            || !super::Monitor::valid(core, &block)
             || !lease.load(SeqCst)
         {
             continue;

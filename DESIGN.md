@@ -82,3 +82,12 @@ em janelas pequenas. Reprodução ativa recebe destaque de seleção; gravação
 falhas de reprodução e exportação parcial são descritas em texto. Exportação usa o
 seletor nativo e confirmação explícita para substituição dos dois arquivos. A reprodução
 é exclusiva e sai no dispositivo padrão do sistema; o painel orienta o uso de fones.
+
+## Retorno no fone
+
+Painel junto ao teste A/B, com escolha explícita de saída, botão de atualização,
+interruptor e volume independente de 0 a 100% (inicial 25%). Retorno inicia desligado.
+A seleção permanece identificada por node/serial; se desaparecer, fica marcada como
+indisponível. Não selecionar outro dispositivo automaticamente. Estados de preparação,
+atividade e erro aparecem no painel sem substituir o estado principal da conexão.
+Os avisos orientam o uso de fones e informam o atraso sem inventar medição de latência.

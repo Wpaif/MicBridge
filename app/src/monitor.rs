@@ -172,10 +172,9 @@ impl Monitor {
         };
         self.inner.gate.store(id << 1, SeqCst);
     }
-    fn publish(&self, id: u64, lease: &AtomicBool) -> bool {
+    fn publish(inner: &Inner, id: u64, lease: &AtomicBool) -> bool {
         lease.load(SeqCst)
-            && self
-                .inner
+            && inner
                 .gate
                 .compare_exchange(id << 1, id << 1 | 1, SeqCst, SeqCst)
                 .is_ok()
@@ -257,8 +256,11 @@ impl Monitor {
         s.phase = MonitorPhase::Disabled;
         s.error = None;
     }
-    fn valid(&self, block: &Block) -> bool {
-        self.active_id(block.generation) == Some(block.id)
+    fn valid(inner: &Inner, block: &Block) -> bool {
+        let gate = inner.gate.load(SeqCst);
+        gate == block.id << 1 | 1
+            && inner.generation.load(SeqCst) == block.generation
+            && inner.gate.load(SeqCst) == gate
     }
 }
 pub fn submit_processed(monitor: &Monitor, generation: u64, pcm: &[f32]) {
@@ -292,7 +294,7 @@ mod tests {
             let take_id = rec.start(7);
             let (m, queue) = Monitor::with_channel();
             m.reserve(1, 7, target());
-            m.publish(1, &AtomicBool::new(true));
+            Monitor::publish(&m.inner, 1, &AtomicBool::new(true));
             crate::recording::process_block(
                 &mut crate::dsp::Processor::new(),
                 &mut pcm,
@@ -338,7 +340,7 @@ mod tests {
     fn bounded_queue_stops_monitor_without_waiting_for_consumer() {
         let (m, rx) = Monitor::with_channel();
         m.reserve(1, 7, target());
-        assert!(m.publish(1, &AtomicBool::new(true)));
+        assert!(Monitor::publish(&m.inner, 1, &AtomicBool::new(true)));
         let (tx, done) = mpsc::channel();
         let producer = m.clone();
         let thread = std::thread::spawn(move || {
@@ -361,22 +363,22 @@ mod tests {
     fn stale_sessions_and_generations_cannot_queue_or_play() {
         let (m, rx) = Monitor::with_channel();
         m.reserve(1, 1, target());
-        m.publish(1, &AtomicBool::new(true));
+        Monitor::publish(&m.inner, 1, &AtomicBool::new(true));
         m.push(1, 1, &[0.1]);
         let old = rx.try_recv().unwrap();
         m.disable();
-        assert!(!m.valid(&old));
+        assert!(!Monitor::valid(&m.inner, &old));
         m.reserve(2, 2, target());
-        assert!(m.publish(2, &AtomicBool::new(true)));
+        assert!(Monitor::publish(&m.inner, 2, &AtomicBool::new(true)));
         m.push(1, 1, &[0.2]);
         m.push(2, 1, &[0.3]);
         m.push(2, 2, &[0.4]);
         let blocks: Vec<_> = rx.try_iter().collect();
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].samples, [0.4]);
-        assert!(!m.valid(&old));
+        assert!(!Monitor::valid(&m.inner, &old));
         m.disable();
-        assert!(!m.valid(&blocks[0]));
+        assert!(!Monitor::valid(&m.inner, &blocks[0]));
     }
     #[test]
     fn cancelled_open_does_not_become_active_and_volume_is_session_local() {
@@ -386,9 +388,9 @@ mod tests {
         m.set_volume(f32::NAN);
         m.reserve(1, 1, target());
         m.disable();
-        assert!(!m.publish(1, &AtomicBool::new(true)));
+        assert!(!Monitor::publish(&m.inner, 1, &AtomicBool::new(true)));
         m.reserve(2, 1, target());
-        assert!(!m.publish(2, &AtomicBool::new(false)));
+        assert!(!Monitor::publish(&m.inner, 2, &AtomicBool::new(false)));
         assert_eq!(m.status().volume_percent, 75.0);
         assert_eq!(Monitor::new().status().phase, MonitorPhase::Disabled);
         assert_eq!(Monitor::new().status().volume_percent, 25.0);

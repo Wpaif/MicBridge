@@ -226,6 +226,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         use std::time::{Duration, Instant};
         let calls = Arc::new(AtomicUsize::new(0));
+        let started = calls.clone();
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         let rx = Arc::new(Mutex::new(Some(rx)));
         let query: DeviceQuery = Arc::new(move || {
@@ -240,7 +241,7 @@ mod tests {
         });
         let c = DeviceCatalog::with_query(query);
         let first = c.refresh();
-        std::thread::sleep(Duration::from_millis(20));
+        crate::audio_test::wait(|| started.load(Ordering::SeqCst) > 0);
         let second = c.refresh();
         assert!(second > first);
         let end = Instant::now() + Duration::from_secs(2);

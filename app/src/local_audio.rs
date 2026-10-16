@@ -184,9 +184,12 @@ async fn run(
                             changed=commands.changed()=>{if changed.is_err(){break;}pending=Some(commands.borrow_and_update().clone());break;}
                             _=tokio::time::sleep(std::time::Duration::from_secs(2))=>{},
                         }
+                        let current = monitor.status();
                         if !lease.load(SeqCst)
+                            || current.id != id
+                            || current.generation != Some(generation)
                             || !matches!(
-                                monitor.status().phase,
+                                current.phase,
                                 crate::monitor::MonitorPhase::Opening
                                     | crate::monitor::MonitorPhase::Active
                             )

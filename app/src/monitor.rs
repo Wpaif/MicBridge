@@ -81,7 +81,10 @@ pub struct Monitor {
 }
 impl Monitor {
     #[cfg(test)]
-    fn with_test_routing(executable: std::path::PathBuf, routing: routing::Routing) -> Self {
+    pub(crate) fn with_test_routing(
+        executable: std::path::PathBuf,
+        routing: routing::Routing,
+    ) -> Self {
         Self::build(
             executable,
             routing,
@@ -275,7 +278,9 @@ impl Monitor {
                 s.phase = MonitorPhase::Restoring;
             }
             if s.restore_pending {
-                s.phase = MonitorPhase::Failed;
+                if !route.busy && s.phase != MonitorPhase::Restoring {
+                    s.phase = MonitorPhase::Failed;
+                }
                 s.error = route
                     .report
                     .error
@@ -504,46 +509,146 @@ mod worker_tests {
         }
     }
     #[tokio::test]
-    #[ignore = "requer fone Bluetooth conectado e PipeWire da sessão"]
+    #[ignore = "requer fone Bluetooth; altera links temporariamente e reproduz tom baixo"]
     async fn bluetooth_live_monitor_keeps_paced_audio_and_links_to_selected_sink() {
-        let outputs = devices::query().await.unwrap();
-        let target = outputs
+        use crate::{
+            monitor::routing::{
+                backend::{RealBackend, RoutingBackend},
+                graph::SavedState,
+            },
+            output::DieWithParent,
+            recording::playback::Playback,
+        };
+        use futures::FutureExt;
+        use tokio::io::AsyncWriteExt;
+        let f = Fixture::new("exit 0");
+        let backend = Arc::new(RealBackend::default());
+        let target = devices::query()
+            .await
+            .unwrap()
             .into_iter()
             .find(|d| d.name.starts_with("bluez_output."))
             .expect("fone Bluetooth indisponível");
-        let node_id = target.id;
-        let shared = crate::state::Shared::new();
-        shared.devices.refresh();
-        wait(|| !shared.devices.snapshot().busy);
-        shared.set_link(crate::state::Link::Connected);
-        shared.select_monitor_output(Some(target.clone()));
-        let id = shared.start_monitor(target).unwrap();
-        let generation = shared.generation();
-        let m = shared.monitor.clone();
-        wait(|| m.active_id(generation) == Some(id) || m.status().phase == MonitorPhase::Failed);
-        assert_eq!(m.status().phase, MonitorPhase::Active, "{:?}", m.status());
-        let mut cadence = tokio::time::interval(std::time::Duration::from_millis(20));
-        cadence.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        for _ in 0..150 {
-            cadence.tick().await;
-            submit_processed(&m, generation, &[0.0; 960]);
-            assert_eq!(m.status().phase, MonitorPhase::Active, "{:?}", m.status());
+        let serial = target.serial.clone().unwrap();
+        let shared = crate::state::Shared::with_audio_services(
+            Monitor::with_services(
+                "pw-cat".into(),
+                routing::Routing::new(
+                    backend.clone(),
+                    crate::state::data_dir().join("monitor-routing.json"),
+                ),
+            ),
+            Playback::new(),
+            devices::DeviceCatalog::new(),
+        );
+        let mut competitor=tokio::process::Command::new("pw-cat").args(["--playback","--raw","--target",&serial,"--rate","48000","--channels","1","--format","f32","--properties","node.name=micbridge_exclusive_test_competitor node.dont-fallback=true node.dont-reconnect=true","-"]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).kill_on_drop(true).die_with_parent().spawn().unwrap();
+        let mut competing_input = competitor.stdin.take().unwrap();
+        competing_input.write_all(&[0; 1920]).await.unwrap();
+        let capture_path = f.dir.join("capture.f32");
+        let mut capture: Option<tokio::process::Child> = None;
+        let result = std::panic::AssertUnwindSafe(async {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            let before = backend.snapshot().await.unwrap();
+            let originals = before.competitors(&target, "no-such-session").unwrap();
+            assert!(
+                originals
+                    .iter()
+                    .any(|l| l.output.node_name == "micbridge_exclusive_test_competitor")
+            );
+            shared.devices.refresh();
+            wait(|| !shared.devices.snapshot().busy);
+            shared.set_link(crate::state::Link::Connected);
+            shared.select_monitor_output(Some(target.clone()));
+            let id = shared.start_monitor(target.clone()).unwrap();
+            let generation = shared.generation();
+            let deadline = std::time::Instant::now() + Duration::from_secs(7);
+            while shared.monitor.active_id(generation) != Some(id) {
+                assert_ne!(
+                    shared.monitor.status().phase,
+                    MonitorPhase::Failed,
+                    "{:?}",
+                    shared.monitor.status()
+                );
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "{:?}",
+                    shared.monitor.status()
+                );
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let exclusive = backend.snapshot().await.unwrap();
+            let name = exclusive
+                .links
+                .iter()
+                .find(|l| l.input.node.id == target.id)
+                .expect("retorno sem link")
+                .output
+                .node_name
+                .clone();
+            assert!(name.starts_with("micbridge_monitor_"));
+            assert!(exclusive.competitors(&target, &name).unwrap().is_empty());
+            capture=Some(tokio::process::Command::new("pw-cat").args(["--record","--raw","--target",&serial,"--rate","48000","--channels","1","--format","f32","--properties","stream.capture.sink=true node.name=micbridge_exclusive_test_capture node.dont-fallback=true node.dont-reconnect=true","-"]).stdout(std::fs::File::create(&capture_path).unwrap()).stderr(std::process::Stdio::null()).kill_on_drop(true).die_with_parent().spawn().unwrap());
+            let mut cadence = tokio::time::interval(Duration::from_millis(20));
+            cadence.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            for block in 0..150 {
+                cadence.tick().await;
+                let mut pcm = [0f32; 960];
+                for (i, v) in pcm.iter_mut().enumerate() {
+                    *v = 0.04
+                        * (2.0 * std::f32::consts::PI * 440.0 * (block * 960 + i) as f32 / 48000.0)
+                            .sin();
+                }
+                submit_processed(&shared.monitor, generation, &pcm);
+                assert_eq!(
+                    shared.monitor.status().phase,
+                    MonitorPhase::Active,
+                    "{:?}",
+                    shared.monitor.status()
+                );
+            }
+            if let Some(c)=capture.as_mut(){let _=c.kill().await;let _=c.wait().await;}
+            let bytes = std::fs::read(&capture_path).unwrap();
+            let peak = bytes
+                .chunks_exact(4)
+                .map(|b| f32::from_le_bytes(b.try_into().unwrap()).abs())
+                .fold(0f32, f32::max);
+            assert!(
+                peak > 0.001,
+                "no non-silent PCM captured at Bluetooth sink, peak={peak}"
+            );
+            let samples:Vec<f32>=bytes.chunks_exact(4).map(|b|f32::from_le_bytes(b.try_into().unwrap())).collect();
+            let (re,im)=samples.iter().enumerate().fold((0f64,0f64),|(re,im),(i,v)|{let p=2.0*std::f64::consts::PI*440.0*i as f64/48000.0;(re+*v as f64*p.cos(),im+*v as f64*p.sin())});
+            let tone=2.0*re.hypot(im)/samples.len().max(1) as f64;
+            assert!(tone>0.005 && peak<0.012,"unexpected captured tone amplitude={tone}, peak={peak}");
+            shared.local_audio.shutdown_and_wait().await.unwrap();
+            let after = backend.snapshot().await.unwrap();
+            let original_count=originals.len();
+            for link in originals {
+                assert_ne!(
+                    after.validate_saved(&link),
+                    SavedState::Missing,
+                    "original link not restored: {link:?}"
+                );
+            }
+            eprintln!("Bluetooth: {original_count} links originais verificados após restauração; pico {peak:.6}; amplitude 440Hz {tone:.6}");
+        })
+        .catch_unwind()
+        .await;
+        let cleanup = shared.local_audio.shutdown_and_wait().await;
+        if let Some(c) = capture.as_mut() {
+            let _ = c.kill().await;
+            let _ = c.wait().await;
         }
-        let dump = tokio::process::Command::new("pw-dump")
-            .output()
-            .await
-            .unwrap();
-        let nodes: serde_json::Value = serde_json::from_slice(&dump.stdout).unwrap();
-        let list = nodes.as_array().unwrap();
-        let stream = list
-            .iter()
-            .find(|n| n["info"]["props"]["node.name"] == "micbridge_monitor")
-            .expect("fluxo ausente");
-        assert!(list.iter().any(|n| n["type"] == "PipeWire:Interface:Link"
-            && n["info"]["output-node-id"] == stream["id"]
-            && n["info"]["input-node-id"] == node_id
-            && n["info"]["state"] == "active"));
-        m.stop_and_wait().await.unwrap();
+        let _ = competitor.kill().await;
+        let _ = competitor.wait().await;
+        drop(competing_input);
+        if let Err(error) = result {
+            if let Err(e) = cleanup {
+                eprintln!("Restauração pendente no registro: {e}");
+            }
+            std::panic::resume_unwind(error);
+        }
+        cleanup.unwrap();
     }
     #[tokio::test]
     async fn missing_identity_fails_without_name_fallback() {

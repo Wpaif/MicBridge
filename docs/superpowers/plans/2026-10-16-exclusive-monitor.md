@@ -122,12 +122,12 @@ Constantes e execução:
 **Files:** modificar `monitor_ui.rs`, README.md, DESIGN.md; criar `docs/testing/exclusive-monitor.md`.
 **Interfaces:** consome MonitorStatus/Monitor::retry_restore; não inicia processos nas callbacks GTK.
 
-- [ ] Escrever testes de apresentação para Disabled/Opening/Active/Restoring/Failed, pending e retry; manter seleção/volume e preservar erro de restauração mesmo desconectado.
-- [ ] Escrever teste GTK ignorado por padrão: ativar, aguardar ready, desligar, observar restauração, falhar e repetir; janela liberada durante consulta pendente. Rodar RED antes da implementação.
-- [ ] Implementar textos exatos da spec, aviso visível antes da ativação, botão “Tentar restaurar conexões” quando pending; controles de nova ativação ficam indisponíveis durante restauração/pending.
-- [ ] Rodar suíte, build offline, fmt --check, git diff --check e cada teste gráfico em processo separado (`--ignored --test-threads=1`). Atualizar teste Bluetooth existente para identificar nome único e garantir cleanup mesmo em falha de asserção.
-- [ ] Verificar grafo real antes/durante/depois com streams temporários: remover concorrente só da saída escolhida, confirmar links exclusivos e restauração. Capturar amostras de teste não silenciosas no monitor da saída; informar antecipadamente se o teste produzir som audível. Não afirmar escuta do celular sem validação do usuário.
-- [ ] Registrar resultados TDD, limitações de captura/gráfico/hardware e comandos em docs/testing/exclusive-monitor.md; commit `feat(ui): apresenta ajuste exclusivo e recuperação de conexões`.
+- [x] Escrever testes de apresentação para Disabled/Opening/Active/Restoring/Failed, pending e retry; manter seleção/volume e preservar erro de restauração mesmo desconectado.
+- [x] Escrever teste GTK ignorado por padrão: ativar, aguardar ready, desligar, observar restauração, falhar e repetir; janela liberada durante consulta pendente. Rodar RED antes da implementação.
+- [x] Implementar textos exatos da spec, aviso visível antes da ativação, botão “Tentar restaurar conexões” quando pending; controles de nova ativação ficam indisponíveis durante restauração/pending.
+- [x] Rodar suíte, build offline, fmt --check, git diff --check e cada teste gráfico em processo separado (`--ignored --test-threads=1`). Atualizar teste Bluetooth existente para identificar nome único e garantir cleanup mesmo em falha de asserção.
+- [x] Verificar grafo real antes/durante/depois com streams temporários: remover concorrente só da saída escolhida, confirmar links exclusivos e restauração. Capturar amostras de teste não silenciosas no monitor da saída; informar antecipadamente se o teste produzir som audível. Não afirmar escuta do celular sem validação do usuário.
+- [x] Registrar resultados TDD, limitações de captura/gráfico/hardware e comandos em docs/testing/exclusive-monitor.md; commit `feat(ui): apresenta ajuste exclusivo e recuperação de conexões`.
 - [ ] Pedir uma revisão independente da branch inteira contra spec/plano; corrigir achados importantes com regressão RED→GREEN e suíte verde. Commit de correção no mesmo padrão se necessário.
 - [ ] Confirmar árvore limpa; merge local `--no-ff` na main após aprovação prévia do fluxo, sem novo pedido de autorização; repetir suíte na main. Preservar branch, sem push; não iniciar diagnóstico/perfis neste lote.
 

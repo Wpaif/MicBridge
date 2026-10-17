@@ -1,0 +1,63 @@
+name: Testes automatizados
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Formatação e testes Rust
+    runs-on: ubuntu-24.04
+    # Ubuntu 24.04 fornece GTK 4.14; o aplicativo exige GTK >= 4.16.
+    container: debian:trixie-slim
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_BUILD_JOBS: 2
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+    steps:
+      - name: Instalar dependências do sistema
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential ca-certificates cmake curl git pkg-config zstd \
+            libgtk-4-dev libadwaita-1-dev libopus-dev
+          pkg-config --atleast-version=4.16 gtk4
+          pkg-config --atleast-version=1.6 libadwaita-1
+
+      - name: Obter código
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Instalar Rust estável
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Verificar formatação
+        run: cargo fmt --manifest-path app/Cargo.toml -- --check
+
+      - name: Restaurar cache de dependências
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/src
+            ~/.cargo/git/db
+          key: cargo-debian-trixie-${{ runner.arch }}-${{ hashFiles('app/Cargo.lock') }}
+          restore-keys: |
+            cargo-debian-trixie-${{ runner.arch }}-
+
+      - name: Compilar e executar testes
+        run: cargo test --locked --manifest-path app/Cargo.toml

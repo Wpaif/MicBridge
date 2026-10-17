@@ -121,3 +121,5 @@ fmt e diff verificados; teste gráfico do retorno exclusivo executado novamente.
 A tentativa adicional de captura da janela completa não gerou imagem (sem nó de
 renderização); havia outra instância ocupando a porta HTTPS. Os testes GTK continuam
 sendo a evidência da interface, sem encerrar a instância existente.
+
+Merge local `605417b` na `main`, com nova execução da suíte: **108 aprovados, zero falhas, cinco ignorados**. Branch `fix/bluetooth-monitor` preservada, sem push. Binário de desenvolvimento compilado; instalação do sistema não substituída.

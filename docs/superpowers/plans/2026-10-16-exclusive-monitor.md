@@ -129,7 +129,7 @@ Constantes e execução:
 - [x] Verificar grafo real antes/durante/depois com streams temporários: remover concorrente só da saída escolhida, confirmar links exclusivos e restauração. Capturar amostras de teste não silenciosas no monitor da saída; informar antecipadamente se o teste produzir som audível. Não afirmar escuta do celular sem validação do usuário.
 - [x] Registrar resultados TDD, limitações de captura/gráfico/hardware e comandos em docs/testing/exclusive-monitor.md; commit `feat(ui): apresenta ajuste exclusivo e recuperação de conexões`.
 - [x] Pedir uma revisão independente da branch inteira contra spec/plano; corrigir achados importantes com regressão RED→GREEN e suíte verde. Commit de correção no mesmo padrão se necessário.
-- [ ] Confirmar árvore limpa; merge local `--no-ff` na main após aprovação prévia do fluxo, sem novo pedido de autorização; repetir suíte na main. Preservar branch, sem push; não iniciar diagnóstico/perfis neste lote.
+- [x] Confirmar árvore limpa; merge local `--no-ff` na main após aprovação prévia do fluxo, sem novo pedido de autorização; repetir suíte na main. Preservar branch, sem push; não iniciar diagnóstico/perfis neste lote.
 
 ## Self-review e fontes
 

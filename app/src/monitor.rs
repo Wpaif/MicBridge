@@ -1,5 +1,6 @@
 //! Retorno local da voz tratada.
 pub mod devices;
+pub mod routing;
 
 pub mod gain;
 mod worker;
@@ -408,6 +409,48 @@ mod worker_tests {
             name: "headphones.target".into(),
             label: "Fone".into(),
         }
+    }
+    #[tokio::test]
+    #[ignore = "requer fone Bluetooth conectado e PipeWire da sessão"]
+    async fn bluetooth_live_monitor_keeps_paced_audio_and_links_to_selected_sink() {
+        let outputs = devices::query().await.unwrap();
+        let target = outputs
+            .into_iter()
+            .find(|d| d.name.starts_with("bluez_output."))
+            .expect("fone Bluetooth indisponível");
+        let node_id = target.id;
+        let shared = crate::state::Shared::new();
+        shared.devices.refresh();
+        wait(|| !shared.devices.snapshot().busy);
+        shared.set_link(crate::state::Link::Connected);
+        shared.select_monitor_output(Some(target.clone()));
+        let id = shared.start_monitor(target).unwrap();
+        let generation = shared.generation();
+        let m = shared.monitor.clone();
+        wait(|| m.active_id(generation) == Some(id) || m.status().phase == MonitorPhase::Failed);
+        assert_eq!(m.status().phase, MonitorPhase::Active, "{:?}", m.status());
+        let mut cadence = tokio::time::interval(std::time::Duration::from_millis(20));
+        cadence.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        for _ in 0..150 {
+            cadence.tick().await;
+            submit_processed(&m, generation, &[0.0; 960]);
+            assert_eq!(m.status().phase, MonitorPhase::Active, "{:?}", m.status());
+        }
+        let dump = tokio::process::Command::new("pw-dump")
+            .output()
+            .await
+            .unwrap();
+        let nodes: serde_json::Value = serde_json::from_slice(&dump.stdout).unwrap();
+        let list = nodes.as_array().unwrap();
+        let stream = list
+            .iter()
+            .find(|n| n["info"]["props"]["node.name"] == "micbridge_monitor")
+            .expect("fluxo ausente");
+        assert!(list.iter().any(|n| n["type"] == "PipeWire:Interface:Link"
+            && n["info"]["output-node-id"] == stream["id"]
+            && n["info"]["input-node-id"] == node_id
+            && n["info"]["state"] == "active"));
+        m.stop_and_wait().await.unwrap();
     }
     #[tokio::test]
     async fn missing_identity_fails_without_name_fallback() {

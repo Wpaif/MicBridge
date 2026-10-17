@@ -72,12 +72,12 @@ Constantes e execução:
 **Files:** criar `monitor/routing/mod.rs`, `graph.rs`; declarar módulo em `monitor.rs`; preservar teste Bluetooth.
 **Interfaces:** produz Graph, identidades, SavedLink e SavedState acima; consumidos pelas Tasks 2/3.
 
-- [ ] Escrever `only_selected_sink_competitors_are_removed`: fixture com dois aplicativos ligados ao fone, retorno FL/FR, outra saída e fonte; exigir apenas quatro links concorrentes do fone e preservar os demais.
-- [ ] Escrever `return_mapping_is_verified_before_unlink`: FL/FR correto, links ausentes, canal ambíguo e nome semelhante de outra sessão; não autorizar isolamento sem destino/canais válidos.
-- [ ] Escrever `reused_node_port_or_core_identity_is_unavailable`: trocar serial mantendo ID/nome, substituir porta e mudar cookie; nenhuma ação/restauração para o objeto substituto. Cobrir JSON truncado, objetos incompletos e propriedades numéricas/string.
-- [ ] Rodar `cargo test --offline --manifest-path app/Cargo.toml monitor::routing::graph`; observar RED comportamental com stubs mínimos.
-- [ ] Implementar parser/funções puras, preservação de passive e deduplicação por endpoints/identidade.
-- [ ] Rodar testes focados e suíte; commit `feat(audio): modela conexões do retorno exclusivo`.
+- [x] Escrever `only_selected_sink_competitors_are_removed`: fixture com dois aplicativos ligados ao fone, retorno FL/FR, outra saída e fonte; exigir apenas quatro links concorrentes do fone e preservar os demais.
+- [x] Escrever `return_mapping_is_verified_before_unlink`: FL/FR correto, links ausentes, canal ambíguo e nome semelhante de outra sessão; não autorizar isolamento sem destino/canais válidos.
+- [x] Escrever `reused_node_port_or_core_identity_is_unavailable`: trocar serial mantendo ID/nome, substituir porta e mudar cookie; nenhuma ação/restauração para o objeto substituto. Cobrir JSON truncado, objetos incompletos e propriedades numéricas/string.
+- [x] Rodar `cargo test --offline --manifest-path app/Cargo.toml monitor::routing::graph`; observar RED comportamental com stubs mínimos.
+- [x] Implementar parser/funções puras, preservação de passive e deduplicação por endpoints/identidade.
+- [x] Rodar testes focados e suíte; commit `feat(audio): modela conexões do retorno exclusivo`.
 
 ## Task 2: Ferramentas e registro recuperável
 

@@ -39,7 +39,7 @@ estado); animações respeitam `prefers-reduced-motion` na página web.
 
 ## Teste de voz
 
-Painel abaixo dos perfis, com captura de até 30 s, duração por amostras e botões de
+Painel de teste local, com captura de até 30 s, duração por amostras e botões de
 comparação original/tratado, parada e exportação WAV. Os botões quebram em linhas
 em janelas pequenas. Reprodução ativa recebe destaque de seleção; gravação incompleta,
 falhas de reprodução e exportação parcial são descritas em texto. Exportação usa o
@@ -48,7 +48,7 @@ seletor nativo e confirmação explícita para substituição dos dois arquivos.
 
 ## Retorno no fone
 
-Painel junto ao teste A/B, com escolha explícita de saída, botão de atualização,
+Painel de monitoramento local, com escolha explícita de saída, botão de atualização,
 interruptor e volume independente de 0 a 100% (inicial 25%). Retorno inicia desligado.
 A seleção permanece identificada por node/serial; se desaparecer, fica marcada como
 indisponível. Não selecionar outro dispositivo automaticamente. Estados de preparação,
@@ -69,3 +69,19 @@ valores de ganho usam dB e sinal explícito no ajuste automático. Estados textu
 independem de cor. Efeito desativado mostra “Desligado”; conexão inativa ou 300 ms
 sem novos frames mostra “Sem áudio” nos efeitos habilitados. Reutilizar a atualização
 existente de 20 Hz, sem criar outro timer nem reter widgets pelos indicadores.
+
+## Organização dos painéis
+
+Usar colunas independentes, com altura natural e intervalo de 18 px entre painéis;
+não alinhar a próxima seção pela altura do maior painel de outra coluna. Acima de
+1240 px, três colunas: perfil/limpeza/timbre; dinâmica/volume; teste/retorno/conexão.
+Teste A/B e retorno ao vivo devem permanecer consecutivos na mesma coluna em
+todas as larguras, formando a área de teste e monitoramento. A conexão vem depois.
+Entre 801 e 1240 px, duas: tratamento de voz à esquerda, teste/retorno/conexão à
+direita. Até 800 px, uma coluna. QR acompanha a conexão e continua condicionado ao
+estado do pareamento. Os mesmos widgets são reposicionados sem recriar controles.
+
+Conteúdo centralizado, com limite total de 1440 px; em duas colunas o limite é
+1040 px e em uma, 584 px, incluindo margens. Evitar esticamento dos painéis em
+monitores largos. O cabeçalho fixo acompanha o limite de largura de 1440 px;
+medidores são empilhados até 600 px. Manter área de rolagem útil em 420×400.

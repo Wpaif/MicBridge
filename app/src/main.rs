@@ -13,6 +13,7 @@ mod recording_ui;
 mod server;
 mod settings;
 mod state;
+mod studio_layout;
 mod theme;
 mod theme_ui;
 mod tls;
@@ -539,68 +540,34 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         shared.close_pairing();
     }
 
-    let modules = gtk::FlowBox::builder()
-        .selection_mode(gtk::SelectionMode::None)
-        .min_children_per_line(1)
-        .max_children_per_line(2)
-        .column_spacing(18)
-        .row_spacing(18)
-        .homogeneous(true)
-        .valign(gtk::Align::Start)
-        .build();
-    for group in [&cleanup, &tone, &dynamics, &gain] {
-        group.set_width_request(310);
-        group.set_hexpand(true);
-        group.set_valign(gtk::Align::Start);
-        modules.insert(group, -1);
-    }
-
-    let studio = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(18)
-        .hexpand(true)
-        .css_classes(["mb-studio"])
-        .build();
-    studio.append(&fx);
-    studio.append(&modules);
     let note = gtk::Label::builder()
         .label("48 kHz · Mono → Estéreo · Limitador de segurança ativo")
         .xalign(0.0)
+        .wrap(true)
         .css_classes(["dim-label", "caption"])
         .build();
-    studio.append(&note);
-
-    let sidebar = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(24)
-        .width_request(310)
-        .css_classes(["mb-sidebar"])
-        .build();
-    sidebar.append(&qr_group);
-    sidebar.append(&conn);
-    let sidebar_clamp = adw::Clamp::builder()
-        .maximum_size(340)
-        .tightening_threshold(340)
-        .hexpand(false)
-        .valign(gtk::Align::Start)
-        .child(&sidebar)
-        .build();
-
+    conn.add_css_class("mb-sidebar");
     let workspace = gtk::Box::builder()
+        .name("studio-workspace")
         .orientation(gtk::Orientation::Horizontal)
-        .spacing(30)
+        .spacing(18)
+        .homogeneous(true)
         .margin_top(24)
         .margin_bottom(24)
         .margin_start(24)
         .margin_end(24)
         .valign(gtk::Align::Start)
+        .css_classes(["mb-studio"])
         .build();
-    workspace.append(&studio);
-    workspace.append(&sidebar_clamp);
+    let workspace_clamp = adw::Clamp::builder()
+        .maximum_size(1440)
+        .tightening_threshold(1440)
+        .child(&workspace)
+        .build();
     let scroll = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .vexpand(true)
-        .child(&workspace)
+        .child(&workspace_clamp)
         .build();
     let view = adw::ToolbarView::new();
     let header = adw::HeaderBar::new();
@@ -610,7 +577,12 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .orientation(gtk::Orientation::Vertical)
         .css_classes(["toolbar", "mb-live-header"])
         .build();
-    live_header.append(&state_group);
+    let live_clamp = adw::Clamp::builder()
+        .maximum_size(1440)
+        .tightening_threshold(1440)
+        .child(&state_group)
+        .build();
+    live_header.append(&live_clamp);
     let mute_button = gtk::ToggleButton::builder()
         .name("microphone-mute")
         .label("Silenciar microfone")
@@ -668,61 +640,26 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         preferences.borrow().set(Some(&window));
         window.present(Some(&parent));
     });
-    // Em telas estreitas os mesmos widgets passam para uma única coluna.
-    let compact = adw::Breakpoint::new(
-        adw::BreakpointCondition::parse("max-width: 1100px").expect("breakpoint válido"),
-    );
-    let narrow = adw::Breakpoint::new(
-        adw::BreakpointCondition::parse("max-width: 600px").expect("breakpoint válido"),
-    );
-    for breakpoint in [&compact, &narrow] {
-        breakpoint.add_setter(
-            &workspace,
-            "orientation",
-            Some(&gtk::Orientation::Vertical.to_value()),
-        );
-        breakpoint.add_setter(&sidebar, "width-request", Some(&(-1i32).to_value()));
-        breakpoint.add_setter(&sidebar_clamp, "maximum-size", Some(&2000i32.to_value()));
-        breakpoint.add_setter(
-            &sidebar_clamp,
-            "tightening-threshold",
-            Some(&2000i32.to_value()),
-        );
-        breakpoint.add_setter(&modules, "max-children-per-line", Some(&1u32.to_value()));
-        breakpoint.add_setter(&workspace, "margin-start", Some(&12i32.to_value()));
-        breakpoint.add_setter(&workspace, "margin-end", Some(&12i32.to_value()));
-    }
-    narrow.add_setter(
-        &hero.meters,
-        "orientation",
-        Some(&gtk::Orientation::Vertical.to_value()),
-    );
-    narrow.add_setter(&hero.meters, "spacing", Some(&6i32.to_value()));
-    win.add_breakpoint(compact.clone());
-    win.add_breakpoint(narrow.clone());
-
     let recording_panel = recording_ui::panel(shared.clone(), &win);
     let monitor_panel = monitor_ui::panel(shared.clone());
-    let local_panels = gtk::Box::builder()
-        .orientation(gtk::Orientation::Horizontal)
-        .spacing(18)
-        .homogeneous(true)
-        .build();
-    for panel in [&recording_panel, &monitor_panel] {
-        panel.set_width_request(310);
-        panel.set_hexpand(true);
-        panel.set_valign(gtk::Align::Start);
-        local_panels.append(panel);
-    }
-    for breakpoint in [&compact, &narrow] {
-        breakpoint.add_setter(
-            &local_panels,
-            "orientation",
-            Some(&gtk::Orientation::Vertical.to_value()),
-        );
-        breakpoint.add_setter(&local_panels, "homogeneous", Some(&false.to_value()));
-    }
-    studio.insert_child_after(&local_panels, Some(&fx));
+    studio_layout::install(
+        &win,
+        &workspace,
+        &workspace_clamp,
+        &hero.meters,
+        [
+            fx.upcast(),
+            cleanup.upcast(),
+            tone.upcast(),
+            dynamics.upcast(),
+            gain.upcast(),
+            recording_panel.upcast(),
+            monitor_panel.upcast(),
+            conn.upcast(),
+            qr_group.clone().upcast(),
+            note.upcast(),
+        ],
+    );
 
     // add_css_class, e não css_classes(): este último apaga `csd`/`background`, que dão à
     // janela os cantos arredondados e a sombra.
@@ -874,6 +811,152 @@ fn snapshot_and_quit(win: &adw::ApplicationWindow, app: &adw::Application) {
 #[cfg(test)]
 mod appearance_tests {
     use super::*;
+    #[test]
+    #[ignore = "requer sessão gráfica GTK"]
+    fn studio_panels_use_natural_heights_and_bounded_responsive_columns() {
+        adw::init().unwrap();
+        let f = audio_test::Fixture::new("exit 0");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", f.dir.join("data"));
+            std::env::set_var("XDG_CONFIG_HOME", f.dir.join("config"));
+        }
+        let app = adw::Application::builder()
+            .application_id("dev.wilian.MicBridge.CompactStudioTest")
+            .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+            .build();
+        app.register(None::<&gtk::gio::Cancellable>).unwrap();
+        let shared = Arc::new(Shared::new());
+        build_ui(&app, shared.clone(), true);
+        let win = app.windows()[0]
+            .clone()
+            .downcast::<adw::ApplicationWindow>()
+            .unwrap();
+        until(|| win.is_mapped());
+        let cleanup =
+            find::<adw::PreferencesGroup>(&win, &|g| g.title() == "01 · Limpeza").unwrap();
+        let tone = find::<adw::PreferencesGroup>(&win, &|g| g.title() == "02 · Timbre").unwrap();
+        let dynamics =
+            find::<adw::PreferencesGroup>(&win, &|g| g.title() == "03 · Dinâmica").unwrap();
+        let gain = find::<adw::PreferencesGroup>(&win, &|g| g.title() == "04 · Volume").unwrap();
+        let scroll = find::<gtk::ScrolledWindow>(&win, &|_| true).unwrap();
+        let hero = find::<gtk::Box>(&win, &|b| b.has_css_class("mb-live-header")).unwrap();
+        let input = find::<gtk::LevelBar>(&hero, &|_| true).unwrap();
+        let output = find::<gtk::LevelBar>(&hero, &|bar| bar != &input).unwrap();
+        for (width, height, column_count) in [
+            (1440, 900, 3),
+            (1241, 800, 3),
+            (1240, 800, 2),
+            (960, 800, 2),
+            (801, 800, 2),
+            (800, 800, 1),
+            (761, 800, 1),
+            (601, 800, 1),
+            (600, 800, 1),
+            (420, 400, 1),
+            (601, 800, 1),
+            (1440, 900, 3),
+        ] {
+            win.set_default_size(width, height);
+            until(|| win.width() == width);
+            let end = std::time::Instant::now() + Duration::from_millis(180);
+            until(|| std::time::Instant::now() >= end);
+            let a = cleanup.compute_bounds(&win).unwrap();
+            let b = tone.compute_bounds(&win).unwrap();
+            assert!(
+                (b.y() - (a.y() + a.height()) - 18.0).abs() < 2.0,
+                "timbre deve seguir limpeza sem lacuna: {a:?} {b:?}"
+            );
+            let a = dynamics.compute_bounds(&win).unwrap();
+            let b = gain.compute_bounds(&win).unwrap();
+            assert!(
+                (b.y() - (a.y() + a.height()) - 18.0).abs() < 2.0,
+                "volume deve seguir dinâmica sem lacuna"
+            );
+            let columns =
+                find::<gtk::Box>(&win, &|b| b.widget_name() == "studio-workspace").unwrap();
+            let mut count = 0;
+            let mut child = columns.first_child();
+            while let Some(column) = child {
+                let bounds = column.compute_bounds(&win).unwrap();
+                assert!(
+                    bounds.width() <= 560.0,
+                    "coluna não pode esticar demais: {bounds:?}"
+                );
+                count += 1;
+                child = column.next_sibling();
+            }
+            assert_eq!(count, column_count);
+            let recording = find::<gtk::Box>(&win, &|b| b.has_css_class("mb-recording")).unwrap();
+            let monitor = find::<gtk::Box>(&win, &|b| b.has_css_class("mb-monitor")).unwrap();
+            assert_eq!(
+                recording.parent(),
+                monitor.parent(),
+                "teste A/B e retorno devem compartilhar a coluna de testes"
+            );
+            let a = recording.compute_bounds(&win).unwrap();
+            let b = monitor.compute_bounds(&win).unwrap();
+            assert!(
+                (b.y() - (a.y() + a.height()) - 18.0).abs() < 2.0,
+                "painéis de teste devem ficar consecutivos"
+            );
+            assert!(scroll.hadjustment().upper() <= scroll.hadjustment().page_size() + 1.0);
+            assert!(scroll.height() >= 100);
+            let a = input.compute_bounds(&win).unwrap();
+            let b = output.compute_bounds(&win).unwrap();
+            if width <= 600 {
+                assert!(b.y() > a.y() + a.height());
+            } else {
+                assert!((b.y() - a.y()).abs() < 1.0 && b.x() > a.x());
+            }
+            if std::env::var_os("MICBRIDGE_TEST_SNAPSHOTS").is_some() {
+                save_layout_snapshot(&win, &format!("/tmp/micbridge-studio-{width}.png"));
+            }
+        }
+        // Maximizado em monitores largos: mantém limite e margens laterais equilibradas.
+        win.maximize();
+        until(|| win.is_maximized());
+        let columns = find::<gtk::Box>(&win, &|b| b.widget_name() == "studio-workspace").unwrap();
+        let end = std::time::Instant::now() + Duration::from_millis(180);
+        until(|| std::time::Instant::now() >= end);
+        let bounds = columns.compute_bounds(&win).unwrap();
+        assert!(bounds.width() <= 1440.0);
+        assert!((bounds.x() - (win.width() as f32 - bounds.width()) / 2.0).abs() < 2.0);
+        assert_eq!(shared.params.gate_threshold(), -55.0);
+        if std::env::var_os("MICBRIDGE_TEST_SNAPSHOTS").is_some() {
+            save_layout_snapshot(&win, "/tmp/micbridge-studio-maximized.png");
+        }
+        win.destroy();
+    }
+    fn save_layout_snapshot(win: &adw::ApplicationWindow, path: &str) {
+        // Aguarda a pintura real: uma nova alocação pode estar pendente depois
+        // de redimensionar, mesmo que width/height já tenham sido atualizados.
+        let done = std::rc::Rc::new(std::cell::Cell::new(false));
+        let painted = done.clone();
+        let window = win.clone();
+        let path = path.to_string();
+        let clock = win.frame_clock().unwrap();
+        let handler = clock.connect_after_paint(move |_| {
+            if painted.get() {
+                return;
+            }
+            let snapshot = gtk::Snapshot::new();
+            window.snapshot_child(&window.child().unwrap(), &snapshot);
+            let node = snapshot.to_node().expect("janela renderizada");
+            window
+                .native()
+                .unwrap()
+                .renderer()
+                .unwrap()
+                .render_texture(&node, None)
+                .save_to_png(&path)
+                .unwrap();
+            painted.set(true);
+        });
+        win.queue_draw();
+        clock.request_phase(gtk::gdk::FrameClockPhase::PAINT);
+        until(|| done.get());
+        clock.disconnect(handler);
+    }
     #[test]
     #[ignore = "requer sessão gráfica GTK"]
     fn custom_audio_profiles_follow_explicit_save_and_restore_controls() {

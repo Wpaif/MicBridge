@@ -178,3 +178,10 @@ Validação final: **110 testes comuns aprovados, cinco ignorados por padrão**;
 os dois testes GTK do retorno executados separadamente e aprovados; build offline
 sem warnings, fmt e diff aprovados. Revisão independente sem achados importantes.
 A main continua revertida; mudanças ficam na branch até validação do usuário.
+
+## Reintegração aprovada
+
+Após validação manual do retorno e aprovação do usuário, integração reaplicada em
+`d443418` e merge das correções em `6bc450e`. A árvore integrada corresponde à
+branch validada. Na main: **110 testes aprovados, zero falhas, cinco ignorados**;
+build offline sem warnings, fmt e diff aprovados. Branch preservada, sem push.

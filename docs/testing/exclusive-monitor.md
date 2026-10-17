@@ -121,3 +121,31 @@ fmt e diff verificados; teste gráfico do retorno exclusivo executado novamente.
 A tentativa adicional de captura da janela completa não gerou imagem (sem nó de
 renderização); havia outra instância ocupando a porta HTTPS. Os testes GTK continuam
 sendo a evidência da interface, sem encerrar a instância existente.
+
+## Reabertura após falha no uso real (16/10/2026)
+
+O usuário observou “Retorno interrompido: não acompanhou o áudio ou recebeu um
+bloco incompatível”. A integração foi desfeita na `main` com os reverts `092eb45`
+e `1285d9e`; a árvore da main voltou à base `0fe277b`. A correção fica na branch
+`fix/bluetooth-monitor`, sem novo merge enquanto aguarda validação manual.
+
+Causa reproduzida: `server.rs` aceita 5760 amostras mono por pacote Opus (120 ms).
+`submit_processed` divide esse pacote em doze blocos de 480 amostras, mas a fila
+comportava seis (60 ms). Logo um pacote válido podia provocar sobrecarga antes de
+o consumidor ter oportunidade de rodar. O teste anterior tratava essa falha como
+esperada, em vez de exigir suporte a todo o intervalo aceito pelo decoder.
+
+TDD: testes do pacote máximo, de duas entregas consecutivas sem escalonamento do
+consumidor e da reprodução integral no worker falharam com `Failed` antes da
+correção. A fila agora comporta 24 blocos (240 ms), suficientes para dois pacotes
+máximos. O limite continua finito, não bloqueia o pump e ainda encerra o retorno
+se o consumidor não acompanhar; não foi introduzida fila ilimitada nem descarte
+silencioso. Esse é o limite do buffer interno; não é uma medição da latência total
+do Bluetooth. DSP e PCM principal permanecem idênticos.
+
+Verificação: **110 testes aprovados, cinco ignorados**, build offline, fmt e diff
+aprovados. O teste Bluetooth foi alterado para enviar 25 pacotes de 120 ms em três
+segundos (o teste anterior enviava apenas pacotes de 20 ms). A nova tentativa real
+falhou na pré-condição **“fone Bluetooth indisponível”**, antes de alterar conexões
+ou emitir áudio. A evidência Bluetooth do fechamento anterior não valida esta
+correção: aguarda fone disponível e escuta manual do celular.

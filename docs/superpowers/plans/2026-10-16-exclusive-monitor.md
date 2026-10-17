@@ -17,7 +17,7 @@
 - Somente links que terminam na saída explicitamente escolhida podem ser removidos. Outros destinos, fontes e microfone virtual permanecem fora da operação.
 - Validar core, nodes, portas e links por identidade, incluindo serial; ID/nome isolados não bastam.
 - Guardar registro durável antes de remover cada conexão. Confirmar o resultado pelo grafo, não apenas pelo exit code do comando.
-- Volume local inicial 25%; fila de seis blocos de até 480 amostras, não bloquear nem alterar PCM principal/A/B.
+- Volume local inicial 25%; fila de 24 blocos de até 480 amostras (240 ms; corrigido após regressão com pacote Opus de 120 ms), não bloquear nem alterar PCM principal/A/B.
 - “Ativo” exige links de retorno corretos e ausência de concorrentes; não há troca automática de destino.
 - Desligar, trocar destino, A/B, desconectar ou encerrar normalmente requer término do reprodutor e tentativa de restauração antes de outro modo.
 - Restauração pendente bloqueia nova reprodução local e nova sessão exclusiva; o usuário pode tentar novamente.

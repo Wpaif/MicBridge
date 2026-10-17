@@ -11,6 +11,10 @@ use std::sync::{
     mpsc,
 };
 pub type MonitorId = u64;
+// Opus can deliver 120 ms at once (5760 mono samples at 48 kHz).
+// Keep two maximum packets of scheduling headroom, bounded to 240 ms;
+// a full queue still stops the return without blocking the main audio pump.
+const QUEUE_BLOCKS: usize = 24;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MonitorPhase {
     Disabled,
@@ -189,7 +193,7 @@ impl Monitor {
         std::mem::drop(self.stop_and_wait());
     }
     fn with_channel() -> (Self, mpsc::Receiver<Block>) {
-        let (tx, rx) = mpsc::sync_channel(6);
+        let (tx, rx) = mpsc::sync_channel(QUEUE_BLOCKS);
         let (commands, _) = tokio::sync::watch::channel(Control::Stop { operation: 0 });
         let (_, settled) = tokio::sync::watch::channel(Settlement::default());
         (
@@ -382,7 +386,7 @@ mod tests {
         }
     }
     #[test]
-    fn processed_audio_is_unchanged_with_monitoring_and_large_packet_failure_is_local() {
+    fn processed_audio_is_unchanged_and_every_valid_opus_packet_reaches_monitor() {
         for n in [480, 960, 5760, 120] {
             let params = crate::dsp::Params::default();
             params.apply_preset(crate::dsp::Preset::Bruto);
@@ -421,19 +425,40 @@ mod tests {
             assert_eq!(take.original, original);
             assert_eq!(take.treated, pcm);
             let blocks: Vec<_> = queue.try_iter().collect();
-            if n == 5760 {
-                assert_eq!(m.status().phase, MonitorPhase::Failed);
-                assert_eq!(blocks.len(), 6);
-            } else {
-                assert_eq!(
-                    blocks
-                        .iter()
-                        .flat_map(|b| b.samples.clone())
-                        .collect::<Vec<_>>(),
-                    pcm
-                );
-            }
+            assert_eq!(
+                m.status().phase,
+                MonitorPhase::Active,
+                "valid packet: {n} samples"
+            );
+            assert_eq!(
+                blocks
+                    .iter()
+                    .flat_map(|b| b.samples.clone())
+                    .collect::<Vec<_>>(),
+                pcm
+            );
         }
+    }
+    #[test]
+    fn two_maximum_opus_packets_survive_consumer_scheduling_delay() {
+        // The real decoder accepts 5760 mono samples (120 ms) per RTP packet.
+        // Neither packet may depend on the worker running between 10 ms chunks.
+        let (m, rx) = Monitor::with_channel();
+        m.reserve(1, 7, target());
+        assert!(Monitor::publish(&m.inner, 1, &AtomicBool::new(true)));
+        let first = vec![0.1; 5760];
+        let second = vec![0.2; 5760];
+        submit_processed(&m, 7, &first);
+        submit_processed(&m, 7, &second);
+        assert_eq!(m.status().phase, MonitorPhase::Active);
+        let actual: Vec<_> = rx.try_iter().flat_map(|b| b.samples).collect();
+        assert_eq!(actual, [first, second].concat());
+        // Once consumed, subsequent packets must still be accepted.
+        submit_processed(&m, 7, &[0.3; 960]);
+        assert_eq!(
+            rx.try_iter().flat_map(|b| b.samples).collect::<Vec<_>>(),
+            vec![0.3; 960]
+        );
     }
     #[test]
     fn bounded_queue_stops_monitor_without_waiting_for_consumer() {
@@ -443,7 +468,7 @@ mod tests {
         let (tx, done) = mpsc::channel();
         let producer = m.clone();
         let thread = std::thread::spawn(move || {
-            for _ in 0..7 {
+            for _ in 0..25 {
                 producer.push(1, 7, &[0.1; 480]);
             }
             let _ = tx.send(());
@@ -456,7 +481,7 @@ mod tests {
         assert_eq!(m.status().phase, MonitorPhase::Failed);
         assert!(m.status().error.is_some());
         assert!(m.active_id(7).is_none());
-        assert_eq!(rx.try_iter().count(), 6);
+        assert_eq!(rx.try_iter().count(), 24);
     }
     #[test]
     fn stale_sessions_and_generations_cannot_queue_or_play() {
@@ -588,14 +613,14 @@ mod worker_tests {
             assert!(name.starts_with("micbridge_monitor_"));
             assert!(exclusive.competitors(&target, &name).unwrap().is_empty());
             capture=Some(tokio::process::Command::new("pw-cat").args(["--record","--raw","--target",&serial,"--rate","48000","--channels","1","--format","f32","--properties","stream.capture.sink=true node.name=micbridge_exclusive_test_capture node.dont-fallback=true node.dont-reconnect=true","-"]).stdout(std::fs::File::create(&capture_path).unwrap()).stderr(std::process::Stdio::null()).kill_on_drop(true).die_with_parent().spawn().unwrap());
-            let mut cadence = tokio::time::interval(Duration::from_millis(20));
+            let mut cadence = tokio::time::interval(Duration::from_millis(120));
             cadence.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            for block in 0..150 {
+            for block in 0..25 {
                 cadence.tick().await;
-                let mut pcm = [0f32; 960];
+                let mut pcm = [0f32; 5760];
                 for (i, v) in pcm.iter_mut().enumerate() {
                     *v = 0.04
-                        * (2.0 * std::f32::consts::PI * 440.0 * (block * 960 + i) as f32 / 48000.0)
+                        * (2.0 * std::f32::consts::PI * 440.0 * (block * 5760 + i) as f32 / 48000.0)
                             .sin();
                 }
                 submit_processed(&shared.monitor, generation, &pcm);
@@ -606,6 +631,8 @@ mod worker_tests {
                     shared.monitor.status()
                 );
             }
+            cadence.tick().await;
+            assert_eq!(shared.monitor.status().phase, MonitorPhase::Active);
             if let Some(c)=capture.as_mut(){let _=c.kill().await;let _=c.wait().await;}
             let bytes = std::fs::read(&capture_path).unwrap();
             let peak = bytes
@@ -704,6 +731,23 @@ mod worker_tests {
                 "Music",
                 "-"
             ]
+        );
+    }
+    #[tokio::test]
+    async fn maximum_packet_is_written_in_full_by_live_worker() {
+        let f = Fixture::new("cat > '@DIR@/pcm'");
+        let m = Monitor::with_executable(f.executable.clone());
+        m.open(1, 7, target(), Arc::new(AtomicBool::new(true)));
+        wait(|| m.status().phase == MonitorPhase::Active);
+        submit_processed(&m, 7, &vec![0.4; 5760]);
+        assert_eq!(m.status().phase, MonitorPhase::Active);
+        wait(|| std::fs::metadata(f.dir.join("pcm")).is_ok_and(|m| m.len() == 23040));
+        m.stop_and_wait().await.unwrap();
+        let actual = std::fs::read(f.dir.join("pcm")).unwrap();
+        assert!(
+            actual
+                .chunks_exact(4)
+                .all(|bytes| bytes == 0.1f32.to_le_bytes())
         );
     }
     #[tokio::test]

@@ -96,13 +96,13 @@ Constantes e execução:
 **Files:** criar `routing/controller.rs`; testes com backend mutável/barreiras, sem hardware.
 **Interfaces:** consome Graph/Backend/Journal; produz Routing, RouteSession e RestoreReport.
 
-- [ ] Escrever `activation_links_return_then_journals_unlinks_and_verifies`: registrar ordem; retorno conectado antes da primeira remoção e registro persistido antes dela; ready apenas após snapshot exclusivo.
-- [ ] Escrever `new_competitor_is_removed_and_restored_once`: inserir link durante atividade e notificar; deduplicar reentradas e restaurar uma vez. Simular WirePlumber recriando continuamente: quatro tentativas geram falha/rollback.
-- [ ] Escrever `partial_failure_rolls_back_and_retry_keeps_pending_record`: falhar após primeira remoção, falhar uma restauração, repetir; contagens e registro permanecem corretos, erro não desaparece silenciosamente.
-- [ ] Escrever `cancelled_or_replaced_route_cannot_unlink_after_cleanup`: pausar snapshot/comando, invalidar lease e parar; aguardar mutação em voo e rollback antes do ACK, descartar resposta antiga e não publicar ready tardio.
-- [ ] Escrever `recovery_respects_core_and_endpoint_identity`: abrir registro deixado após interrupção; restaurar válidos, contar presentes/indisponíveis e recusar reuso de ID/serial de outra sessão. Remover do registro apenas entradas cujo resultado foi confirmado; persistir falhas pendentes.
-- [ ] Rodar focados em RED; implementar worker único, evento/auditoria/coalescência, preparação limitada, verificação pós-comando e restauração serializada. Revalidar antes de cada mutação; cancelamento não abandona remoção em voo sem rollback.
-- [ ] Rodar suíte; commit `feat(audio): mantém saída exclusiva durante o ajuste`.
+- [x] Escrever `activation_links_return_then_journals_unlinks_and_verifies`: registrar ordem; retorno conectado antes da primeira remoção e registro persistido antes dela; ready apenas após snapshot exclusivo.
+- [x] Escrever `new_competitor_is_removed_and_restored_once`: inserir link durante atividade e notificar; deduplicar reentradas e restaurar uma vez. Simular WirePlumber recriando continuamente: quatro tentativas geram falha/rollback.
+- [x] Escrever `partial_failure_rolls_back_and_retry_keeps_pending_record`: falhar após primeira remoção, falhar uma restauração, repetir; contagens e registro permanecem corretos, erro não desaparece silenciosamente.
+- [x] Escrever `cancelled_or_replaced_route_cannot_unlink_after_cleanup`: pausar snapshot/comando, invalidar lease e parar; aguardar mutação em voo e rollback antes do ACK, descartar resposta antiga e não publicar ready tardio.
+- [x] Escrever `recovery_respects_core_and_endpoint_identity`: abrir registro deixado após interrupção; restaurar válidos, contar presentes/indisponíveis e recusar reuso de ID/serial de outra sessão. Remover do registro apenas entradas cujo resultado foi confirmado; persistir falhas pendentes.
+- [x] Rodar focados em RED; implementar worker único, evento/auditoria/coalescência, preparação limitada, verificação pós-comando e restauração serializada. Revalidar antes de cada mutação; cancelamento não abandona remoção em voo sem rollback.
+- [x] Rodar suíte; commit `feat(audio): mantém saída exclusiva durante o ajuste`.
 
 ## Task 4: PCM, coordenação e encerramento
 

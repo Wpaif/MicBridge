@@ -2,9 +2,31 @@ use super::graph::{Graph, SavedLink, SavedState};
 use std::path::PathBuf;
 #[async_trait::async_trait]
 pub trait RoutingBackend: Send + Sync {
+    fn watch(&self) -> Result<Option<Changes>, String> {
+        Ok(None)
+    }
     async fn snapshot(&self) -> Result<Graph, String>;
     async fn connect(&self, link: &SavedLink) -> Result<(), String>;
     async fn disconnect(&self, link: &SavedLink) -> Result<(), String>;
+}
+pub struct Changes {
+    child: tokio::process::Child,
+    out: tokio::process::ChildStdout,
+}
+impl Changes {
+    pub async fn next(&mut self) -> Result<(), String> {
+        use tokio::io::AsyncReadExt;
+        let mut bytes = [0u8; 4096];
+        match self.out.read(&mut bytes).await {
+            Ok(0) => Err("Observação das conexões PipeWire encerrou".into()),
+            Ok(_) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+    pub async fn stop(&mut self) {
+        let _ = self.child.kill().await;
+        let _ = self.child.wait().await;
+    }
 }
 pub struct RealBackend {
     dump: PathBuf,
@@ -20,6 +42,20 @@ impl Default for RealBackend {
 }
 #[async_trait::async_trait]
 impl RoutingBackend for RealBackend {
+    fn watch(&self) -> Result<Option<Changes>, String> {
+        use crate::output::DieWithParent;
+        let mut child = tokio::process::Command::new(&self.link)
+            .args(["-l", "-I", "-m"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .die_with_parent()
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        let out = child.stdout.take().expect("stdout solicitado");
+        Ok(Some(Changes { child, out }))
+    }
+
     async fn snapshot(&self) -> Result<Graph, String> {
         Graph::parse(&run(&self.dump, &[]).await?)
     }
@@ -112,6 +148,28 @@ mod tests {
         audio_test::{Fixture, SLEEP, alive, wait},
         monitor::routing::graph::tests::{fixture, graph, target},
     };
+    #[tokio::test]
+    async fn watch_reports_eof_and_reaps() {
+        let f = Fixture::new(&format!("printf 'change\\n'; {SLEEP}"));
+        let backend = RealBackend {
+            dump: f.executable.clone(),
+            link: f.executable.clone(),
+        };
+        let mut events = backend.watch().unwrap().unwrap();
+        events.next().await.unwrap();
+        wait(|| f.pid().is_some());
+        let pid = f.pid().unwrap();
+        events.stop().await;
+        assert!(!alive(pid));
+        let f = Fixture::new("exit 0");
+        let backend = RealBackend {
+            dump: f.executable.clone(),
+            link: f.executable.clone(),
+        };
+        let mut events = backend.watch().unwrap().unwrap();
+        assert!(events.next().await.is_err());
+        events.stop().await;
+    }
     #[tokio::test]
     async fn commands_revalidate_and_confirm_endpoints() {
         use std::os::unix::fs::PermissionsExt;

@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod audio_test;
+mod connection_sidebar;
 mod dsp;
 mod effect_ui;
 mod local_audio;
@@ -565,9 +566,43 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .child(&workspace)
         .build();
     let scroll = gtk::ScrolledWindow::builder()
+        .name("studio-scroll")
         .hscrollbar_policy(gtk::PolicyType::Never)
         .vexpand(true)
         .child(&workspace_clamp)
+        .build();
+    let studio_bin = adw::BreakpointBin::builder()
+        .name("studio-responsive")
+        .width_request(360)
+        .height_request(100)
+        .hexpand(true)
+        .vexpand(true)
+        .child(&scroll)
+        .build();
+    let sidebar = gtk::Box::builder()
+        .name("connection-sidebar")
+        .orientation(gtk::Orientation::Vertical)
+        .width_request(340)
+        .build();
+    sidebar.append(&conn);
+    let sidebar_clamp = adw::Clamp::builder()
+        .name("connection-rail")
+        .maximum_size(340)
+        .tightening_threshold(340)
+        .hexpand(false)
+        .margin_start(18)
+        .margin_top(24)
+        .margin_bottom(24)
+        .valign(gtk::Align::Start)
+        .child(&sidebar)
+        .build();
+    let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    body.append(&sidebar_clamp);
+    body.append(&studio_bin);
+    let body_clamp = adw::Clamp::builder()
+        .maximum_size(1800)
+        .tightening_threshold(1800)
+        .child(&body)
         .build();
     let view = adw::ToolbarView::new();
     let header = adw::HeaderBar::new();
@@ -578,8 +613,8 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .css_classes(["toolbar", "mb-live-header"])
         .build();
     let live_clamp = adw::Clamp::builder()
-        .maximum_size(1440)
-        .tightening_threshold(1440)
+        .maximum_size(1800)
+        .tightening_threshold(1800)
         .child(&state_group)
         .build();
     live_header.append(&live_clamp);
@@ -607,7 +642,7 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     });
     hero.controls.append(&mute_button);
     view.add_top_bar(&live_header);
-    view.set_content(Some(&scroll));
+    view.set_content(Some(&body_clamp));
 
     let win = adw::ApplicationWindow::builder()
         .application(app)
@@ -642,11 +677,11 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     });
     let recording_panel = recording_ui::panel(shared.clone(), &win);
     let monitor_panel = monitor_ui::panel(shared.clone());
+    connection_sidebar::install(&win, &header, &sidebar, &sidebar_clamp, &conn, &hero.meters);
     studio_layout::install(
-        &win,
+        &studio_bin,
         &workspace,
         &workspace_clamp,
-        &hero.meters,
         [
             fx.upcast(),
             cleanup.upcast(),
@@ -655,7 +690,6 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
             gain.upcast(),
             recording_panel.upcast(),
             monitor_panel.upcast(),
-            conn.upcast(),
             qr_group.clone().upcast(),
             note.upcast(),
         ],
@@ -813,6 +847,116 @@ mod appearance_tests {
     use super::*;
     #[test]
     #[ignore = "requer sessão gráfica GTK"]
+    fn connection_sidebar_stays_fixed_and_recovers_from_compact_dialog() {
+        adw::init().unwrap();
+        let f = audio_test::Fixture::new("exit 0");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", f.dir.join("data"));
+            std::env::set_var("XDG_CONFIG_HOME", f.dir.join("config"));
+        }
+        let app = adw::Application::builder()
+            .application_id("dev.wilian.MicBridge.ConnectionSidebarTest")
+            .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+            .build();
+        app.register(None::<&gtk::gio::Cancellable>).unwrap();
+        let shared = Arc::new(Shared::new());
+        build_ui(&app, shared.clone(), true);
+        let win = app.windows()[0]
+            .clone()
+            .downcast::<adw::ApplicationWindow>()
+            .unwrap();
+        win.set_default_size(1440, 900);
+        until(|| win.is_mapped() && win.width() == 1440);
+        let connection = find::<adw::PreferencesGroup>(&win, &|g| g.title() == "Conexão").unwrap();
+        assert!(
+            connection
+                .ancestor(gtk::ScrolledWindow::static_type())
+                .is_none(),
+            "conexão fixa não pode estar na rolagem"
+        );
+        let hero = find::<gtk::Box>(&win, &|b| b.has_css_class("mb-live-header")).unwrap();
+        let scroll =
+            find::<gtk::ScrolledWindow>(&win, &|s| s.widget_name() == "studio-scroll").unwrap();
+        let before = connection.compute_bounds(&win).unwrap();
+        let top = hero.compute_bounds(&win).unwrap();
+        let area = scroll.compute_bounds(&win).unwrap();
+        assert!(before.y() >= top.y() + top.height());
+        assert!(before.x() + before.width() <= area.x());
+        assert!(before.width() <= 360.0);
+        assert!(before.y() + before.height() <= win.height() as f32);
+        let adjustment = scroll.vadjustment();
+        adjustment.set_value(adjustment.upper() - adjustment.page_size());
+        let end = std::time::Instant::now() + Duration::from_millis(180);
+        until(|| std::time::Instant::now() >= end);
+        let after = connection.compute_bounds(&win).unwrap();
+        assert!((before.y() - after.y()).abs() < 1.0);
+        assert!((before.x() - after.x()).abs() < 1.0);
+        let certificate =
+            find::<adw::ActionRow>(&connection, &|r| r.title() == "Certificado · SHA-256").unwrap();
+        certificate.set_subtitle(&["AA"; 32].join(":"));
+        shared.close_pairing();
+        win.set_default_size(1181, 681);
+        until(|| win.width() == 1181 && win.height() == 681);
+        let end = std::time::Instant::now() + Duration::from_millis(180);
+        until(|| std::time::Instant::now() >= end);
+        let edge = connection.compute_bounds(&win).unwrap();
+        assert!(connection.is_mapped());
+        assert!(
+            edge.y() + edge.height() <= win.height() as f32,
+            "conexão completa deve caber no limite do modo fixo: {edge:?}"
+        );
+        let button =
+            find::<gtk::Button>(&win, &|b| b.widget_name() == "connection-toggle").unwrap();
+        assert!(!button.is_visible());
+        for (width, height) in [(420, 400), (1440, 500)] {
+            win.set_default_size(width, height);
+            until(|| win.width() == width && win.height() == height && button.is_mapped());
+            assert!(!connection.is_mapped());
+            assert!(scroll.height() >= 100);
+            button.emit_clicked();
+            until(|| win.visible_dialog().is_some() && connection.is_mapped());
+            let dialog = win.visible_dialog().unwrap();
+            assert_eq!(dialog.title(), "Conexão");
+            dialog.close();
+            until(|| win.visible_dialog().is_none());
+            assert!(!connection.is_mapped());
+            button.emit_clicked();
+            until(|| win.visible_dialog().is_some() && connection.is_mapped());
+            let dialog = win.visible_dialog().unwrap();
+            let pair =
+                find::<adw::SwitchRow>(&dialog, &|r| r.title() == "Aceitar novo celular").unwrap();
+            pair.set_active(true);
+            assert!(shared.pairing_remaining() > 0);
+            pair.set_active(false);
+            assert_eq!(shared.pairing_remaining(), 0);
+            // Reabrir a lateral durante um diálogo não deve duplicar o painel.
+            win.set_default_size(1440, 900);
+            until(|| {
+                win.width() == 1440
+                    && win.height() == 900
+                    && win.visible_dialog().is_none()
+                    && connection.is_mapped()
+            });
+            assert!(
+                connection
+                    .ancestor(gtk::ScrolledWindow::static_type())
+                    .is_none()
+            );
+            assert!(
+                !find::<adw::SwitchRow>(&connection, &|r| r.title() == "Aceitar novo celular")
+                    .unwrap()
+                    .is_active()
+            );
+        }
+        if std::env::var_os("MICBRIDGE_TEST_SNAPSHOTS").is_some() {
+            let end = std::time::Instant::now() + Duration::from_millis(250);
+            until(|| std::time::Instant::now() >= end);
+            save_layout_snapshot(&win, "/tmp/micbridge-fixed-connection.png");
+        }
+        win.destroy();
+    }
+    #[test]
+    #[ignore = "requer sessão gráfica GTK"]
     fn studio_panels_use_natural_heights_and_bounded_responsive_columns() {
         adw::init().unwrap();
         let f = audio_test::Fixture::new("exit 0");
@@ -843,8 +987,11 @@ mod appearance_tests {
         let input = find::<gtk::LevelBar>(&hero, &|_| true).unwrap();
         let output = find::<gtk::LevelBar>(&hero, &|bar| bar != &input).unwrap();
         for (width, height, column_count) in [
-            (1440, 900, 3),
-            (1241, 800, 3),
+            (1700, 900, 3),
+            (1181, 800, 2),
+            (1180, 800, 2),
+            (1440, 900, 2),
+            (1241, 800, 2),
             (1240, 800, 2),
             (960, 800, 2),
             (801, 800, 2),
@@ -854,7 +1001,7 @@ mod appearance_tests {
             (600, 800, 1),
             (420, 400, 1),
             (601, 800, 1),
-            (1440, 900, 3),
+            (1440, 900, 2),
         ] {
             win.set_default_size(width, height);
             until(|| win.width() == width);
@@ -885,7 +1032,18 @@ mod appearance_tests {
                 count += 1;
                 child = column.next_sibling();
             }
-            assert_eq!(count, column_count);
+            let usable =
+                find::<adw::BreakpointBin>(&win, &|b| b.widget_name() == "studio-responsive")
+                    .unwrap();
+            let side =
+                find::<gtk::Box>(&win, &|b| b.widget_name() == "connection-sidebar").unwrap();
+            assert_eq!(
+                count,
+                column_count,
+                "janela {width}, estúdio {}, lateral {}",
+                usable.width(),
+                side.width()
+            );
             let recording = find::<gtk::Box>(&win, &|b| b.has_css_class("mb-recording")).unwrap();
             let monitor = find::<gtk::Box>(&win, &|b| b.has_css_class("mb-monitor")).unwrap();
             assert_eq!(
@@ -920,7 +1078,13 @@ mod appearance_tests {
         until(|| std::time::Instant::now() >= end);
         let bounds = columns.compute_bounds(&win).unwrap();
         assert!(bounds.width() <= 1440.0);
-        assert!((bounds.x() - (win.width() as f32 - bounds.width()) / 2.0).abs() < 2.0);
+        let bin =
+            find::<adw::BreakpointBin>(&win, &|b| b.widget_name() == "studio-responsive").unwrap();
+        let bin_bounds = bin.compute_bounds(&win).unwrap();
+        assert!(
+            (bounds.x() - (bin_bounds.x() + (bin_bounds.width() - bounds.width()) / 2.0)).abs()
+                < 2.0
+        );
         assert_eq!(shared.params.gate_threshold(), -55.0);
         if std::env::var_os("MICBRIDGE_TEST_SNAPSHOTS").is_some() {
             save_layout_snapshot(&win, "/tmp/micbridge-studio-maximized.png");

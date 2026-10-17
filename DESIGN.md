@@ -74,14 +74,28 @@ existente de 20 Hz, sem criar outro timer nem reter widgets pelos indicadores.
 
 Usar colunas independentes, com altura natural e intervalo de 18 px entre painéis;
 não alinhar a próxima seção pela altura do maior painel de outra coluna. Acima de
-1240 px, três colunas: perfil/limpeza/timbre; dinâmica/volume; teste/retorno/conexão.
+1240 px úteis no estúdio, três colunas: perfil/limpeza/timbre; dinâmica/volume;
+teste/retorno/QR.
 Teste A/B e retorno ao vivo devem permanecer consecutivos na mesma coluna em
-todas as larguras, formando a área de teste e monitoramento. A conexão vem depois.
-Entre 801 e 1240 px, duas: tratamento de voz à esquerda, teste/retorno/conexão à
-direita. Até 800 px, uma coluna. QR acompanha a conexão e continua condicionado ao
+todas as larguras, formando a área de teste e monitoramento.
+Entre 801 e 1240 px úteis, duas: tratamento de voz à esquerda, teste/retorno/QR à
+direita. Até 800 px úteis, uma coluna. QR continua condicionado ao
 estado do pareamento. Os mesmos widgets são reposicionados sem recriar controles.
 
-Conteúdo centralizado, com limite total de 1440 px; em duas colunas o limite é
+Estúdio centralizado na área rolável direita, com limite de 1440 px; em duas colunas o limite é
 1040 px e em uma, 584 px, incluindo margens. Evitar esticamento dos painéis em
-monitores largos. O cabeçalho fixo acompanha o limite de largura de 1440 px;
+monitores largos. Cabeçalho e corpo têm limite externo de largura de 1800 px;
 medidores são empilhados até 600 px. Manter área de rolagem útil em 420×400.
+
+## Conexão fixa
+
+Conexão fica numa lateral esquerda de até 340 px, abaixo do status e fora de
+qualquer ScrolledWindow. Apenas o estúdio à direita rola. As colunas respondem à
+largura útil da área direita por um BreakpointBin, sem incluir a lateral.
+
+Até 1180 px de largura ou 680 px de altura, recolher a lateral e mostrar o botão
+Conexão no cabeçalho. Esse botão apresenta o mesmo painel num diálogo nativo,
+com rolagem apenas quando necessária dentro do diálogo para alcançar os controles.
+Ao retornar ao tamanho de desktop, fechar o diálogo e devolver o painel à lateral,
+preservando o estado. QR inline permanece no estúdio; o botão de QR na conexão
+continua abrindo a visualização dedicada.

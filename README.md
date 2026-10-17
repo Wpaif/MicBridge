@@ -136,6 +136,10 @@ Pareamento e certificados ficam em `~/.local/share/micbridge` (respeita `XDG_DAT
 
 ## 🛠️ Ajustes de áudio
 
+O painel **Conexão** fica fixo à esquerda, abaixo do status; os ajustes e testes
+rolam na área direita. Em janelas pequenas ou baixas, abra **Conexão** pelo botão
+de rede na barra superior. O painel aparece num diálogo sem perder seus controles.
+
 Escolha um **Perfil de voz** e refine nos módulos de tratamento:
 
 | Controle | Efeito |

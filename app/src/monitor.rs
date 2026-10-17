@@ -1,5 +1,6 @@
 //! Retorno local da voz tratada.
 pub mod devices;
+pub mod routing;
 
 pub mod gain;
 mod worker;
@@ -10,11 +11,16 @@ use std::sync::{
     mpsc,
 };
 pub type MonitorId = u64;
+// Opus can deliver 120 ms at once (5760 mono samples at 48 kHz).
+// Keep two maximum packets of scheduling headroom, bounded to 240 ms;
+// a full queue still stops the return without blocking the main audio pump.
+const QUEUE_BLOCKS: usize = 24;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MonitorPhase {
     Disabled,
     Opening,
     Active,
+    Restoring,
     Failed,
 }
 #[derive(Clone, Debug)]
@@ -25,6 +31,8 @@ pub struct MonitorStatus {
     pub generation: Option<u64>,
     pub volume_percent: f32,
     pub error: Option<String>,
+    pub restore_report: Option<routing::RestoreReport>,
+    pub restore_pending: bool,
 }
 struct Block {
     id: u64,
@@ -57,28 +65,71 @@ enum Control {
         lease: Arc<AtomicBool>,
     },
 }
+#[derive(Clone, Debug, Default)]
+struct Settlement {
+    operation: u64,
+    error: Option<String>,
+}
 struct ControlHandle {
     tx: tokio::sync::watch::Sender<Control>,
     next: AtomicU64,
-    settled: tokio::sync::watch::Receiver<u64>,
+    settled: tokio::sync::watch::Receiver<Settlement>,
     transaction: Mutex<()>,
+    lease: Mutex<Option<Arc<AtomicBool>>>,
 }
 #[derive(Clone)]
 pub struct Monitor {
     inner: Arc<Inner>,
     control: Arc<ControlHandle>,
+    routing: Option<routing::Routing>,
 }
 impl Monitor {
+    #[cfg(test)]
+    pub(crate) fn with_test_routing(
+        executable: std::path::PathBuf,
+        routing: routing::Routing,
+    ) -> Self {
+        Self::build(
+            executable,
+            routing,
+            Arc::new(|_| "micbridge_monitor_test".into()),
+        )
+    }
+    #[cfg(test)]
     pub(crate) fn with_executable(executable: std::path::PathBuf) -> Self {
+        Self::with_services(executable, routing::Routing::bypass())
+    }
+    pub(crate) fn with_services(executable: std::path::PathBuf, routing: routing::Routing) -> Self {
+        Self::build(
+            executable,
+            routing,
+            Arc::new(|id| {
+                format!(
+                    "micbridge_monitor_{}_{}_{}",
+                    std::process::id(),
+                    id,
+                    crate::state::random_hex(16)
+                )
+            }),
+        )
+    }
+    fn build(
+        executable: std::path::PathBuf,
+        routing: routing::Routing,
+        names: Arc<dyn Fn(u64) -> String + Send + Sync>,
+    ) -> Self {
         let (mut m, rx) = Self::with_channel();
-        let (ack, settled) = tokio::sync::watch::channel(0u64);
+        let (ack, settled) = tokio::sync::watch::channel(Settlement::default());
         Arc::get_mut(&mut m.control).expect("controle novo").settled = settled;
+        m.routing = Some(routing.clone());
         worker::spawn(
             m.inner.clone(),
             rx,
             m.control.tx.subscribe(),
             ack,
             executable,
+            routing,
+            names,
         );
         m
     }
@@ -86,6 +137,11 @@ impl Monitor {
         let _transaction = self.control.transaction.lock().unwrap();
         if !lease.load(SeqCst) {
             return;
+        }
+        if let Some(old) = self.control.lease.lock().unwrap().replace(lease.clone()) {
+            if !Arc::ptr_eq(&old, &lease) {
+                old.store(false, SeqCst);
+            }
         }
         self.reserve(id, generation, target.clone());
         let operation = self.control.next.fetch_add(1, SeqCst) + 1;
@@ -107,8 +163,9 @@ impl Monitor {
         self.control.tx.send_replace(Control::Stop { operation });
         async move {
             loop {
-                if *settled.borrow_and_update() >= operation {
-                    return Ok(());
+                let ack = settled.borrow_and_update().clone();
+                if ack.operation >= operation {
+                    return ack.error.map_or(Ok(()), Err);
                 }
                 settled.changed().await.map_err(|_| {
                     "Worker de retorno encerrou antes de confirmar parada".to_string()
@@ -117,12 +174,30 @@ impl Monitor {
         }
     }
     pub fn new() -> Self {
-        Self::with_executable("pw-cat".into())
+        #[cfg(test)]
+        {
+            Self::with_executable("pw-cat".into())
+        }
+        #[cfg(not(test))]
+        {
+            Self::with_services(
+                "pw-cat".into(),
+                routing::Routing::new(
+                    Arc::new(routing::backend::RealBackend::default()),
+                    crate::state::data_dir().join("monitor-routing.json"),
+                ),
+            )
+        }
+    }
+    pub fn retry_restore(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), String>> + Send + 'static {
+        self.stop_and_wait()
     }
     fn with_channel() -> (Self, mpsc::Receiver<Block>) {
-        let (tx, rx) = mpsc::sync_channel(6);
+        let (tx, rx) = mpsc::sync_channel(QUEUE_BLOCKS);
         let (commands, _) = tokio::sync::watch::channel(Control::Stop { operation: 0 });
-        let (_, settled) = tokio::sync::watch::channel(0u64);
+        let (_, settled) = tokio::sync::watch::channel(Settlement::default());
         (
             Self {
                 control: Arc::new(ControlHandle {
@@ -130,7 +205,9 @@ impl Monitor {
                     next: AtomicU64::new(0),
                     settled,
                     transaction: Mutex::new(()),
+                    lease: Mutex::new(None),
                 }),
+                routing: None,
                 inner: Arc::new(Inner {
                     tx,
                     gate: AtomicU64::new(0),
@@ -144,6 +221,8 @@ impl Monitor {
                         generation: None,
                         volume_percent: 25.0,
                         error: None,
+                        restore_report: None,
+                        restore_pending: false,
                     }),
                     cancel: tokio::sync::Notify::new(),
                 }),
@@ -169,6 +248,8 @@ impl Monitor {
             generation: Some(generation),
             volume_percent: self.volume(),
             error: None,
+            restore_report: None,
+            restore_pending: false,
         };
         self.inner.gate.store(id << 1, SeqCst);
     }
@@ -191,8 +272,25 @@ impl Monitor {
                 }
             } else if gate == s.id << 1 | 1 {
                 s.phase = MonitorPhase::Active;
-            } else if gate == 0 {
+            } else if gate == 0 && s.phase != MonitorPhase::Restoring {
                 s.phase = MonitorPhase::Disabled;
+            }
+        }
+        if let Some(routing) = &self.routing {
+            let route = routing.status();
+            s.restore_report = Some(route.report.clone());
+            s.restore_pending = route.report.pending > 0;
+            if route.busy && s.phase != MonitorPhase::Opening {
+                s.phase = MonitorPhase::Restoring;
+            }
+            if s.restore_pending {
+                if !route.busy && s.phase != MonitorPhase::Restoring {
+                    s.phase = MonitorPhase::Failed;
+                }
+                s.error = route
+                    .report
+                    .error
+                    .or_else(|| Some("Conexões aguardam restauração".into()));
             }
         }
         s
@@ -250,10 +348,17 @@ impl Monitor {
         }
     }
     pub fn disable(&self) {
+        if let Some(lease) = self.control.lease.lock().unwrap().take() {
+            lease.store(false, SeqCst);
+        }
         self.inner.gate.store(0, SeqCst);
         self.inner.cancel.notify_one();
         let mut s = self.inner.status.lock().unwrap();
-        s.phase = MonitorPhase::Disabled;
+        s.phase = if self.routing.as_ref().is_some_and(|r| r.requires_graph()) {
+            MonitorPhase::Restoring
+        } else {
+            MonitorPhase::Disabled
+        };
         s.error = None;
     }
     fn valid(inner: &Inner, block: &Block) -> bool {
@@ -283,7 +388,7 @@ mod tests {
         }
     }
     #[test]
-    fn processed_audio_is_unchanged_with_monitoring_and_large_packet_failure_is_local() {
+    fn processed_audio_is_unchanged_and_every_valid_opus_packet_reaches_monitor() {
         for n in [480, 960, 5760, 120] {
             let params = crate::dsp::Params::default();
             params.apply_preset(crate::dsp::Preset::Bruto);
@@ -322,19 +427,40 @@ mod tests {
             assert_eq!(take.original, original);
             assert_eq!(take.treated, pcm);
             let blocks: Vec<_> = queue.try_iter().collect();
-            if n == 5760 {
-                assert_eq!(m.status().phase, MonitorPhase::Failed);
-                assert_eq!(blocks.len(), 6);
-            } else {
-                assert_eq!(
-                    blocks
-                        .iter()
-                        .flat_map(|b| b.samples.clone())
-                        .collect::<Vec<_>>(),
-                    pcm
-                );
-            }
+            assert_eq!(
+                m.status().phase,
+                MonitorPhase::Active,
+                "valid packet: {n} samples"
+            );
+            assert_eq!(
+                blocks
+                    .iter()
+                    .flat_map(|b| b.samples.clone())
+                    .collect::<Vec<_>>(),
+                pcm
+            );
         }
+    }
+    #[test]
+    fn two_maximum_opus_packets_survive_consumer_scheduling_delay() {
+        // The real decoder accepts 5760 mono samples (120 ms) per RTP packet.
+        // Neither packet may depend on the worker running between 10 ms chunks.
+        let (m, rx) = Monitor::with_channel();
+        m.reserve(1, 7, target());
+        assert!(Monitor::publish(&m.inner, 1, &AtomicBool::new(true)));
+        let first = vec![0.1; 5760];
+        let second = vec![0.2; 5760];
+        submit_processed(&m, 7, &first);
+        submit_processed(&m, 7, &second);
+        assert_eq!(m.status().phase, MonitorPhase::Active);
+        let actual: Vec<_> = rx.try_iter().flat_map(|b| b.samples).collect();
+        assert_eq!(actual, [first, second].concat());
+        // Once consumed, subsequent packets must still be accepted.
+        submit_processed(&m, 7, &[0.3; 960]);
+        assert_eq!(
+            rx.try_iter().flat_map(|b| b.samples).collect::<Vec<_>>(),
+            vec![0.3; 960]
+        );
     }
     #[test]
     fn bounded_queue_stops_monitor_without_waiting_for_consumer() {
@@ -344,7 +470,7 @@ mod tests {
         let (tx, done) = mpsc::channel();
         let producer = m.clone();
         let thread = std::thread::spawn(move || {
-            for _ in 0..7 {
+            for _ in 0..25 {
                 producer.push(1, 7, &[0.1; 480]);
             }
             let _ = tx.send(());
@@ -357,7 +483,7 @@ mod tests {
         assert_eq!(m.status().phase, MonitorPhase::Failed);
         assert!(m.status().error.is_some());
         assert!(m.active_id(7).is_none());
-        assert_eq!(rx.try_iter().count(), 6);
+        assert_eq!(rx.try_iter().count(), 24);
     }
     #[test]
     fn stale_sessions_and_generations_cannot_queue_or_play() {
@@ -410,6 +536,150 @@ mod worker_tests {
         }
     }
     #[tokio::test]
+    #[ignore = "requer fone Bluetooth; altera links temporariamente e reproduz tom baixo"]
+    async fn bluetooth_live_monitor_keeps_paced_audio_and_links_to_selected_sink() {
+        use crate::{
+            monitor::routing::{
+                backend::{RealBackend, RoutingBackend},
+                graph::SavedState,
+            },
+            output::DieWithParent,
+            recording::playback::Playback,
+        };
+        use futures::FutureExt;
+        use tokio::io::AsyncWriteExt;
+        let f = Fixture::new("exit 0");
+        let backend = Arc::new(RealBackend::default());
+        let target = devices::query()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|d| d.name.starts_with("bluez_output."))
+            .expect("fone Bluetooth indisponível");
+        let serial = target.serial.clone().unwrap();
+        let shared = crate::state::Shared::with_audio_services(
+            Monitor::with_services(
+                "pw-cat".into(),
+                routing::Routing::new(
+                    backend.clone(),
+                    crate::state::data_dir().join("monitor-routing.json"),
+                ),
+            ),
+            Playback::new(),
+            devices::DeviceCatalog::new(),
+        );
+        let mut competitor=tokio::process::Command::new("pw-cat").args(["--playback","--raw","--target",&serial,"--rate","48000","--channels","1","--format","f32","--properties","node.name=micbridge_exclusive_test_competitor node.dont-fallback=true node.dont-reconnect=true","-"]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).kill_on_drop(true).die_with_parent().spawn().unwrap();
+        let mut competing_input = competitor.stdin.take().unwrap();
+        competing_input.write_all(&[0; 1920]).await.unwrap();
+        let capture_path = f.dir.join("capture.f32");
+        let mut capture: Option<tokio::process::Child> = None;
+        let result = std::panic::AssertUnwindSafe(async {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            let before = backend.snapshot().await.unwrap();
+            let originals = before.competitors(&target, "no-such-session").unwrap();
+            assert!(
+                originals
+                    .iter()
+                    .any(|l| l.output.node_name == "micbridge_exclusive_test_competitor")
+            );
+            shared.devices.refresh();
+            wait(|| !shared.devices.snapshot().busy);
+            shared.set_link(crate::state::Link::Connected);
+            shared.select_monitor_output(Some(target.clone()));
+            let id = shared.start_monitor(target.clone()).unwrap();
+            let generation = shared.generation();
+            let deadline = std::time::Instant::now() + Duration::from_secs(7);
+            while shared.monitor.active_id(generation) != Some(id) {
+                assert_ne!(
+                    shared.monitor.status().phase,
+                    MonitorPhase::Failed,
+                    "{:?}",
+                    shared.monitor.status()
+                );
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "{:?}",
+                    shared.monitor.status()
+                );
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let exclusive = backend.snapshot().await.unwrap();
+            let name = exclusive
+                .links
+                .iter()
+                .find(|l| l.input.node.id == target.id)
+                .expect("retorno sem link")
+                .output
+                .node_name
+                .clone();
+            assert!(name.starts_with("micbridge_monitor_"));
+            assert!(exclusive.competitors(&target, &name).unwrap().is_empty());
+            capture=Some(tokio::process::Command::new("pw-cat").args(["--record","--raw","--target",&serial,"--rate","48000","--channels","1","--format","f32","--properties","stream.capture.sink=true node.name=micbridge_exclusive_test_capture node.dont-fallback=true node.dont-reconnect=true","-"]).stdout(std::fs::File::create(&capture_path).unwrap()).stderr(std::process::Stdio::null()).kill_on_drop(true).die_with_parent().spawn().unwrap());
+            let mut cadence = tokio::time::interval(Duration::from_millis(120));
+            cadence.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            for block in 0..25 {
+                cadence.tick().await;
+                let mut pcm = [0f32; 5760];
+                for (i, v) in pcm.iter_mut().enumerate() {
+                    *v = 0.04
+                        * (2.0 * std::f32::consts::PI * 440.0 * (block * 5760 + i) as f32 / 48000.0)
+                            .sin();
+                }
+                submit_processed(&shared.monitor, generation, &pcm);
+                assert_eq!(
+                    shared.monitor.status().phase,
+                    MonitorPhase::Active,
+                    "{:?}",
+                    shared.monitor.status()
+                );
+            }
+            cadence.tick().await;
+            assert_eq!(shared.monitor.status().phase, MonitorPhase::Active);
+            if let Some(c)=capture.as_mut(){let _=c.kill().await;let _=c.wait().await;}
+            let bytes = std::fs::read(&capture_path).unwrap();
+            let peak = bytes
+                .chunks_exact(4)
+                .map(|b| f32::from_le_bytes(b.try_into().unwrap()).abs())
+                .fold(0f32, f32::max);
+            assert!(
+                peak > 0.001,
+                "no non-silent PCM captured at Bluetooth sink, peak={peak}"
+            );
+            let samples:Vec<f32>=bytes.chunks_exact(4).map(|b|f32::from_le_bytes(b.try_into().unwrap())).collect();
+            let (re,im)=samples.iter().enumerate().fold((0f64,0f64),|(re,im),(i,v)|{let p=2.0*std::f64::consts::PI*440.0*i as f64/48000.0;(re+*v as f64*p.cos(),im+*v as f64*p.sin())});
+            let tone=2.0*re.hypot(im)/samples.len().max(1) as f64;
+            assert!(tone>0.005 && peak<0.012,"unexpected captured tone amplitude={tone}, peak={peak}");
+            shared.local_audio.shutdown_and_wait().await.unwrap();
+            let after = backend.snapshot().await.unwrap();
+            let original_count=originals.len();
+            for link in originals {
+                assert_ne!(
+                    after.validate_saved(&link),
+                    SavedState::Missing,
+                    "original link not restored: {link:?}"
+                );
+            }
+            eprintln!("Bluetooth: {original_count} links originais verificados após restauração; pico {peak:.6}; amplitude 440Hz {tone:.6}");
+        })
+        .catch_unwind()
+        .await;
+        let cleanup = shared.local_audio.shutdown_and_wait().await;
+        if let Some(c) = capture.as_mut() {
+            let _ = c.kill().await;
+            let _ = c.wait().await;
+        }
+        let _ = competitor.kill().await;
+        let _ = competitor.wait().await;
+        drop(competing_input);
+        if let Err(error) = result {
+            if let Err(e) = cleanup {
+                eprintln!("Restauração pendente no registro: {e}");
+            }
+            std::panic::resume_unwind(error);
+        }
+        cleanup.unwrap();
+    }
+    #[tokio::test]
     async fn missing_identity_fails_without_name_fallback() {
         let f = Fixture::new(SLEEP);
         let m = Monitor::with_executable(f.executable.clone());
@@ -434,18 +704,23 @@ mod worker_tests {
             std::fs::read(f.dir.join("pcm")).unwrap(),
             [0.1f32.to_le_bytes(), 0.2f32.to_le_bytes()].concat()
         );
+        let args = std::fs::read_to_string(f.dir.join("args")).unwrap();
+        let args: Vec<&str> = args.lines().collect();
+        let props: serde_json::Value = serde_json::from_str(args[5]).unwrap();
+        assert_eq!(props["node.dont-fallback"], true);
+        assert_eq!(props["node.dont-reconnect"], true);
+        let name = props["node.name"].as_str().unwrap();
+        assert!(name.starts_with(&format!("micbridge_monitor_{}_1_", std::process::id())));
+        assert_eq!(name.rsplit('_').next().unwrap().len(), 32);
         assert_eq!(
-            std::fs::read_to_string(f.dir.join("args"))
-                .unwrap()
-                .lines()
-                .collect::<Vec<_>>(),
+            args,
             [
                 "--playback",
                 "--raw",
                 "--target",
                 "11",
                 "--properties",
-                "node.dont-fallback=true node.dont-reconnect=true node.name=micbridge_monitor",
+                args[5],
                 "--rate",
                 "48000",
                 "--channels",
@@ -458,6 +733,23 @@ mod worker_tests {
                 "Music",
                 "-"
             ]
+        );
+    }
+    #[tokio::test]
+    async fn maximum_packet_is_written_in_full_by_live_worker() {
+        let f = Fixture::new("cat > '@DIR@/pcm'");
+        let m = Monitor::with_executable(f.executable.clone());
+        m.open(1, 7, target(), Arc::new(AtomicBool::new(true)));
+        wait(|| m.status().phase == MonitorPhase::Active);
+        submit_processed(&m, 7, &vec![0.4; 5760]);
+        assert_eq!(m.status().phase, MonitorPhase::Active);
+        wait(|| std::fs::metadata(f.dir.join("pcm")).is_ok_and(|m| m.len() == 23040));
+        m.stop_and_wait().await.unwrap();
+        let actual = std::fs::read(f.dir.join("pcm")).unwrap();
+        assert!(
+            actual
+                .chunks_exact(4)
+                .all(|bytes| bytes == 0.1f32.to_le_bytes())
         );
     }
     #[tokio::test]
@@ -518,5 +810,175 @@ mod worker_tests {
         assert_eq!(m.status().id, 2);
         assert!(m.status().error.is_none());
         m.stop_and_wait().await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod routed_tests {
+    use super::*;
+    use crate::{
+        audio_test::{Fixture, SLEEP, alive, wait},
+        monitor::routing::{controller::tests::Fake, graph::tests::target},
+    };
+    use std::time::Duration;
+    fn setup(f: &Fixture, b: &Fake) -> (Monitor, routing::Routing) {
+        let r = routing::Routing::new(Arc::new(b.clone()), f.dir.join("journal.json"));
+        let m = Monitor::with_test_routing(f.executable.clone(), r.clone());
+        (m, r)
+    }
+    #[tokio::test]
+    async fn monitor_active_requires_route_ready_and_pcm_never_waits_for_graph() {
+        let f = Fixture::new(SLEEP);
+        let b = Fake::new();
+        let (m, r) = setup(&f, &b);
+        r.recover().await;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        *b.pause.lock().unwrap() = Some(rx);
+        m.open(1, 7, target(), Arc::new(AtomicBool::new(true)));
+        wait(|| f.pid().is_some());
+        assert_eq!(
+            m.status().phase,
+            MonitorPhase::Opening,
+            "must wait for route confirmation"
+        );
+        let _ = tx.send(());
+        wait(|| m.status().phase == MonitorPhase::Active);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        b.entered.store(false, SeqCst);
+        *b.pause.lock().unwrap() = Some(rx);
+        wait(|| b.entered.load(SeqCst));
+        let now = std::time::Instant::now();
+        submit_processed(&m, 7, &[0.1; 480]);
+        assert!(now.elapsed() < Duration::from_millis(50));
+        let stop = m.stop_and_wait();
+        assert_eq!(m.status().phase, MonitorPhase::Restoring);
+        let _ = tx.send(());
+        stop.await.unwrap();
+    }
+    #[tokio::test]
+    async fn stop_ack_includes_reap_restore_and_error() {
+        let f = Fixture::new(SLEEP);
+        let b = Fake::new();
+        let (m, _) = setup(&f, &b);
+        m.open(1, 7, target(), Arc::new(AtomicBool::new(true)));
+        wait(|| m.status().phase == MonitorPhase::Active);
+        wait(|| f.pid().is_some());
+        assert!(
+            b.graph
+                .lock()
+                .unwrap()
+                .competitors(&target(), "micbridge_monitor_test")
+                .unwrap()
+                .is_empty()
+        );
+        let pid = f.pid().unwrap();
+        b.fail_restore.store(true, SeqCst);
+        assert!(m.stop_and_wait().await.is_err());
+        assert!(!alive(pid));
+        b.fail_restore.store(false, SeqCst);
+        m.stop_and_wait().await.unwrap();
+        assert_eq!(
+            b.graph
+                .lock()
+                .unwrap()
+                .competitors(&target(), "micbridge_monitor_test")
+                .unwrap()
+                .len(),
+            4
+        );
+    }
+    #[tokio::test]
+    async fn pending_restore_blocks_ab_until_retry_succeeds() {
+        use crate::{
+            recording::{Take, Version, playback::Playback},
+            state::{Link, Shared},
+        };
+        let f = Fixture::new(SLEEP);
+        let p = Fixture::new(SLEEP);
+        let b = Fake::new();
+        let (m, _) = setup(&f, &b);
+        let devices =
+            devices::DeviceCatalog::with_query(Arc::new(|| Box::pin(async { Ok(vec![target()]) })));
+        let shared = Shared::with_audio_services(
+            m,
+            Playback::with_command(p.executable.clone(), vec![]),
+            devices,
+        );
+        shared.devices.refresh();
+        wait(|| !shared.devices.snapshot().busy);
+        shared.set_link(Link::Connected);
+        shared.select_monitor_output(Some(target()));
+        shared.start_monitor(target()).unwrap();
+        wait(|| shared.monitor.status().phase == MonitorPhase::Active);
+        b.fail_restore.store(true, SeqCst);
+        let take = Arc::new(Take {
+            id: 1,
+            original: vec![0.1],
+            treated: vec![0.2],
+        });
+        shared.play_recording(take.clone(), Version::Original);
+        wait(|| shared.monitor.status().restore_pending);
+        assert!(shared.monitor.stop_and_wait().await.is_err());
+        assert!(p.pid().is_none());
+        b.fail_restore.store(false, SeqCst);
+        std::mem::drop(shared.monitor.retry_restore());
+        wait(|| !shared.monitor.status().restore_pending);
+        shared.play_recording(take, Version::Treated);
+        wait(|| p.pid().is_some());
+        shared.local_audio.shutdown_and_wait().await.unwrap();
+    }
+    #[tokio::test]
+    async fn cancelled_open_and_failed_journal_never_disconnect_others() {
+        let f = Fixture::new(SLEEP);
+        let b = Fake::new();
+        let (m, r) = setup(&f, &b);
+        r.recover().await;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        *b.pause.lock().unwrap() = Some(rx);
+        m.open(1, 7, target(), Arc::new(AtomicBool::new(true)));
+        wait(|| b.entered.load(SeqCst));
+        let stop = m.stop_and_wait();
+        let _ = tx.send(());
+        stop.await.unwrap();
+        assert!(m.active_id(7).is_none());
+        assert_eq!(b.unlink_calls.load(SeqCst), 0);
+        b.entered.store(false, SeqCst);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        *b.pause.lock().unwrap() = Some(rx);
+        m.open(2, 7, target(), Arc::new(AtomicBool::new(true)));
+        wait(|| b.entered.load(SeqCst));
+        std::fs::create_dir(f.dir.join("journal.json")).unwrap();
+        let _ = tx.send(());
+        wait(|| m.status().phase == MonitorPhase::Failed);
+        assert_eq!(b.unlink_calls.load(SeqCst), 0);
+        assert!(m.stop_and_wait().await.is_err());
+        std::fs::remove_dir(f.dir.join("journal.json")).unwrap();
+        m.stop_and_wait().await.unwrap();
+    }
+    #[tokio::test]
+    async fn normal_quit_waits_for_restore_without_blocking_gtk() {
+        let f = Fixture::new(SLEEP);
+        let p = Fixture::new(SLEEP);
+        let b = Fake::new();
+        let (m, _) = setup(&f, &b);
+        m.open(1, 7, target(), Arc::new(AtomicBool::new(true)));
+        wait(|| m.status().phase == MonitorPhase::Active);
+        let audio = crate::local_audio::LocalAudio::new(
+            m,
+            crate::recording::playback::Playback::with_command(p.executable.clone(), vec![]),
+            devices::DeviceCatalog::new(),
+        );
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        *b.pause.lock().unwrap() = Some(rx);
+        let stopped = audio.shutdown_and_wait();
+        tokio::pin!(stopped);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(40), &mut stopped)
+                .await
+                .is_err(),
+            "quit resolved before restoration"
+        );
+        let _ = tx.send(());
+        stopped.await.unwrap();
     }
 }

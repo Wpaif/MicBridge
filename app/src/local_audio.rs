@@ -75,6 +75,13 @@ impl LocalAudio {
             }),
         }
     }
+    /// Distinguish a pending opening from an intent cancelled by another app action.
+    pub(crate) fn monitor_requested(&self, id: u64) -> bool {
+        let control = self.inner.control.lock().unwrap();
+        let intent = control.tx.borrow();
+        matches!(&*intent, Intent::Monitor { id: requested, lease, .. }
+            if *requested == id && lease.load(SeqCst))
+    }
     pub fn request_monitor(
         &self,
         generation: u64,
@@ -147,6 +154,14 @@ impl LocalAudio {
         if c.lease.as_ref().is_some_and(|(g, _)| *g == generation) {
             self.stop_monitor_locked(&mut c);
         }
+    }
+    pub fn shutdown_and_wait(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), String>> + Send + 'static {
+        self.shutdown();
+        let monitor = self.inner.monitor.stop_and_wait();
+        let playback = self.inner.playback.stop_and_wait();
+        async move { tokio::try_join!(monitor, playback).map(|_| ()) }
     }
     pub fn shutdown(&self) {
         let _commit = self.inner.commit.lock().unwrap();

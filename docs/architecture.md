@@ -12,7 +12,7 @@ flowchart TD
     DSP --> Monitor[Retorno local opcional]
     DSP --> Mute[Mute da saída]
     Mute --> Sink[pw-cat: vdo_input]
-    Sink --> Source[pw-loopback: Microfone_VDO]
+    Sink --> Source[pw-loopback: MicBridge]
     Source --> App[Aplicativo de chamada / gravação]
 ```
 

@@ -7,7 +7,7 @@
 3. Escaneie o QR code com o celular. O botão de QR na conexão abre uma
    visualização dedicada; o QR inline aparece durante a janela de pareamento.
 4. Autorize o microfone no navegador e toque em **Iniciar microfone**.
-5. No Discord, OBS ou aplicativo de chamada, selecione **Microfone_VDO** como entrada.
+5. No Discord, OBS ou aplicativo de chamada, selecione **MicBridge** como entrada.
 
 O navegador precisa aceitar a conexão HTTPS para disponibilizar o microfone.
 Consulte [Certificados](security.md#certificados) para configurar a CA local e
@@ -123,7 +123,7 @@ monitoramento, especialmente com Bluetooth; use fones para evitar realimentaçã
 
 ## Mute
 
-**Silenciar microfone** silencia somente a saída **Microfone_VDO** para os outros
+**Silenciar microfone** silencia somente a saída **MicBridge** para os outros
 programas. O botão fica destacado e o medidor de saída apresenta zero.
 
 Entrada, processamento, retorno no fone e gravação de teste continuam ativos.

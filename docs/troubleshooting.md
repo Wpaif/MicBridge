@@ -28,7 +28,7 @@ Teste com a página em primeiro plano para distinguir suspensão de uma falha no
 
 ## A chamada não recebe áudio
 
-Selecione **Microfone_VDO** na entrada do programa de destino e confira o mute
+Selecione **MicBridge** na entrada do programa de destino e confira o mute
 do MicBridge e do próprio programa. Verifique os medidores de entrada e saída.
 O retorno no fone continuar audível durante o mute é comportamento previsto.
 

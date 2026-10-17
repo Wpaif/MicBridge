@@ -5,7 +5,7 @@
 # MicBridge
 
 Use o celular como microfone do PC pela rede local, com tratamento de voz em
-tempo real. O áudio sai do navegador via WebRTC/Opus e chega ao **Microfone_VDO**,
+tempo real. O áudio sai do navegador via WebRTC/Opus e chega ao **MicBridge**,
 uma entrada virtual do PipeWire que pode ser selecionada no Discord, OBS e outros
 programas. Não é necessário instalar um app no celular.
 
@@ -49,7 +49,7 @@ atualização, reinstalação limpa e remoção, veja [Instalação](docs/instal
 1. Abra o MicBridge no PC e coloque o celular na mesma rede.
 2. Habilite **Aceitar novo celular**, escaneie o QR e autorize o microfone no navegador.
 3. Toque em **Iniciar microfone** no celular.
-4. Escolha **Microfone_VDO** no programa de chamada ou gravação.
+4. Escolha **MicBridge** no programa de chamada ou gravação.
 5. Ajuste um perfil de voz e use A/B ou retorno no fone para comparar.
 
 O navegador precisa aceitar o HTTPS. Consulte [Certificados](docs/security.md#certificados).

@@ -16,6 +16,7 @@ pub enum MonitorPhase {
     Disabled,
     Opening,
     Active,
+    Restoring,
     Failed,
 }
 #[derive(Clone, Debug)]
@@ -26,6 +27,8 @@ pub struct MonitorStatus {
     pub generation: Option<u64>,
     pub volume_percent: f32,
     pub error: Option<String>,
+    pub restore_report: Option<routing::RestoreReport>,
+    pub restore_pending: bool,
 }
 struct Block {
     id: u64,
@@ -58,28 +61,68 @@ enum Control {
         lease: Arc<AtomicBool>,
     },
 }
+#[derive(Clone, Debug, Default)]
+struct Settlement {
+    operation: u64,
+    error: Option<String>,
+}
 struct ControlHandle {
     tx: tokio::sync::watch::Sender<Control>,
     next: AtomicU64,
-    settled: tokio::sync::watch::Receiver<u64>,
+    settled: tokio::sync::watch::Receiver<Settlement>,
     transaction: Mutex<()>,
+    lease: Mutex<Option<Arc<AtomicBool>>>,
 }
 #[derive(Clone)]
 pub struct Monitor {
     inner: Arc<Inner>,
     control: Arc<ControlHandle>,
+    routing: Option<routing::Routing>,
 }
 impl Monitor {
+    #[cfg(test)]
+    fn with_test_routing(executable: std::path::PathBuf, routing: routing::Routing) -> Self {
+        Self::build(
+            executable,
+            routing,
+            Arc::new(|_| "micbridge_monitor_test".into()),
+        )
+    }
+    #[cfg(test)]
     pub(crate) fn with_executable(executable: std::path::PathBuf) -> Self {
+        Self::with_services(executable, routing::Routing::bypass())
+    }
+    pub(crate) fn with_services(executable: std::path::PathBuf, routing: routing::Routing) -> Self {
+        Self::build(
+            executable,
+            routing,
+            Arc::new(|id| {
+                format!(
+                    "micbridge_monitor_{}_{}_{}",
+                    std::process::id(),
+                    id,
+                    crate::state::random_hex(16)
+                )
+            }),
+        )
+    }
+    fn build(
+        executable: std::path::PathBuf,
+        routing: routing::Routing,
+        names: Arc<dyn Fn(u64) -> String + Send + Sync>,
+    ) -> Self {
         let (mut m, rx) = Self::with_channel();
-        let (ack, settled) = tokio::sync::watch::channel(0u64);
+        let (ack, settled) = tokio::sync::watch::channel(Settlement::default());
         Arc::get_mut(&mut m.control).expect("controle novo").settled = settled;
+        m.routing = Some(routing.clone());
         worker::spawn(
             m.inner.clone(),
             rx,
             m.control.tx.subscribe(),
             ack,
             executable,
+            routing,
+            names,
         );
         m
     }
@@ -87,6 +130,11 @@ impl Monitor {
         let _transaction = self.control.transaction.lock().unwrap();
         if !lease.load(SeqCst) {
             return;
+        }
+        if let Some(old) = self.control.lease.lock().unwrap().replace(lease.clone()) {
+            if !Arc::ptr_eq(&old, &lease) {
+                old.store(false, SeqCst);
+            }
         }
         self.reserve(id, generation, target.clone());
         let operation = self.control.next.fetch_add(1, SeqCst) + 1;
@@ -108,8 +156,9 @@ impl Monitor {
         self.control.tx.send_replace(Control::Stop { operation });
         async move {
             loop {
-                if *settled.borrow_and_update() >= operation {
-                    return Ok(());
+                let ack = settled.borrow_and_update().clone();
+                if ack.operation >= operation {
+                    return ack.error.map_or(Ok(()), Err);
                 }
                 settled.changed().await.map_err(|_| {
                     "Worker de retorno encerrou antes de confirmar parada".to_string()
@@ -118,12 +167,28 @@ impl Monitor {
         }
     }
     pub fn new() -> Self {
-        Self::with_executable("pw-cat".into())
+        #[cfg(test)]
+        {
+            Self::with_executable("pw-cat".into())
+        }
+        #[cfg(not(test))]
+        {
+            Self::with_services(
+                "pw-cat".into(),
+                routing::Routing::new(
+                    Arc::new(routing::backend::RealBackend::default()),
+                    crate::state::data_dir().join("monitor-routing.json"),
+                ),
+            )
+        }
+    }
+    pub fn retry_restore(&self) {
+        std::mem::drop(self.stop_and_wait());
     }
     fn with_channel() -> (Self, mpsc::Receiver<Block>) {
         let (tx, rx) = mpsc::sync_channel(6);
         let (commands, _) = tokio::sync::watch::channel(Control::Stop { operation: 0 });
-        let (_, settled) = tokio::sync::watch::channel(0u64);
+        let (_, settled) = tokio::sync::watch::channel(Settlement::default());
         (
             Self {
                 control: Arc::new(ControlHandle {
@@ -131,7 +196,9 @@ impl Monitor {
                     next: AtomicU64::new(0),
                     settled,
                     transaction: Mutex::new(()),
+                    lease: Mutex::new(None),
                 }),
+                routing: None,
                 inner: Arc::new(Inner {
                     tx,
                     gate: AtomicU64::new(0),
@@ -145,6 +212,8 @@ impl Monitor {
                         generation: None,
                         volume_percent: 25.0,
                         error: None,
+                        restore_report: None,
+                        restore_pending: false,
                     }),
                     cancel: tokio::sync::Notify::new(),
                 }),
@@ -170,6 +239,8 @@ impl Monitor {
             generation: Some(generation),
             volume_percent: self.volume(),
             error: None,
+            restore_report: None,
+            restore_pending: false,
         };
         self.inner.gate.store(id << 1, SeqCst);
     }
@@ -194,6 +265,21 @@ impl Monitor {
                 s.phase = MonitorPhase::Active;
             } else if gate == 0 {
                 s.phase = MonitorPhase::Disabled;
+            }
+        }
+        if let Some(routing) = &self.routing {
+            let route = routing.status();
+            s.restore_report = Some(route.report.clone());
+            s.restore_pending = route.report.pending > 0;
+            if route.busy && s.phase != MonitorPhase::Opening {
+                s.phase = MonitorPhase::Restoring;
+            }
+            if s.restore_pending {
+                s.phase = MonitorPhase::Failed;
+                s.error = route
+                    .report
+                    .error
+                    .or_else(|| Some("Conexões aguardam restauração".into()));
             }
         }
         s
@@ -251,10 +337,17 @@ impl Monitor {
         }
     }
     pub fn disable(&self) {
+        if let Some(lease) = self.control.lease.lock().unwrap().take() {
+            lease.store(false, SeqCst);
+        }
         self.inner.gate.store(0, SeqCst);
         self.inner.cancel.notify_one();
         let mut s = self.inner.status.lock().unwrap();
-        s.phase = MonitorPhase::Disabled;
+        s.phase = if self.routing.as_ref().is_some_and(|r| r.requires_graph()) {
+            MonitorPhase::Restoring
+        } else {
+            MonitorPhase::Disabled
+        };
         s.error = None;
     }
     fn valid(inner: &Inner, block: &Block) -> bool {
@@ -477,18 +570,23 @@ mod worker_tests {
             std::fs::read(f.dir.join("pcm")).unwrap(),
             [0.1f32.to_le_bytes(), 0.2f32.to_le_bytes()].concat()
         );
+        let args = std::fs::read_to_string(f.dir.join("args")).unwrap();
+        let args: Vec<&str> = args.lines().collect();
+        let props: serde_json::Value = serde_json::from_str(args[5]).unwrap();
+        assert_eq!(props["node.dont-fallback"], true);
+        assert_eq!(props["node.dont-reconnect"], true);
+        let name = props["node.name"].as_str().unwrap();
+        assert!(name.starts_with(&format!("micbridge_monitor_{}_1_", std::process::id())));
+        assert_eq!(name.rsplit('_').next().unwrap().len(), 32);
         assert_eq!(
-            std::fs::read_to_string(f.dir.join("args"))
-                .unwrap()
-                .lines()
-                .collect::<Vec<_>>(),
+            args,
             [
                 "--playback",
                 "--raw",
                 "--target",
                 "11",
                 "--properties",
-                "node.dont-fallback=true node.dont-reconnect=true node.name=micbridge_monitor",
+                args[5],
                 "--rate",
                 "48000",
                 "--channels",
@@ -561,5 +659,173 @@ mod worker_tests {
         assert_eq!(m.status().id, 2);
         assert!(m.status().error.is_none());
         m.stop_and_wait().await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod routed_tests {
+    use super::*;
+    use crate::{
+        audio_test::{Fixture, SLEEP, alive, wait},
+        monitor::routing::{controller::tests::Fake, graph::tests::target},
+    };
+    use std::time::Duration;
+    fn setup(f: &Fixture, b: &Fake) -> (Monitor, routing::Routing) {
+        let r = routing::Routing::new(Arc::new(b.clone()), f.dir.join("journal.json"));
+        let m = Monitor::with_test_routing(f.executable.clone(), r.clone());
+        (m, r)
+    }
+    #[tokio::test]
+    async fn monitor_active_requires_route_ready_and_pcm_never_waits_for_graph() {
+        let f = Fixture::new(SLEEP);
+        let b = Fake::new();
+        let (m, r) = setup(&f, &b);
+        r.recover().await;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        *b.pause.lock().unwrap() = Some(rx);
+        m.open(1, 7, target(), Arc::new(AtomicBool::new(true)));
+        wait(|| f.pid().is_some());
+        assert_eq!(
+            m.status().phase,
+            MonitorPhase::Opening,
+            "must wait for route confirmation"
+        );
+        let _ = tx.send(());
+        wait(|| m.status().phase == MonitorPhase::Active);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        b.entered.store(false, SeqCst);
+        *b.pause.lock().unwrap() = Some(rx);
+        wait(|| b.entered.load(SeqCst));
+        let now = std::time::Instant::now();
+        submit_processed(&m, 7, &[0.1; 480]);
+        assert!(now.elapsed() < Duration::from_millis(50));
+        let _ = tx.send(());
+        m.stop_and_wait().await.unwrap();
+    }
+    #[tokio::test]
+    async fn stop_ack_includes_reap_restore_and_error() {
+        let f = Fixture::new(SLEEP);
+        let b = Fake::new();
+        let (m, _) = setup(&f, &b);
+        m.open(1, 7, target(), Arc::new(AtomicBool::new(true)));
+        wait(|| m.status().phase == MonitorPhase::Active);
+        wait(|| f.pid().is_some());
+        assert!(
+            b.graph
+                .lock()
+                .unwrap()
+                .competitors(&target(), "micbridge_monitor_test")
+                .unwrap()
+                .is_empty()
+        );
+        let pid = f.pid().unwrap();
+        b.fail_restore.store(true, SeqCst);
+        assert!(m.stop_and_wait().await.is_err());
+        assert!(!alive(pid));
+        b.fail_restore.store(false, SeqCst);
+        m.stop_and_wait().await.unwrap();
+        assert_eq!(
+            b.graph
+                .lock()
+                .unwrap()
+                .competitors(&target(), "micbridge_monitor_test")
+                .unwrap()
+                .len(),
+            4
+        );
+    }
+    #[tokio::test]
+    async fn pending_restore_blocks_ab_until_retry_succeeds() {
+        use crate::{
+            recording::{Take, Version, playback::Playback},
+            state::{Link, Shared},
+        };
+        let f = Fixture::new(SLEEP);
+        let p = Fixture::new(SLEEP);
+        let b = Fake::new();
+        let (m, _) = setup(&f, &b);
+        let devices =
+            devices::DeviceCatalog::with_query(Arc::new(|| Box::pin(async { Ok(vec![target()]) })));
+        let shared = Shared::with_audio_services(
+            m,
+            Playback::with_command(p.executable.clone(), vec![]),
+            devices,
+        );
+        shared.devices.refresh();
+        wait(|| !shared.devices.snapshot().busy);
+        shared.set_link(Link::Connected);
+        shared.select_monitor_output(Some(target()));
+        shared.start_monitor(target()).unwrap();
+        wait(|| shared.monitor.status().phase == MonitorPhase::Active);
+        b.fail_restore.store(true, SeqCst);
+        let take = Arc::new(Take {
+            id: 1,
+            original: vec![0.1],
+            treated: vec![0.2],
+        });
+        shared.play_recording(take.clone(), Version::Original);
+        wait(|| shared.monitor.status().restore_pending);
+        assert!(shared.monitor.stop_and_wait().await.is_err());
+        assert!(p.pid().is_none());
+        b.fail_restore.store(false, SeqCst);
+        shared.monitor.retry_restore();
+        wait(|| !shared.monitor.status().restore_pending);
+        shared.play_recording(take, Version::Treated);
+        wait(|| p.pid().is_some());
+        shared.local_audio.shutdown_and_wait().await.unwrap();
+    }
+    #[tokio::test]
+    async fn cancelled_open_and_failed_journal_never_disconnect_others() {
+        let f = Fixture::new(SLEEP);
+        let b = Fake::new();
+        let (m, r) = setup(&f, &b);
+        r.recover().await;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        *b.pause.lock().unwrap() = Some(rx);
+        m.open(1, 7, target(), Arc::new(AtomicBool::new(true)));
+        wait(|| b.entered.load(SeqCst));
+        let stop = m.stop_and_wait();
+        let _ = tx.send(());
+        stop.await.unwrap();
+        assert!(m.active_id(7).is_none());
+        assert_eq!(b.unlink_calls.load(SeqCst), 0);
+        b.entered.store(false, SeqCst);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        *b.pause.lock().unwrap() = Some(rx);
+        m.open(2, 7, target(), Arc::new(AtomicBool::new(true)));
+        wait(|| b.entered.load(SeqCst));
+        std::fs::create_dir(f.dir.join("journal.json")).unwrap();
+        let _ = tx.send(());
+        wait(|| m.status().phase == MonitorPhase::Failed);
+        assert_eq!(b.unlink_calls.load(SeqCst), 0);
+        assert!(m.stop_and_wait().await.is_err());
+        std::fs::remove_dir(f.dir.join("journal.json")).unwrap();
+        m.stop_and_wait().await.unwrap();
+    }
+    #[tokio::test]
+    async fn normal_quit_waits_for_restore_without_blocking_gtk() {
+        let f = Fixture::new(SLEEP);
+        let p = Fixture::new(SLEEP);
+        let b = Fake::new();
+        let (m, _) = setup(&f, &b);
+        m.open(1, 7, target(), Arc::new(AtomicBool::new(true)));
+        wait(|| m.status().phase == MonitorPhase::Active);
+        let audio = crate::local_audio::LocalAudio::new(
+            m,
+            crate::recording::playback::Playback::with_command(p.executable.clone(), vec![]),
+            devices::DeviceCatalog::new(),
+        );
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        *b.pause.lock().unwrap() = Some(rx);
+        let stopped = audio.shutdown_and_wait();
+        tokio::pin!(stopped);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(40), &mut stopped)
+                .await
+                .is_err(),
+            "quit resolved before restoration"
+        );
+        let _ = tx.send(());
+        stopped.await.unwrap();
     }
 }

@@ -31,7 +31,10 @@ impl Journal {
             .map_err(|e| e.to_string())?;
         // SAFETY: flock receives a live file descriptor and valid nonblocking flags.
         if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Err("Outra instância controla as conexões de áudio".into());
+            return Err(format!(
+                "Outra instância controla as conexões de áudio: {}",
+                std::io::Error::last_os_error()
+            ));
         }
         Ok(Self { path, _lock: lock })
     }

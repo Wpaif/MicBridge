@@ -148,6 +148,14 @@ impl LocalAudio {
             self.stop_monitor_locked(&mut c);
         }
     }
+    pub fn shutdown_and_wait(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), String>> + Send + 'static {
+        self.shutdown();
+        let monitor = self.inner.monitor.stop_and_wait();
+        let playback = self.inner.playback.stop_and_wait();
+        async move { tokio::try_join!(monitor, playback).map(|_| ()) }
+    }
     pub fn shutdown(&self) {
         let _commit = self.inner.commit.lock().unwrap();
         let mut c = self.inner.control.lock().unwrap();

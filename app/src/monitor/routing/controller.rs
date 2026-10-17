@@ -1,6 +1,6 @@
 use super::{
     backend::{Changes, RoutingBackend},
-    graph::{Graph, ObjectIdentity, SavedLink, SavedState},
+    graph::{ObjectIdentity, SavedLink, SavedState},
     journal::Journal,
 };
 use crate::monitor::devices::OutputDevice;
@@ -48,10 +48,14 @@ enum Command {
 }
 #[derive(Clone)]
 pub struct Routing {
+    #[cfg(test)]
+    bypass: bool,
     tx: mpsc::UnboundedSender<Command>,
     status: watch::Receiver<RoutingStatus>,
 }
 pub struct RouteSession {
+    #[cfg(test)]
+    keepalive: Option<watch::Sender<SessionState>>,
     id: u64,
     tx: mpsc::UnboundedSender<Command>,
     state: watch::Receiver<SessionState>,
@@ -84,7 +88,29 @@ impl Routing {
                 ));
             })
             .expect("thread de roteamento");
-        Self { tx, status }
+        Self {
+            tx,
+            status,
+            #[cfg(test)]
+            bypass: false,
+        }
+    }
+    pub fn requires_graph(&self) -> bool {
+        #[cfg(test)]
+        if self.bypass {
+            return false;
+        }
+        true
+    }
+    #[cfg(test)]
+    pub fn bypass() -> Self {
+        let (tx, _) = mpsc::unbounded_channel();
+        let (_, status) = watch::channel(RoutingStatus::default());
+        Self {
+            tx,
+            status,
+            bypass: true,
+        }
     }
     pub fn status(&self) -> RoutingStatus {
         self.status.borrow().clone()
@@ -97,6 +123,17 @@ impl Routing {
         lease: Arc<AtomicBool>,
     ) -> RouteSession {
         let (state_tx, state) = watch::channel(SessionState::default());
+        #[cfg(test)]
+        if self.bypass {
+            state_tx.send_modify(|s| s.ready = true);
+            return RouteSession {
+                id,
+                tx: self.tx.clone(),
+                state,
+                lease,
+                keepalive: Some(state_tx),
+            };
+        }
         let _ = self.tx.send(Command::Start {
             id,
             target,
@@ -105,6 +142,8 @@ impl Routing {
             state: state_tx,
         });
         RouteSession {
+            #[cfg(test)]
+            keepalive: None,
             id,
             tx: self.tx.clone(),
             state,
@@ -113,7 +152,11 @@ impl Routing {
     }
     pub fn recover(&self) -> impl std::future::Future<Output = RestoreReport> + Send + 'static {
         let (tx, rx) = oneshot::channel();
-        let _ = self.tx.send(Command::Recover(tx));
+        if self.requires_graph() {
+            let _ = self.tx.send(Command::Recover(tx));
+        } else {
+            let _ = tx.send(RestoreReport::default());
+        }
         async move {
             rx.await.unwrap_or_else(|_| RestoreReport {
                 pending: 1,
@@ -160,6 +203,10 @@ impl RouteSession {
         &self,
     ) -> impl std::future::Future<Output = RestoreReport> + Send + 'static {
         self.lease.store(false, SeqCst);
+        #[cfg(test)]
+        if let Some(state) = &self.keepalive {
+            state.send_modify(|s| s.done = Some(RestoreReport::default()));
+        }
         let done = self.state.borrow().done.clone();
         let (tx, rx) = oneshot::channel();
         if done.is_none() {
@@ -281,10 +328,6 @@ impl Engine {
         report.pending = self.entries.len();
         if report.error.is_some() && report.pending == 0 {
             report.pending = 1;
-        }
-        if report.pending == 0 {
-            self.journal = None;
-            self.loaded = false;
         }
         report
     }

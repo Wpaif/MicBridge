@@ -54,6 +54,7 @@ fn presentation(status: &MonitorStatus, connected: bool, available: bool) -> Pre
     let active = matches!(status.phase, MonitorPhase::Opening | MonitorPhase::Active);
     let text = match status.phase {
         MonitorPhase::Disabled => "Retorno desligado".into(),
+        MonitorPhase::Restoring => String::new(),
         MonitorPhase::Opening => "Preparando retorno…".into(),
         MonitorPhase::Active => format!(
             "Retorno ativo em {}",
@@ -121,6 +122,8 @@ mod tests {
             generation: Some(1),
             volume_percent: 25.0,
             error: None,
+            restore_report: None,
+            restore_pending: false,
         }
     }
     #[test]

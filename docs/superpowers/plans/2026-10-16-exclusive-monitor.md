@@ -109,13 +109,13 @@ Constantes e execução:
 **Files:** modificar `monitor.rs`, `worker.rs`, `local_audio.rs`, `state.rs`, `main.rs`; atualizar fixtures em `audio_test.rs` e chamadas de construtores nos testes existentes.
 **Interfaces:** consome Routing/RouteSession; produz novo ciclo Monitor e shutdown_and_wait definidos acima.
 
-- [ ] Escrever `monitor_active_requires_route_ready_and_pcm_never_waits_for_graph`: barreira de snapshot mantém Opening; priming de até 480 amostras silenciosas permite negociar portas, sem aceitar voz antes de ready; atividade só depois da confirmação. Durante uso, consultas lentas não atrasam o consumidor PCM.
-- [ ] Escrever `stop_ack_includes_reap_restore_and_error`: processo termina e links restauram antes do ACK; Stop/Open coalescidos preservam confirmação; falha pendente impede iniciar outro modo.
-- [ ] Estender testes A/B↔retorno, troca de saída, desconexão e geração para pausar ativação/restauração; nova intenção aguarda cleanup e nunca reativa sessão antiga.
-- [ ] Escrever `normal_quit_waits_for_restore_without_blocking_gtk`: fechamento da janela continua minimizando; evento Quit aguarda shutdown assíncrono antes de app.quit; caminho final após app.run também conclui cleanup antes de derrubar runtime.
-- [ ] Rodar testes novos em RED; integrar nome único, controlador por sessão, novos estados, ACK com erro e retry. Recuperação inicial bloqueia abertura local até resultado; pending preserva erro/registro.
-- [ ] Migrar também os testes existentes que constroem Monitor/Shared para serviços de roteamento injetados: backends controlados em memória e registro temporário. Nenhum teste comum/GTK deve executar pw-link real ou acessar o registro da sessão do usuário; apenas o teste Bluetooth explicitamente ignorado usa o backend real.
-- [ ] Reexecutar regressão SHA-256 dos cinco perfis e PCM/A/B/retorno; suíte completa. Commit `fix(audio): coordena retorno exclusivo e restauração na parada`.
+- [x] Escrever `monitor_active_requires_route_ready_and_pcm_never_waits_for_graph`: barreira de snapshot mantém Opening; priming de até 480 amostras silenciosas permite negociar portas, sem aceitar voz antes de ready; atividade só depois da confirmação. Durante uso, consultas lentas não atrasam o consumidor PCM.
+- [x] Escrever `stop_ack_includes_reap_restore_and_error`: processo termina e links restauram antes do ACK; Stop/Open coalescidos preservam confirmação; falha pendente impede iniciar outro modo.
+- [x] Estender testes A/B↔retorno, troca de saída, desconexão e geração para pausar ativação/restauração; nova intenção aguarda cleanup e nunca reativa sessão antiga.
+- [x] Escrever `normal_quit_waits_for_restore_without_blocking_gtk`: fechamento da janela continua minimizando; evento Quit aguarda shutdown assíncrono antes de app.quit; caminho final após app.run também conclui cleanup antes de derrubar runtime.
+- [x] Rodar testes novos em RED; integrar nome único, controlador por sessão, novos estados, ACK com erro e retry. Recuperação inicial bloqueia abertura local até resultado; pending preserva erro/registro.
+- [x] Migrar também os testes existentes que constroem Monitor/Shared para serviços de roteamento injetados: backends controlados em memória e registro temporário. Nenhum teste comum/GTK deve executar pw-link real ou acessar o registro da sessão do usuário; apenas o teste Bluetooth explicitamente ignorado usa o backend real.
+- [x] Reexecutar regressão SHA-256 dos cinco perfis e PCM/A/B/retorno; suíte completa. Commit `fix(audio): coordena retorno exclusivo e restauração na parada`.
 
 ## Task 5: Interface, validação real, revisão e merge
 

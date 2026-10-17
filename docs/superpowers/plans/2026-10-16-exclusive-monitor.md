@@ -84,12 +84,12 @@ Constantes e execução:
 **Files:** criar `routing/backend.rs`, `journal.rs`; testes com diretórios e executáveis temporários.
 **Interfaces:** consome Graph/SavedLink; produz RoutingBackend real e Journal definidos acima.
 
-- [ ] Escrever `commands_revalidate_and_confirm_endpoints`: processo controlado captura argumentos; snapshot substituído antes de agir impede connect/disconnect; exit 0 sem alteração do grafo não confirma sucesso. `pw-link -d` usa portas validadas, sem shell/interpolação.
-- [ ] Escrever `backend_reaps_timeout_exit_and_oversized_snapshot`: spawn/exit, stdout >8 MiB, filho bloqueado e cancelamento; exigir erro e recolhimento. Conectar usa propriedades JSON/passive; nenhuma propriedade interna antiga é copiada.
-- [ ] Escrever `journal_survives_interruption_before_or_after_unlink`: carregar intent gravada antes da remoção; link presente é idempotente; link ausente pode ser restaurado. Arquivo inválido ou >8 MiB não é apagado.
-- [ ] Escrever `journal_save_failure_prevents_unlink_and_second_owner_is_rejected`: injetar falha de gravação e disputar lock; nenhum segundo controlador modifica registro/grafo. Cobrir deduplicação e limite de 4096.
-- [ ] Rodar `cargo test --offline --manifest-path app/Cargo.toml monitor::routing` e observar RED; implementar backend e gravação durável com lock e limites.
-- [ ] Rodar focados/suíte; commit `feat(audio): registra e restaura links do PipeWire`.
+- [x] Escrever `commands_revalidate_and_confirm_endpoints`: processo controlado captura argumentos; snapshot substituído antes de agir impede connect/disconnect; exit 0 sem alteração do grafo não confirma sucesso. `pw-link -d` usa portas validadas, sem shell/interpolação.
+- [x] Escrever `backend_reaps_timeout_exit_and_oversized_snapshot`: spawn/exit, stdout >8 MiB, filho bloqueado e cancelamento; exigir erro e recolhimento. Conectar usa propriedades JSON/passive; nenhuma propriedade interna antiga é copiada.
+- [x] Escrever `journal_survives_interruption_before_or_after_unlink`: carregar intent gravada antes da remoção; link presente é idempotente; link ausente pode ser restaurado. Arquivo inválido ou >8 MiB não é apagado.
+- [x] Escrever `journal_save_failure_prevents_unlink_and_second_owner_is_rejected`: injetar falha de gravação e disputar lock; nenhum segundo controlador modifica registro/grafo. Cobrir deduplicação e limite de 4096.
+- [x] Rodar `cargo test --offline --manifest-path app/Cargo.toml monitor::routing` e observar RED; implementar backend e gravação durável com lock e limites.
+- [x] Rodar focados/suíte; commit `feat(audio): registra e restaura links do PipeWire`.
 
 ## Task 3: Controlador exclusivo e rollback
 

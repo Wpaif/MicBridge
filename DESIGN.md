@@ -72,6 +72,11 @@ existente de 20 Hz, sem criar outro timer nem reter widgets pelos indicadores.
 
 ## Organização dos painéis
 
+Controles deslizantes respondem a arraste e teclado, mas não à roda do mouse ou
+gesto de rolagem. Rolagem sobre o controle deve continuar no painel ancestral,
+inclusive com foco no deslizante. Aplicar a mesma regra ao tratamento de áudio,
+volume do retorno e opacidade, sem consumir o evento que pertence ao painel.
+
 Usar colunas independentes, com altura natural e intervalo de 18 px entre painéis;
 não alinhar a próxima seção pela altura do maior painel de outra coluna. Acima de
 1240 px úteis no estúdio, três colunas: perfil/limpeza/timbre; dinâmica/volume;

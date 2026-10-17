@@ -147,7 +147,7 @@ fn scale_row(
     value: f64,
     on_change: impl Fn(f32) + 'static,
 ) -> (adw::ActionRow, gtk::Scale) {
-    let scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, range.0, range.1, step);
+    let scale = widgets::slider(range.0, range.1, step);
     // Sem isso o GTK arredonda para inteiro e desfaz valores como razão 2,5.
     let digits = if step < 1.0 { 1 } else { 0 };
     scale.set_digits(digits);

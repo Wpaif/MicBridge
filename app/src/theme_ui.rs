@@ -30,7 +30,7 @@ pub fn window(
         .model(&model)
         .build();
     group.add(&source);
-    let scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, 60.0, 100.0, 1.0);
+    let scale = crate::widgets::slider(60.0, 100.0, 1.0);
     scale.set_digits(0);
     scale.set_width_request(160);
     scale.set_valign(gtk::Align::Center);

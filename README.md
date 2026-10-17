@@ -142,6 +142,9 @@ de rede na barra superior. O painel aparece num diálogo sem perder seus control
 
 Escolha um **Perfil de voz** e refine nos módulos de tratamento:
 
+Ajuste os deslizantes por arraste ou pelas setas do teclado. A roda do mouse
+continua rolando o painel, sem alterar valores ao passar sobre os controles.
+
 | Controle | Efeito |
 |----------|--------|
 | Cancelamento de ruído | Remove ruído de fundo (RNNoise) |

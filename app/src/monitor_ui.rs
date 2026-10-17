@@ -598,7 +598,7 @@ pub fn panel(shared: Arc<Shared>) -> gtk::Box {
     switch_row.append(&switch_label);
     switch_row.append(&progress);
     switch_row.append(&switch);
-    let volume = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 100.0, 1.0);
+    let volume = crate::widgets::slider(0.0, 100.0, 1.0);
     volume.set_digits(0);
     volume.set_value(25.0);
     volume.set_hexpand(true);

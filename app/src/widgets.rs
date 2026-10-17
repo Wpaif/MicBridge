@@ -3,6 +3,22 @@
 use crate::state::Link;
 use adw::prelude::*;
 
+pub fn slider(min: f64, max: f64, step: f64) -> gtk::Scale {
+    let scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, min, max, step);
+    // Desativa só o tratamento da roda no GtkRange. O evento continua até o
+    // ScrolledWindow, e os controladores de arraste/teclado permanecem intactos.
+    let controllers = scale.observe_controllers();
+    for index in 0..controllers.n_items() {
+        if let Some(scroll) = controllers
+            .item(index)
+            .and_then(|c| c.downcast::<gtk::EventControllerScroll>().ok())
+        {
+            scroll.set_propagation_phase(gtk::PropagationPhase::None);
+        }
+    }
+    scale
+}
+
 /// Acima disso o medidor fica amarelo, e depois vermelho (perto de estourar).
 const METER_HOT: f64 = 0.70;
 const METER_CLIP: f64 = 0.90;
@@ -197,6 +213,124 @@ fn meter(label: &str) -> (gtk::Box, gtk::LevelBar, gtk::Label) {
 #[cfg(test)]
 mod meter_tests {
     use super::*;
+    #[test]
+    #[ignore = "requer GDK_BACKEND=x11, sessão gráfica e libXtst para entrada real"]
+    fn slider_wheel_scrolls_parent_without_changing_value_and_keeps_keyboard_and_drag() {
+        gtk::init().unwrap();
+        assert!(
+            gtk::gdk::Display::default()
+                .unwrap()
+                .type_()
+                .name()
+                .contains("X11"),
+            "execute com GDK_BACKEND=x11"
+        );
+        let title = format!("MicBridge Slider Scroll Test {}", std::process::id());
+        let scale = slider(0.0, 100.0, 1.0);
+        scale.set_value(50.0);
+        let content = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(18)
+            .margin_start(24)
+            .margin_end(24)
+            .margin_top(24)
+            .build();
+        content.append(&scale);
+        content.append(&gtk::Box::builder().height_request(1400).build());
+        let scroll = gtk::ScrolledWindow::builder().child(&content).build();
+        let win = gtk::Window::builder()
+            .title(&title)
+            .default_width(480)
+            .default_height(320)
+            .child(&scroll)
+            .build();
+        win.present();
+        pump();
+        let xid = unsafe {
+            // Símbolo opcional apenas neste teste X11; não adiciona dependências
+            // de link X11/XTest à aplicação nem aos testes comuns.
+            let library = libc::dlopen(c"libgtk-4.so.1".as_ptr(), libc::RTLD_LAZY);
+            assert!(!library.is_null());
+            let symbol = libc::dlsym(library, c"gdk_x11_surface_get_xid".as_ptr());
+            assert!(!symbol.is_null());
+            let get_xid: unsafe extern "C" fn(*mut gtk::gdk::ffi::GdkSurface) -> libc::c_ulong =
+                std::mem::transmute(symbol);
+            let id = get_xid(win.surface().unwrap().as_ptr());
+            libc::dlclose(library);
+            id
+        };
+        assert!(scale.grab_focus());
+        let send = |action: &str| {
+            let bounds = scale.compute_bounds(&win).unwrap();
+            let mut process = std::process::Command::new("python3")
+                .arg(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/tests/gtk_pointer_input.py"
+                ))
+                .arg(xid.to_string())
+                .arg(((bounds.x() + bounds.width() / 2.0) as i32).to_string())
+                .arg(((bounds.y() + bounds.height() / 2.0) as i32).to_string())
+                .arg(action)
+                .arg((bounds.width() as i32 / 5).to_string())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while process.try_wait().unwrap().is_none() {
+                while glib::MainContext::default().pending() {
+                    glib::MainContext::default().iteration(false);
+                }
+                if std::time::Instant::now() >= deadline {
+                    let _ = process.kill();
+                    let _ = process.wait();
+                    panic!("tempo esgotado ao enviar entrada X11");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(3));
+            }
+            let result = process.wait_with_output().unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            pump();
+        };
+        send("wheel");
+        assert_eq!(
+            scale.value(),
+            50.0,
+            "roda não deve alterar o ajuste mesmo com foco"
+        );
+        assert!(
+            scroll.vadjustment().value() > 0.0,
+            "a roda deve continuar rolando o painel"
+        );
+        scroll.vadjustment().set_value(0.0);
+        pump();
+        scale.grab_focus();
+        send("key");
+        assert_eq!(
+            scale.value(),
+            51.0,
+            "setas devem continuar ajustando o valor"
+        );
+        send("drag");
+        assert!(
+            scale.value() > 60.0,
+            "arraste deve continuar ajustando o valor"
+        );
+        win.destroy();
+    }
+    fn pump() {
+        let end = std::time::Instant::now() + std::time::Duration::from_millis(180);
+        while std::time::Instant::now() < end {
+            while glib::MainContext::default().pending() {
+                glib::MainContext::default().iteration(false);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(3));
+        }
+    }
     #[test]
     #[ignore = "requer sessão gráfica GTK"]
     fn meter_ticks_match_the_linear_dbfs_scale_at_each_width() {

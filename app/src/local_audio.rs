@@ -75,6 +75,13 @@ impl LocalAudio {
             }),
         }
     }
+    /// Distinguish a pending opening from an intent cancelled by another app action.
+    pub(crate) fn monitor_requested(&self, id: u64) -> bool {
+        let control = self.inner.control.lock().unwrap();
+        let intent = control.tx.borrow();
+        matches!(&*intent, Intent::Monitor { id: requested, lease, .. }
+            if *requested == id && lease.load(SeqCst))
+    }
     pub fn request_monitor(
         &self,
         generation: u64,

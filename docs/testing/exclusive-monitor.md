@@ -149,3 +149,32 @@ segundos (o teste anterior enviava apenas pacotes de 20 ms). A nova tentativa re
 falhou na pré-condição **“fone Bluetooth indisponível”**, antes de alterar conexões
 ou emitir áudio. A evidência Bluetooth do fechamento anterior não valida esta
 correção: aguarda fone disponível e escuta manual do celular.
+
+## Controles durante transições (16/10/2026)
+
+O usuário confirmou que o retorno funciona após `7c499d5` e relatou oscilação no
+botão de ajuste, solicitando bloquear novos cliques até concluir cada ação.
+A interface agora mantém a intenção pendente durante os estados intermediários
+do coordenador: bloqueia switch, seleção de saída, atualização e nova tentativa
+no próprio clique; mostra spinner e mensagem de preparação/restauração sem
+aguardar o timer. A parada e a recuperação aguardam o ACK assíncrono. O volume
+continua disponível. O switch só recebe atualização visual quando seu valor muda.
+
+A intenção do coordenador distingue preparação de cancelamento por outra ação,
+para não prender o botão se uma abertura for cancelada enquanto o celular segue
+conectado. Callbacks usam referências fracas aos widgets e a espera não bloqueia
+a thread GTK. O método de nova tentativa retorna a confirmação da restauração.
+
+TDD: apresentação inicialmente permitia alternar em Opening; o teste GTK falhou
+no bloqueio imediato antes do polling. Após corrigir esses casos, outro teste
+reproduziu controles presos após cancelamento externo. Todos passaram após a
+correção. A cobertura GTK exercita cliques rápidos (inclusive eventos forçados
+em switch desabilitado), consulta pausada por barreira, ausência de oscilação por
+250 ms, execução de callback idle durante a espera, parada, erro/retry, cancelamento
+externo e liberação da janela com consulta pendente. O teste antigo de controles
+aguarda o botão ser habilitado antes de simular o próximo clique.
+
+Validação final: **110 testes comuns aprovados, cinco ignorados por padrão**;
+os dois testes GTK do retorno executados separadamente e aprovados; build offline
+sem warnings, fmt e diff aprovados. Revisão independente sem achados importantes.
+A main continua revertida; mudanças ficam na branch até validação do usuário.

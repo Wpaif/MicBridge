@@ -189,8 +189,10 @@ impl Monitor {
             )
         }
     }
-    pub fn retry_restore(&self) {
-        std::mem::drop(self.stop_and_wait());
+    pub fn retry_restore(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), String>> + Send + 'static {
+        self.stop_and_wait()
     }
     fn with_channel() -> (Self, mpsc::Receiver<Block>) {
         let (tx, rx) = mpsc::sync_channel(QUEUE_BLOCKS);
@@ -919,7 +921,7 @@ mod routed_tests {
         assert!(shared.monitor.stop_and_wait().await.is_err());
         assert!(p.pid().is_none());
         b.fail_restore.store(false, SeqCst);
-        shared.monitor.retry_restore();
+        std::mem::drop(shared.monitor.retry_restore());
         wait(|| !shared.monitor.status().restore_pending);
         shared.play_recording(take, Version::Treated);
         wait(|| p.pid().is_some());

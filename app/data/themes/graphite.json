@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "name": "Graphite",
+  "mode": "dark",
+  "background": "#14161b",
+  "surface": "#20232a",
+  "foreground": "#ebedf5",
+  "accent": "#8aa2ff"
+}

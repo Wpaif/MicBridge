@@ -431,6 +431,7 @@ mod tests {
         assert!(!alive(ppid));
         // Recording stops A/B only; live return remains active.
         let id = s.monitor.status().id;
+        wait(|| s.monitor.active_id(s.generation()) == Some(id));
         s.start_recording();
         assert_eq!(s.monitor.active_id(s.generation()), Some(id));
         s.stop_audio_tools();

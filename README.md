@@ -71,7 +71,7 @@ seleciona no Discord, OBS, Meet etc.
 ## 📋 Requisitos
 
 - Linux com **PipeWire** (`pw-cat`, `pw-loopback`)
-- **Rust** (edição 2024), **GTK 4**, **libadwaita**, **libopus**
+- **Rust** (edição 2024), **GTK ≥ 4.16**, **libadwaita ≥ 1.6**, **libopus**
 - `librsvg` (`rsvg-convert`) para gerar os ícones na instalação
 - **avahi** (opcional, recomendado) para o nome fixo `micbridge.local`: `sudo systemctl enable --now avahi-daemon`
 - GNOME: extensão **AppIndicator** para o ícone da bandeja
@@ -246,3 +246,34 @@ Efeitos desativados mostram **Desligado**. Sem conexão ou após 300 ms sem novo
 frames, os efeitos habilitados mostram **Sem áudio**. Silêncio recebido continua
 sendo áudio processado e pode mostrar o gate atenuando. Os indicadores observam o
 DSP e não alteram o áudio enviado às chamadas, ao teste A/B ou ao retorno.
+
+## Aparência e integração com o desktop
+
+O botão **Aparência** na barra superior abre uma prévia com Aplicar/Cancelar e
+Restaurar padrão. O padrão acompanha as preferências do sistema (claro/escuro e
+cores disponibilizadas pelo GNOME/KDE). Também há modos Claro, Escuro e Personalizado.
+Em uma sessão Omarchy detectada, Seguir o sistema acompanha automaticamente sua paleta. A conexão e os medidores permanecem fixos ao rolar.
+
+Na sessão Omarchy, a paleta ativa é lida de
+`$XDG_STATE_HOME/omarchy/current/theme/colors.toml` (padrão
+`~/.local/state/omarchy/current/theme/colors.toml`), com suporte ao caminho legado
+em `~/.config/omarchy/current/theme/colors.toml`. Alterações são verificadas a cada
+dois segundos, fora da thread GTK. Se houver erro, a última paleta válida é mantida;
+sem paleta válida, permanece o visual nativo com aviso.
+
+Importe/exporte paletas JSON v1 pelo diálogo. Veja
+[Graphite](app/data/themes/graphite.json) como exemplo. Cores usam `#RRGGBB`; texto
+precisa de contraste 4,5:1 sobre fundo e superfície. Arquivos limitados a 64 KiB.
+A opacidade do fundo vai de 60 a 100%; textos e medidores permanecem opacos. Alto
+contraste usa cores nativas e fundo opaco. Desfoque depende do compositor e não é
+configurado pelo aplicativo. Preferências não alteram o tema global do desktop.
+
+A implementação usa GTK4/libadwaita também no KDE; integra preferências disponíveis
+pelo ambiente, sem reproduzir controles Qt. Ensaios gráficos foram feitos no desktop
+disponível e com paletas Omarchy simuladas; a execução em instalações reais de
+GNOME/KDE/Omarchy continua sujeita à validação nesses ambientes.
+
+A detecção usa a sessão atual: `XDG_CURRENT_DESKTOP=Hyprland` com `OMARCHY_PATH`
+ou uma sessão identificada como `Omarchy`. GNOME/KDE continuam usando o visual
+nativo, mesmo que haja arquivos Omarchy antigos no diretório do usuário. A antiga
+preferência `omarchy` é lida como `system`, preservando opacidade e tema importado.

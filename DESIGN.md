@@ -5,64 +5,27 @@ celular. Ao mudar uma cor ou medida, atualize este arquivo junto.
 
 ## Princípios
 
-1. **Calmo e escuro.** Superfícies grafite, bordas finas, brilho só onde há
-   significado (status e voz). O app usa sempre o tema escuro (`ColorScheme::ForceDark`): o
-   vidro e os brilhos foram desenhados para ele e não funcionam bem no claro.
-2. **Status em destaque.** A primeira coisa na janela é o estado da conexão, grande e com cor.
-3. **Perfis e controle direto.** Um perfil de voz resolve; módulos de áudio visíveis permitem refinar o som.
-4. **Movimento com propósito.** Só anima o que está vivo (conectando, erro, voz). Sem enfeite.
-5. **Nativo.** Usa widgets e classes do libadwaita; o CSS refina, não reinventa.
+1. **Coerente com o desktop.** Sistema é o padrão; claro, escuro e tema importado são escolhas explícitas. Em sessão Omarchy detectada, Sistema acompanha sua paleta automaticamente. Cores nativas e fonte do sistema prevalecem no modo Sistema.
+2. **Monitoramento persistente.** Conexão, detalhes e medidores ficam numa barra fixa, fora da rolagem. Os controles de áudio rolam abaixo dela.
+3. **Legibilidade.** Texto em dBFS com largura estável, contraste validado nos temas importados e alto contraste nativo. Fundos podem ser translúcidos; textos e medidores não recebem opacidade global.
+4. **Movimento contido.** Sem piscar continuamente no conteúdo GTK; atividade aparece nos medidores e no anel do estado. Controles nativos respeitam as preferências do ambiente.
+5. **Estrutura sóbria.** Superfícies sem sombras pesadas, bordas finas, raios 10–12 px e espaços em múltiplos de 6 px. Tipografia relativa à fonte do sistema.
 
-## Cores
+## Layout e aparência
 
-| Token | Valor | Uso |
-|-------|-------|-----|
-| `bg-top` / `bg-bottom` | `#14161b` / `#14161b` | Fundo uniforme da janela |
-| `surface` | `#20232a` | Cards e listas |
-| `surface-border` | `rgba(255,255,255,.08)` | Borda de 1 px dos cards |
-| `accent` | `#8aa2ff` (fundo `#5b78ee`) | Seleção, switches, botão principal. Substitui o acento do sistema em todas as janelas, exceto em botões `destructive-action`, `error`, `success` e `warning` |
-| `text-dim` | alfa .62 do texto | Descrições e rótulos secundários |
+- Janela 1200×800, mínimo 420×400. Monitoramento ocupa a largura útil do topo, com 12 px de respiro abaixo da barra de título.
+- Até 1100 px, painéis passam a uma coluna. Até 600 px, medidores são empilhados na barra fixa. Mesmo em 420×400 a área rolável mantém pelo menos 100 px com a fonte padrão.
+- Paleta nativa usa as variáveis semânticas do libadwaita. O app não força azul/escuro globalmente.
+- Temas JSON v1 trazem nome, modo, fundo, superfície, texto e destaque. Cores são hexadecimais, contraste de texto mínimo 4,5:1, importação limitada 64 KiB. Exemplo em `app/data/themes/graphite.json`.
+- Paletas personalizadas têm prioridade local sobre cores globais; Sistema respeita as cores globais. Não escrever em configurações GTK/KDE/Omarchy.
+- Opacidade 60–100%, padrão 100, aplicada ao fundo da área principal. Cards/controles preservam contraste. Alto contraste ignora paletas personalizadas/transparência.
+- O modo Sistema detecta a sessão Omarchy pelos marcadores do ambiente e acompanha o `colors.toml` atual/legado por leitura assíncrona a cada 2 s; erro preserva a última paleta válida e mostra aviso. Paleta ausente usa o sistema.
+- Aparência abre num PreferencesDialog adaptável e único por janela. Prévia é temporária: Aplicar salva atomicamente, Cancelar/Esc/fechar restaura o salvo; Restaurar padrão também é uma prévia. Operações de arquivo/salvamento não bloqueiam GTK.
+- Restaurar padrão fica separado dos botões de importar/exportar por 12 px.
+- Importação/exportação usa seletor nativo. Blur depende do compositor. GNOME/KDE seguem preferências disponíveis pelo StyleManager/portal, mantendo widgets GTK.
+- A biblioteca requer GTK 4.16/libadwaita 1.6 para variáveis de cor modernas; não depende de plugin de tema.
 
-### Status (padrão Discord, igual ao ícone da bandeja)
-
-| Estado | Cor | Comportamento |
-|--------|-----|---------------|
-| Conectado | `#23A55A` | Fixo; anel pulsante quando há voz |
-| Conectando / Reconectando | `#F0B232` | Pisca |
-| Erro | `#F23F43` | Pisca |
-| Desconectado | `#80848E` | Fixo |
-
-Medidores: verde até 70 %, amarelo até 90 %, vermelho acima (proximidade de estourar).
-A bolinha verde pulsa (anel) enquanto há voz chegando.
-
-## Tipografia
-
-Fonte do sistema (Adwaita Sans/Cantarell). Título do status 22 px / peso 700; rótulos de seção
-11 px, peso 700, espaçamento de letras +0,08 em, cor `text-dim`; corpo no tamanho padrão do
-libadwaita. Textos em português do Brasil, curtos e diretos.
-
-## Forma e espaçamento
-
-- Cards: raio **10 px** (status e lateral: **12 px**), borda 1 px, sem sombra nos painéis de áudio.
-- Controles segmentados: raio 12 px por fora, 9 px por dentro.
-- Espaçamento em múltiplos de 6 px: 6, 12, 18, 24.
-- Janela padrão **1200 × 800**, mínimo **420 × 400**; área de áudio expansível, sem limite central de largura.
-- Acima de 1100 px: áudio à esquerda, conexão à direita em painel de aproximadamente 340 px.
-- Até 1100 px: módulos e conexão em uma coluna, com rolagem vertical.
-- Os módulos se distribuem em até duas colunas; o seletor de perfis quebra linhas em larguras menores.
-
-## Componentes
-
-- **Card de status (hero):** bolinha de 14 px com brilho + título + detalhe + dois medidores
-  de 14 px (entrada e saída tratada), lado a lado em telas grandes e empilhados em telas pequenas, valores RMS em dBFS e escala de −60 a 0 dBFS.
-- **QR code:** cartão branco com sombra, em grupo próprio logo abaixo do card de status, visível
-  só com a janela de pareamento aberta.
-- **Seletor de perfil:** controle segmentado (Natural, Chamada, Podcast, Streaming, Original),
-  com a descrição do perfil logo abaixo.
-- **Módulos:** Limpeza (RNNoise, graves, gate), Timbre (de-esser, presença), Dinâmica (compressor) e Volume (automático/manual).
-- **Conexão:** painel lateral com servidor, pareamento, dispositivos, inicialização e certificado; botão para copiar a impressão digital completa.
-- **Listas:** `boxed-list` do libadwaita, superfícies grafite e borda fina.
-- **Diálogos:** sempre com `HeaderBar` (X) e botão de ação explícito.
+Referências: [GNOME HIG](https://developer.gnome.org/hig/), [ToolbarView](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ToolbarView.html), [StyleManager](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.StyleManager.html), [paletas Omarchy](https://github.com/basecamp/omarchy/blob/master/bin/omarchy-theme-color).
 
 ## Página do celular (`app/web`)
 

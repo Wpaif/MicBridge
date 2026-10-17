@@ -12,6 +12,7 @@ mod server;
 mod settings;
 mod state;
 mod theme;
+mod theme_ui;
 mod tls;
 mod tray;
 mod tray_icon;
@@ -297,7 +298,7 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         move |v: bool| f(&sh.params).store(v, Relaxed)
     };
 
-    theme::install();
+    let appearance = theme::install();
 
     // Estado da conexão em destaque: conectado, desconectado, reconectando ou erro.
     let state_group = adw::PreferencesGroup::new();
@@ -595,7 +596,6 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .hexpand(true)
         .css_classes(["mb-studio"])
         .build();
-    studio.append(&state_group);
     studio.append(&fx);
     studio.append(&modules);
     let note = gtk::Label::builder()
@@ -639,8 +639,14 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .build();
     let view = adw::ToolbarView::new();
     let header = adw::HeaderBar::new();
-    header.set_title_widget(Some(&adw::WindowTitle::new("MicBridge", "ESTÚDIO DE VOZ")));
+    header.set_title_widget(Some(&adw::WindowTitle::new("MicBridge", "Estúdio de voz")));
     view.add_top_bar(&header);
+    let live_header = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .css_classes(["toolbar", "mb-live-header"])
+        .build();
+    live_header.append(&state_group);
+    view.add_top_bar(&live_header);
     view.set_content(Some(&scroll));
 
     let win = adw::ApplicationWindow::builder()
@@ -653,32 +659,59 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .content(&view)
         .hide_on_close(true)
         .build();
+    let appearance_button = gtk::Button::builder()
+        .icon_name("applications-graphics-symbolic")
+        .tooltip_text("Aparência")
+        .build();
+    header.pack_end(&appearance_button);
+    let parent = win.downgrade();
+    let preferences = std::rc::Rc::new(std::cell::RefCell::new(glib::WeakRef::<
+        adw::PreferencesDialog,
+    >::new()));
+    appearance_button.connect_clicked(move |_| {
+        let Some(parent) = parent.upgrade() else {
+            return;
+        };
+        if let Some(window) = preferences.borrow().upgrade() {
+            window.present(Some(&parent));
+            return;
+        }
+        let window = theme_ui::window(&parent, appearance.clone());
+        preferences.borrow().set(Some(&window));
+        window.present(Some(&parent));
+    });
     // Em telas estreitas os mesmos widgets passam para uma única coluna.
     let compact = adw::Breakpoint::new(
         adw::BreakpointCondition::parse("max-width: 1100px").expect("breakpoint válido"),
     );
-    compact.add_setter(
+    let narrow = adw::Breakpoint::new(
+        adw::BreakpointCondition::parse("max-width: 600px").expect("breakpoint válido"),
+    );
+    for breakpoint in [&compact, &narrow] {
+        breakpoint.add_setter(
+            &workspace,
+            "orientation",
+            Some(&gtk::Orientation::Vertical.to_value()),
+        );
+        breakpoint.add_setter(&sidebar, "width-request", Some(&(-1i32).to_value()));
+        breakpoint.add_setter(&sidebar_clamp, "maximum-size", Some(&2000i32.to_value()));
+        breakpoint.add_setter(
+            &sidebar_clamp,
+            "tightening-threshold",
+            Some(&2000i32.to_value()),
+        );
+        breakpoint.add_setter(&modules, "max-children-per-line", Some(&1u32.to_value()));
+        breakpoint.add_setter(&workspace, "margin-start", Some(&12i32.to_value()));
+        breakpoint.add_setter(&workspace, "margin-end", Some(&12i32.to_value()));
+    }
+    narrow.add_setter(
         &hero.meters,
         "orientation",
         Some(&gtk::Orientation::Vertical.to_value()),
     );
-    compact.add_setter(&hero.meters, "spacing", Some(&12i32.to_value()));
-    compact.add_setter(
-        &workspace,
-        "orientation",
-        Some(&gtk::Orientation::Vertical.to_value()),
-    );
-    compact.add_setter(&sidebar, "width-request", Some(&(-1i32).to_value()));
-    compact.add_setter(&sidebar_clamp, "maximum-size", Some(&2000i32.to_value()));
-    compact.add_setter(
-        &sidebar_clamp,
-        "tightening-threshold",
-        Some(&2000i32.to_value()),
-    );
-    compact.add_setter(&modules, "max-children-per-line", Some(&1u32.to_value()));
-    compact.add_setter(&workspace, "margin-start", Some(&12i32.to_value()));
-    compact.add_setter(&workspace, "margin-end", Some(&12i32.to_value()));
+    narrow.add_setter(&hero.meters, "spacing", Some(&6i32.to_value()));
     win.add_breakpoint(compact.clone());
+    win.add_breakpoint(narrow.clone());
 
     let recording_panel = recording_ui::panel(shared.clone(), &win);
     let monitor_panel = monitor_ui::panel(shared.clone());
@@ -693,12 +726,14 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         panel.set_valign(gtk::Align::Start);
         local_panels.append(panel);
     }
-    compact.add_setter(
-        &local_panels,
-        "orientation",
-        Some(&gtk::Orientation::Vertical.to_value()),
-    );
-    compact.add_setter(&local_panels, "homogeneous", Some(&false.to_value()));
+    for breakpoint in [&compact, &narrow] {
+        breakpoint.add_setter(
+            &local_panels,
+            "orientation",
+            Some(&gtk::Orientation::Vertical.to_value()),
+        );
+        breakpoint.add_setter(&local_panels, "homogeneous", Some(&false.to_value()));
+    }
     studio.insert_child_after(&local_panels, Some(&fx));
 
     // add_css_class, e não css_classes(): este último apaga `csd`/`background`, que dão à
@@ -846,4 +881,147 @@ fn snapshot_and_quit(win: &adw::ApplicationWindow, app: &adw::Application) {
         }
         app.quit();
     });
+}
+
+#[cfg(test)]
+mod appearance_tests {
+    use super::*;
+    fn find<T: IsA<gtk::Widget> + Clone>(
+        w: &impl IsA<gtk::Widget>,
+        yes: &impl Fn(&T) -> bool,
+    ) -> Option<T> {
+        let w = w.as_ref();
+        if let Some(t) = w.downcast_ref::<T>() {
+            if yes(t) {
+                return Some(t.clone());
+            }
+        }
+        let mut child = w.first_child();
+        while let Some(w) = child {
+            if let Some(t) = find(&w, yes) {
+                return Some(t);
+            }
+            child = w.next_sibling();
+        }
+        None
+    }
+    fn until(mut yes: impl FnMut() -> bool) {
+        let end = std::time::Instant::now() + Duration::from_secs(5);
+        while !yes() {
+            while glib::MainContext::default().pending() {
+                glib::MainContext::default().iteration(false);
+            }
+            assert!(std::time::Instant::now() < end, "GTK timeout");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    #[test]
+    #[ignore = "requer sessão gráfica GTK"]
+    fn fixed_monitoring_header_survives_scroll_and_narrow_window() {
+        adw::init().unwrap();
+        let f = audio_test::Fixture::new("exit 0");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", f.dir.join("data"));
+            std::env::set_var("XDG_CONFIG_HOME", f.dir.join("config"));
+        }
+        let app = adw::Application::builder()
+            .application_id("dev.wilian.MicBridge.AppearanceLayoutTest")
+            .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+            .build();
+        app.register(None::<&gtk::gio::Cancellable>).unwrap();
+        let source =
+            std::env::var("MICBRIDGE_TEST_APPEARANCE_SOURCE").unwrap_or_else(|_| "system".into());
+        let appearance = theme::Appearance {
+            source: match source.as_str() {
+                "dark" => theme::Source::Dark,
+                "light" => theme::Source::Light,
+                "custom" => theme::Source::Custom,
+                _ => theme::Source::System,
+            },
+            custom: Some(
+                theme::Palette::parse(include_str!("../data/themes/graphite.json")).unwrap(),
+            ),
+            ..Default::default()
+        };
+        settings::save_appearance_to(&settings::path(), &appearance).unwrap();
+        unsafe {
+            std::env::set_var("MICBRIDGE_DEMO", "voice");
+        }
+        build_ui(&app, Arc::new(Shared::new()), true);
+        let win = app.windows()[0]
+            .clone()
+            .downcast::<adw::ApplicationWindow>()
+            .unwrap();
+        until(|| win.is_mapped());
+        if std::env::var_os("ADW_DEBUG_HIGH_CONTRAST").is_some() {
+            assert!(adw::StyleManager::default().is_high_contrast());
+        }
+        let hero = find::<gtk::Box>(&win, &|b| b.has_css_class("mb-live-header")).unwrap();
+        assert!(
+            hero.ancestor(gtk::ScrolledWindow::static_type()).is_none(),
+            "meters must live outside scrolled content"
+        );
+        let scroll = find::<gtk::ScrolledWindow>(&win, &|_| true).unwrap();
+        for (w, h) in [(1200, 800), (420, 400)] {
+            win.set_default_size(w, h);
+            until(|| win.width() == w);
+            let before = hero.compute_bounds(&win).unwrap();
+            let adjustment = scroll.vadjustment();
+            adjustment.set_value(adjustment.upper() - adjustment.page_size());
+            let end = std::time::Instant::now() + Duration::from_millis(180);
+            until(|| std::time::Instant::now() >= end);
+            let after = hero.compute_bounds(&win).unwrap();
+            assert!((before.y() - after.y()).abs() < 1.0);
+            assert!(
+                scroll.height() >= 100,
+                "fixed header leaves useful workspace"
+            );
+            assert!(after.width() <= win.width() as f32);
+            if std::env::var_os("MICBRIDGE_TEST_SNAPSHOTS").is_some() {
+                let snapshot = gtk::Snapshot::new();
+                win.snapshot_child(&win.child().unwrap(), &snapshot);
+                let node = snapshot.to_node().expect("rendered window");
+                let texture = win
+                    .native()
+                    .unwrap()
+                    .renderer()
+                    .unwrap()
+                    .render_texture(&node, None);
+                texture
+                    .save_to_png(format!("/tmp/micbridge-appearance-{source}-{w}.png"))
+                    .unwrap();
+            }
+            adjustment.set_value(0.0);
+            if std::env::var_os("MICBRIDGE_TEST_SNAPSHOTS").is_some() {
+                let end = std::time::Instant::now() + Duration::from_millis(180);
+                until(|| std::time::Instant::now() >= end);
+                let snapshot = gtk::Snapshot::new();
+                win.snapshot_child(&win.child().unwrap(), &snapshot);
+                let texture = win
+                    .native()
+                    .unwrap()
+                    .renderer()
+                    .unwrap()
+                    .render_texture(&snapshot.to_node().unwrap(), None);
+                texture
+                    .save_to_png(format!("/tmp/micbridge-appearance-{source}-{w}-top.png"))
+                    .unwrap();
+            }
+        }
+        win.destroy();
+    }
+    #[test]
+    #[ignore = "requer sessão gráfica GTK"]
+    fn appearance_uses_system_style_instead_of_forcing_dark() {
+        adw::init().unwrap();
+        let f = audio_test::Fixture::new("exit 0");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", f.dir.join("data"));
+        }
+        theme::install();
+        assert_eq!(
+            adw::StyleManager::default().color_scheme(),
+            adw::ColorScheme::Default
+        );
+    }
 }

@@ -328,7 +328,7 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .orientation(gtk::Orientation::Vertical)
         .spacing(8)
         .halign(gtk::Align::Center)
-        .margin_top(6)
+        .margin_top(18)
         .margin_bottom(6)
         .build();
     if let Some(area) = qr_area(&pair_url, 220) {
@@ -353,14 +353,13 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     qr_box.append(
         &gtk::Label::builder()
             .label(
-                "Escaneie com a câmera do celular, na mesma rede.\nSó é preciso na primeira vez.",
+                "Com o celular conectado da mesma rede, escanei o codigo.\nSó é preciso na primeira vez.",
             )
             .justify(gtk::Justification::Center)
+            .wrap(true)
             .css_classes(["dim-label"])
             .build(),
     );
-    let qr_group = adw::PreferencesGroup::new();
-    qr_group.add(&qr_box);
 
     let url_row = adw::ActionRow::builder()
         .title(if mdns {
@@ -456,6 +455,7 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
     });
     fp_row.add_suffix(&fp_copy);
     conn.add(&fp_row);
+    conn.add(&qr_box);
 
     // Tratamento: um preset resolve para a maioria; o resto fica em "Avançado".
     let fx = adw::PreferencesGroup::builder()
@@ -690,7 +690,6 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
             gain.upcast(),
             recording_panel.upcast(),
             monitor_panel.upcast(),
-            qr_group.clone().upcast(),
             note.upcast(),
         ],
     );
@@ -714,7 +713,7 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         if pair_row.is_active() != (left > 0) {
             pair_row.set_active(left > 0);
         }
-        qr_group.set_visible(left > 0);
+        qr_box.set_visible(left > 0);
         pair_row.set_subtitle(&if left > 0 {
             format!("Aberto: fecha em {}:{:02}", left / 60, left % 60)
         } else {

@@ -6,7 +6,7 @@ pub fn install(
     bin: &adw::BreakpointBin,
     workspace: &gtk::Box,
     clamp: &adw::Clamp,
-    sections: [gtk::Widget; 9],
+    sections: [gtk::Widget; 8],
 ) {
     let columns = std::array::from_fn(|_| {
         gtk::Box::builder()
@@ -61,8 +61,8 @@ pub fn install(
 struct Columns {
     workspace: gtk::Box,
     columns: [gtk::Box; 3],
-    /// Perfil, limpeza, timbre, dinâmica, volume, teste, retorno, QR, nota.
-    sections: [gtk::Widget; 9],
+    /// Perfil, limpeza, timbre, dinâmica, volume, teste, retorno, nota.
+    sections: [gtk::Widget; 8],
     count: Cell<usize>,
 }
 impl Columns {
@@ -82,9 +82,9 @@ impl Columns {
             self.workspace.remove(&child);
         }
         let groups: &[&[usize]] = match count {
-            3 => &[&[0, 1, 2], &[3, 4, 8], &[5, 6, 7]],
-            2 => &[&[0, 1, 2, 3, 4, 8], &[5, 6, 7]],
-            _ => &[&[0, 1, 2, 3, 4, 5, 6, 7, 8]],
+            3 => &[&[0, 1, 2], &[3, 4, 7], &[5, 6]],
+            2 => &[&[0, 1, 2, 3, 4, 7], &[5, 6]],
+            _ => &[&[0, 1, 2, 3, 4, 5, 6, 7]],
         };
         for (column, indices) in self.columns.iter().zip(groups) {
             self.workspace.append(column);

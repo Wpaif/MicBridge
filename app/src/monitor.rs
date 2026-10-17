@@ -266,7 +266,7 @@ impl Monitor {
                 }
             } else if gate == s.id << 1 | 1 {
                 s.phase = MonitorPhase::Active;
-            } else if gate == 0 {
+            } else if gate == 0 && s.phase != MonitorPhase::Restoring {
                 s.phase = MonitorPhase::Disabled;
             }
         }
@@ -804,8 +804,10 @@ mod routed_tests {
         let now = std::time::Instant::now();
         submit_processed(&m, 7, &[0.1; 480]);
         assert!(now.elapsed() < Duration::from_millis(50));
+        let stop = m.stop_and_wait();
+        assert_eq!(m.status().phase, MonitorPhase::Restoring);
         let _ = tx.send(());
-        m.stop_and_wait().await.unwrap();
+        stop.await.unwrap();
     }
     #[tokio::test]
     async fn stop_ack_includes_reap_restore_and_error() {

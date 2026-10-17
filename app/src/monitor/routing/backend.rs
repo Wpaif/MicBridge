@@ -1,5 +1,6 @@
 use super::graph::{Graph, SavedLink, SavedState};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 #[async_trait::async_trait]
 pub trait RoutingBackend: Send + Sync {
     fn watch(&self) -> Result<Option<Changes>, String> {
@@ -8,6 +9,12 @@ pub trait RoutingBackend: Send + Sync {
     async fn snapshot(&self) -> Result<Graph, String>;
     async fn connect(&self, link: &SavedLink) -> Result<(), String>;
     async fn disconnect(&self, link: &SavedLink) -> Result<(), String>;
+    async fn disconnect_current(&self, link: &SavedLink, lease: &AtomicBool) -> Result<(), String> {
+        if !lease.load(SeqCst) {
+            return Err("Retorno cancelado".into());
+        }
+        self.disconnect(link).await
+    }
 }
 pub struct Changes {
     child: tokio::process::Child,
@@ -60,14 +67,22 @@ impl RoutingBackend for RealBackend {
         Graph::parse(&run(&self.dump, &[]).await?)
     }
     async fn connect(&self, link: &SavedLink) -> Result<(), String> {
-        self.change(link, true).await
+        self.change(link, true, None).await
     }
     async fn disconnect(&self, link: &SavedLink) -> Result<(), String> {
-        self.change(link, false).await
+        self.change(link, false, None).await
+    }
+    async fn disconnect_current(&self, link: &SavedLink, lease: &AtomicBool) -> Result<(), String> {
+        self.change(link, false, Some(lease)).await
     }
 }
 impl RealBackend {
-    async fn change(&self, link: &SavedLink, connect: bool) -> Result<(), String> {
+    async fn change(
+        &self,
+        link: &SavedLink,
+        connect: bool,
+        lease: Option<&AtomicBool>,
+    ) -> Result<(), String> {
         let before = self.snapshot().await?.validate_saved(link);
         if before == SavedState::Unavailable {
             return Err("Conexão removida ou substituída antes da operação".into());
@@ -93,6 +108,9 @@ impl RealBackend {
             link.output.port.id.to_string(),
             link.input.port.id.to_string(),
         ]);
+        if lease.is_some_and(|lease| !lease.load(SeqCst)) {
+            return Err("Retorno cancelado".into());
+        }
         run(&self.link, &args).await?;
         if self.snapshot().await?.validate_saved(link) != expected {
             return Err("PipeWire não confirmou a alteração da conexão".into());
@@ -169,6 +187,32 @@ mod tests {
         let mut events = backend.watch().unwrap().unwrap();
         assert!(events.next().await.is_err());
         events.stop().await;
+    }
+    #[tokio::test]
+    async fn cancelled_backend_validation_does_not_launch_unlink() {
+        let f = Fixture::new(
+            "touch '@DIR@/entered'; while [ ! -f '@DIR@/release' ]; do sleep 0.01; done; cat '@DIR@/graph.json'",
+        );
+        std::fs::write(f.dir.join("graph.json"), fixture().to_string()).unwrap();
+        let b = RealBackend {
+            dump: f.executable.clone(),
+            link: f.dir.join("must-not-run"),
+        };
+        let link = graph()
+            .competitors(&target(), "micbridge_monitor_test")
+            .unwrap()
+            .remove(0);
+        let lease = std::sync::Arc::new(AtomicBool::new(true));
+        let task_lease = lease.clone();
+        let task = tokio::spawn(async move { b.disconnect_current(&link, &task_lease).await });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while !f.dir.join("entered").exists() {
+            assert!(std::time::Instant::now() < deadline);
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+        lease.store(false, SeqCst);
+        std::fs::write(f.dir.join("release"), "").unwrap();
+        assert_eq!(task.await.unwrap().unwrap_err(), "Retorno cancelado");
     }
     #[tokio::test]
     async fn commands_revalidate_and_confirm_endpoints() {

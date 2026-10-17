@@ -295,6 +295,7 @@ impl Engine {
                         report.existing += 1;
                         Ok(())
                     }
+                    SavedState::Failed => Err("Conexão PipeWire em estado de erro".into()),
                     SavedState::Missing => match self.backend.connect(e).await {
                         Ok(()) => match self.backend.snapshot().await {
                             Ok(g) if g.validate_saved(e) == SavedState::Present => {
@@ -365,17 +366,22 @@ impl Engine {
                 if !a.lease.load(SeqCst) {
                     return Err("Retorno cancelado".into());
                 }
+                if graph.validate_saved(&e) == SavedState::Failed {
+                    return Err("Conexão do retorno em estado de erro".into());
+                }
                 if graph.validate_saved(&e) != SavedState::Present {
                     self.backend.connect(&e).await?;
                 }
             }
             graph = self.backend.snapshot().await?;
-            if graph
-                .return_links(&a.target, &a.name)?
-                .iter()
-                .any(|e| graph.validate_saved(e) != SavedState::Present)
-            {
+            if graph.return_links(&a.target, &a.name)?.iter().any(|e| {
+                Some(&e.output.node) != a.stream.as_ref()
+                    || graph.validate_saved(e) != SavedState::Present
+            }) {
                 return Err("Retorno não conectado à saída".into());
+            }
+            if !a.lease.load(SeqCst) {
+                return Err("Retorno cancelado".into());
             }
             let competitors = graph.competitors(&a.target, &a.name)?;
             if competitors.is_empty() {
@@ -390,10 +396,22 @@ impl Engine {
                     return Err("Retorno cancelado".into());
                 }
                 if self.backend.snapshot().await?.validate_saved(&e) == SavedState::Present {
-                    self.backend.disconnect(&e).await?;
+                    if !a.lease.load(SeqCst) {
+                        return Err("Retorno cancelado".into());
+                    }
+                    self.backend.disconnect_current(&e, &a.lease).await?;
                 }
             }
             graph = self.backend.snapshot().await?;
+        }
+        let links = graph.return_links(&a.target, &a.name)?;
+        if !a.lease.load(SeqCst)
+            || links.iter().any(|e| {
+                Some(&e.output.node) != a.stream.as_ref()
+                    || graph.validate_saved(e) != SavedState::Present
+            })
+        {
+            return Err("Retorno não conectado à saída".into());
         }
         if graph.competitors(&a.target, &a.name)?.is_empty() {
             Ok(())
@@ -568,6 +586,9 @@ pub(crate) mod tests {
         pub pause: Arc<Mutex<Option<tokio::sync::oneshot::Receiver<()>>>>,
         pub entered: Arc<AtomicBool>,
         pub journal_path: Option<PathBuf>,
+        pub snapshots: Arc<AtomicUsize>,
+        pub pause_at: usize,
+        pub drop_return_at: usize,
     }
     impl Fake {
         pub fn new() -> Self {
@@ -580,13 +601,21 @@ pub(crate) mod tests {
                 pause: Arc::new(Mutex::new(None)),
                 entered: Arc::new(AtomicBool::new(false)),
                 journal_path: None,
+                snapshots: Arc::new(AtomicUsize::new(0)),
+                pause_at: 0,
+                drop_return_at: 0,
             }
         }
     }
     #[async_trait::async_trait]
     impl RoutingBackend for Fake {
         async fn snapshot(&self) -> Result<Graph, String> {
-            let rx = self.pause.lock().unwrap().take();
+            let n = self.snapshots.fetch_add(1, SeqCst) + 1;
+            let rx = if self.pause_at == 0 || self.pause_at == n {
+                self.pause.lock().unwrap().take()
+            } else {
+                None
+            };
             if let Some(rx) = rx {
                 self.entered.store(true, SeqCst);
                 let _ = rx.await;
@@ -615,11 +644,96 @@ pub(crate) mod tests {
             }
             let mut g = self.graph.lock().unwrap();
             g.remove(e);
-            if self.relink.load(SeqCst) {
+            if self.relink.load(SeqCst)
+                && (self.drop_return_at == 0 || n + 1 < self.drop_return_at as i32)
+            {
                 g.insert(e.clone());
+            }
+            if self.drop_return_at > 0 && n + 1 == self.drop_return_at as i32 {
+                g.links
+                    .retain(|l| l.output.node_name != "micbridge_monitor_test");
             }
             Ok(())
         }
+    }
+    #[tokio::test]
+    async fn cancel_during_competitor_validation_never_unlinks() {
+        let f = Fixture::new("exit 0");
+        let mut b = Fake::new();
+        b.pause_at = 3;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        *b.pause.lock().unwrap() = Some(rx);
+        let r = Routing::new(Arc::new(b.clone()), f.dir.join("journal.json"));
+        r.recover().await;
+        // Empty recovery performs no snapshots: initial, return confirmation, competitor validation.
+        let lease = Arc::new(AtomicBool::new(true));
+        let s = r.start(1, target(), "micbridge_monitor_test".into(), lease);
+        while !b.entered.load(SeqCst) {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        let stop = s.stop_and_restore();
+        tx.send(()).unwrap();
+        assert_eq!(stop.await.pending, 0);
+        assert_eq!(b.unlink_calls.load(SeqCst), 0);
+    }
+    #[tokio::test]
+    async fn final_cycle_requires_connected_return() {
+        let f = Fixture::new("exit 0");
+        let mut b = Fake::new();
+        // One competitor, reappearing for the first three rounds.
+        b.graph
+            .lock()
+            .unwrap()
+            .links
+            .retain(|l| l.output.node_name == "micbridge_monitor_test" || l.output.port.id == 31);
+        b.relink.store(true, SeqCst);
+        b.drop_return_at = 4;
+        let r = Routing::new(Arc::new(b.clone()), f.dir.join("journal.json"));
+        let mut s = r.start(
+            1,
+            target(),
+            "micbridge_monitor_test".into(),
+            Arc::new(AtomicBool::new(true)),
+        );
+        assert!(s.ready().await.is_err(), "ready without return links");
+        assert_eq!(s.stop_and_restore().await.pending, 0);
+    }
+    #[tokio::test]
+    async fn errored_links_never_allow_activation_or_clear_recovery() {
+        use super::super::graph::tests::fixture;
+        let f = Fixture::new("exit 0");
+        let b = Fake::new();
+        let entries = b
+            .graph
+            .lock()
+            .unwrap()
+            .competitors(&target(), "micbridge_monitor_test")
+            .unwrap();
+        let mut json = fixture();
+        for n in json.as_array_mut().unwrap() {
+            if n["type"] == "PipeWire:Interface:Link" {
+                n["info"]["state"] = serde_json::json!("error");
+            }
+        }
+        *b.graph.lock().unwrap() = Graph::parse(&json.to_string()).unwrap();
+        let path = f.dir.join("journal.json");
+        let r = Routing::new(Arc::new(b.clone()), path.clone());
+        let mut s = r.start(
+            1,
+            target(),
+            "micbridge_monitor_test".into(),
+            Arc::new(AtomicBool::new(true)),
+        );
+        assert!(s.ready().await.is_err());
+        assert_eq!(b.unlink_calls.load(SeqCst), 0);
+        s.stop_and_restore().await;
+        drop(s);
+        drop(r);
+        let path = f.dir.join("recovery.json");
+        Journal::open(path.clone()).unwrap().save(&entries).unwrap();
+        let r = Routing::new(Arc::new(b), path.clone());
+        assert_eq!(r.recover().await.pending, entries.len());
+        assert!(path.exists());
     }
     async fn ready(s: &mut RouteSession) {
         tokio::time::timeout(std::time::Duration::from_secs(3), s.ready())

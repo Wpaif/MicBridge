@@ -35,6 +35,7 @@ pub struct SavedLink {
 pub enum SavedState {
     Present,
     Missing,
+    Failed,
     Unavailable,
 }
 #[derive(Clone, Debug)]
@@ -43,6 +44,7 @@ pub struct Graph {
     nodes: Vec<(ObjectIdentity, String, String)>,
     ports: Vec<Endpoint>,
     pub links: Vec<SavedLink>,
+    failed_links: Vec<SavedLink>,
 }
 fn number(v: &serde_json::Value) -> Option<u64> {
     v.as_u64().or_else(|| v.as_str()?.parse().ok())
@@ -70,6 +72,7 @@ impl Graph {
             nodes: vec![],
             ports: vec![],
             links: vec![],
+            failed_links: vec![],
         };
         for n in list
             .iter()
@@ -134,12 +137,16 @@ impl Graph {
             });
             // Missing endpoint identity in a connected graph cannot be acted on safely.
             if let (Some(output), Some(input)) = (out, input) {
-                g.links.push(SavedLink {
+                let link = SavedLink {
                     core: g.core.clone(),
                     output: output.clone(),
                     input: input.clone(),
                     passive: info["props"]["link.passive"].as_bool().unwrap_or(false),
-                });
+                };
+                if info["state"] == "error" {
+                    g.failed_links.push(link.clone());
+                }
+                g.links.push(link);
             } else if info["state"] != "error" {
                 return Err("Link sem identidade verificável dos endpoints".into());
             }
@@ -229,6 +236,12 @@ impl Graph {
             || !self.ports.contains(&link.input)
         {
             SavedState::Unavailable
+        } else if self
+            .failed_links
+            .iter()
+            .any(|l| l.output == link.output && l.input == link.input)
+        {
+            SavedState::Failed
         } else if self
             .links
             .iter()

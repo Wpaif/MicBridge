@@ -101,3 +101,23 @@ cargo test --offline --manifest-path app/Cargo.toml bluetooth_live_monitor -- --
 Resultado antes da revisão: **104 aprovados**, cinco testes excluídos por padrão
 (quatro gráficos e um Bluetooth). Build offline, fmt e diff aprovados. Os testes
 excluídos são executados explicitamente e registrados no fechamento da branch.
+
+## Fechamento da revisão
+
+A revisão independente pediu três correções importantes, reproduzidas em RED:
+parada durante a revalidação de um concorrente ainda removia um link; links em
+estado `error` contavam como conectados; o último ciclo podia confirmar exclusividade
+com retorno ausente. Os testes agora passam com revalidação da lease antes do
+comando destrutivo (inclusive após snapshot interno do backend), estado de falha
+separado da existência do link, recuperação pendente para links com erro e confirmação
+completa da identidade/conexão do retorno em cada saída bem-sucedida.
+
+Uma regressão adicional reproduziu `Disabled` durante consulta pendente na parada;
+o estado `Restoring` agora permanece até concluir a limpeza. O teste do backend
+cobre também cancelamento durante sua própria consulta antes de lançar `pw-link`.
+
+Suíte após correções: **108 aprovados, zero falhas, cinco ignorados**. Build offline,
+fmt e diff verificados; teste gráfico do retorno exclusivo executado novamente.
+A tentativa adicional de captura da janela completa não gerou imagem (sem nó de
+renderização); havia outra instância ocupando a porta HTTPS. Os testes GTK continuam
+sendo a evidência da interface, sem encerrar a instância existente.

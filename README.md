@@ -199,6 +199,16 @@ cortes, e não para medir a latência total entre celular e saída. Se a fila de
 lotar, a gravação termina como **Teste incompleto**, preservando o trecho disponível;
 o áudio ao vivo continua sem esperar pelo gravador.
 
+## Silenciar o microfone
+
+O botão **Silenciar microfone**, no painel superior fixo, silencia a saída
+`Microfone_VDO` usada por outros programas. Enquanto ativo, mostra
+**Microfone silenciado** em destaque e o medidor de saída fica zerado.
+O medidor de entrada, o retorno no fone e a gravação de teste continuam ativos.
+Clique novamente para retomar a saída, mantendo conexão e configurações.
+O aplicativo inicia desmutado; o mute não é salvo entre execuções.
+Áudio já entregue aos buffers do sistema ainda pode ser ouvido por um breve instante.
+
 ## Retorno no fone
 
 No painel **Retorno no fone**, escolha a saída de áudio e ative

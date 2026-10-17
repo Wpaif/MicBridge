@@ -249,10 +249,32 @@ async fn emit(
     shared: &Shared,
     generation: u64,
 ) -> Result<()> {
-    recording::process_block(dsp, pcm, &shared.params, &shared.recorder, generation);
-    crate::monitor::submit_processed(&shared.monitor, generation, pcm);
+    prepare_output(
+        dsp,
+        pcm,
+        &shared.params,
+        &shared.recorder,
+        &shared.monitor,
+        generation,
+    );
     sink.write_mono(pcm).await;
     Ok(())
+}
+
+/// Mantém as rotas locais antes do controle de saída do microfone virtual.
+pub(crate) fn prepare_output(
+    dsp: &mut dsp::Processor,
+    pcm: &mut [f32],
+    params: &dsp::Params,
+    recorder: &recording::Recorder,
+    monitor: &crate::monitor::Monitor,
+    generation: u64,
+) {
+    recording::process_block(dsp, pcm, params, recorder, generation);
+    crate::monitor::submit_processed(monitor, generation, pcm);
+    if params.muted.load(std::sync::atomic::Ordering::Relaxed) {
+        pcm.fill(0.0);
+    }
 }
 
 async fn negotiate(st: &AppState, device: String, offer_sdp: String) -> Result<String> {

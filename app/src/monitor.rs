@@ -379,6 +379,57 @@ pub fn submit_processed(monitor: &Monitor, generation: u64, pcm: &[f32]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mute_silences_output_but_preserves_monitor_recording_and_dsp_continuity() {
+        let params = crate::dsp::Params::default();
+        params.apply_preset(crate::dsp::Preset::Bruto);
+        let recorder = crate::recording::Recorder::new();
+        let take = recorder.start(7);
+        let (monitor, queue) = Monitor::with_channel();
+        monitor.reserve(1, 7, target());
+        Monitor::publish(&monitor.inner, 1, &AtomicBool::new(true));
+        let mut processor = crate::dsp::Processor::new();
+        let mut expected_processor = crate::dsp::Processor::new();
+        let mut expected_recording = Vec::new();
+        for muted in [false, true, true, false] {
+            params.muted.store(muted, SeqCst);
+            let mut pcm = vec![0.01; 480];
+            let mut expected = pcm.clone();
+            expected_processor.process(&mut expected, &params);
+            expected_recording.extend_from_slice(&expected);
+            crate::server::prepare_output(
+                &mut processor,
+                &mut pcm,
+                &params,
+                &recorder,
+                &monitor,
+                7,
+            );
+            assert_eq!(
+                pcm,
+                if muted {
+                    vec![0.0; 480]
+                } else {
+                    expected.clone()
+                }
+            );
+            assert!(params.in_level() > 0.0);
+            assert_eq!(params.out_level() == 0.0, muted);
+            let block = queue.try_recv().expect("retorno continua recebendo áudio");
+            assert_eq!(block.samples, expected);
+        }
+        recorder.stop(take);
+        crate::audio_test::wait(|| {
+            recorder.status().state != crate::recording::TakeState::Recording
+        });
+        let take = recorder.take(take).unwrap();
+        assert_eq!(take.original, vec![0.01; 1920]);
+        assert_eq!(take.treated, expected_recording);
+        params.muted.store(true, SeqCst);
+        params.apply_preset(crate::dsp::Preset::Natural);
+        assert!(params.muted.load(SeqCst), "trocar perfil preserva mute");
+        assert!(!crate::dsp::Params::default().muted.load(SeqCst));
+    }
     fn target() -> OutputDevice {
         OutputDevice {
             id: 1,

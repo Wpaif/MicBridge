@@ -646,6 +646,29 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .css_classes(["toolbar", "mb-live-header"])
         .build();
     live_header.append(&state_group);
+    let mute_button = gtk::ToggleButton::builder()
+        .name("microphone-mute")
+        .label("Silenciar microfone")
+        .tooltip_text("Silencia a saída para outros programas. Retorno no fone e gravação de teste continuam ativos.")
+        .halign(gtk::Align::End)
+        .valign(gtk::Align::Center)
+        .build();
+    let mute_shared = shared.clone();
+    mute_button.connect_toggled(move |button| {
+        let muted = button.is_active();
+        mute_shared.params.muted.store(muted, Relaxed);
+        button.set_label(if muted {
+            "Microfone silenciado"
+        } else {
+            "Silenciar microfone"
+        });
+        if muted {
+            button.add_css_class("destructive-action");
+        } else {
+            button.remove_css_class("destructive-action");
+        }
+    });
+    hero.controls.append(&mute_button);
     view.add_top_bar(&live_header);
     view.set_content(Some(&scroll));
 
@@ -886,6 +909,54 @@ fn snapshot_and_quit(win: &adw::ApplicationWindow, app: &adw::Application) {
 #[cfg(test)]
 mod appearance_tests {
     use super::*;
+    #[test]
+    #[ignore = "requer sessão gráfica GTK"]
+    fn mute_control_is_fixed_visible_and_preserves_connection_and_preset() {
+        adw::init().unwrap();
+        let f = audio_test::Fixture::new("exit 0");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", f.dir.join("data"));
+            std::env::set_var("XDG_CONFIG_HOME", f.dir.join("config"));
+        }
+        let app = adw::Application::builder()
+            .application_id("dev.wilian.MicBridge.MuteTest")
+            .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+            .build();
+        app.register(None::<&gtk::gio::Cancellable>).unwrap();
+        let shared = Arc::new(Shared::new());
+        build_ui(&app, shared.clone(), true);
+        let win = app.windows()[0].clone();
+        until(|| win.is_mapped());
+        let button = find::<gtk::ToggleButton>(&win, &|b| b.widget_name() == "microphone-mute")
+            .expect("mute disponível no topo fixo");
+        assert!(
+            button
+                .ancestor(gtk::ScrolledWindow::static_type())
+                .is_none()
+        );
+        assert!(!button.is_active());
+        let generation = shared.generation();
+        let threshold = shared.params.gate_threshold();
+        button.emit_clicked();
+        assert!(shared.params.muted.load(Relaxed));
+        assert!(button.has_css_class("destructive-action"));
+        assert_eq!(button.label().as_deref(), Some("Microfone silenciado"));
+        assert_eq!(shared.generation(), generation);
+        assert_eq!(shared.params.gate_threshold(), threshold);
+        button.emit_clicked();
+        assert!(!shared.params.muted.load(Relaxed));
+        assert!(!button.has_css_class("destructive-action"));
+        assert_eq!(button.label().as_deref(), Some("Silenciar microfone"));
+        for (width, height) in [(420, 400), (1200, 800)] {
+            win.set_default_size(width, height);
+            until(|| win.width() == width && button.is_mapped());
+            let bounds = button.compute_bounds(&win).unwrap();
+            assert!(bounds.x() >= 0.0 && bounds.x() + bounds.width() <= win.width() as f32);
+            let scroll = find::<gtk::ScrolledWindow>(&win, &|_| true).unwrap();
+            assert!(scroll.height() >= 100);
+        }
+        win.destroy();
+    }
     fn find<T: IsA<gtk::Widget> + Clone>(
         w: &impl IsA<gtk::Widget>,
         yes: &impl Fn(&T) -> bool,

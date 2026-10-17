@@ -11,6 +11,7 @@ const METER_CLIP: f64 = 0.90;
 /// Card de status em destaque: bolinha, estado, detalhe e medidores de entrada/saída.
 pub struct Hero {
     pub root: gtk::Box,
+    pub controls: gtk::Box,
     pub meters: gtk::Box,
     dot: gtk::Box,
     title: gtk::Label,
@@ -28,6 +29,7 @@ pub fn hero() -> Hero {
         .build();
     let title = gtk::Label::builder()
         .label("Desconectado")
+        .ellipsize(gtk::pango::EllipsizeMode::End)
         .xalign(0.0)
         .css_classes(["mb-hero-title"])
         .build();
@@ -69,6 +71,7 @@ pub fn hero() -> Hero {
 
     Hero {
         root,
+        controls: head,
         meters,
         dot,
         title,

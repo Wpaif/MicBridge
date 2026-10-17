@@ -13,10 +13,9 @@ impl Fixture {
     pub fn new(script: &str) -> Self {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!(
-            "micbridge-process-{}-{}-{}",
+            "micbridge-process-{}-{}",
             std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed),
-            crate::state::random_hex(8)
+            NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir(&dir).unwrap();
         let executable = dir.join("process");

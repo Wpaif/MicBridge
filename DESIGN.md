@@ -92,12 +92,6 @@ indisponível. Não selecionar outro dispositivo automaticamente. Estados de pre
 atividade e erro aparecem no painel sem substituir o estado principal da conexão.
 Os avisos orientam o uso de fones e informam o atraso sem inventar medição de latência.
 
-O interruptor passa a “Ajuste em tempo real · retorno exclusivo”, com aviso visível
-sobre a desconexão temporária de outros aplicativos da saída selecionada. Preparação
-e restauração têm estados próprios; não permitir nova ativação durante restauração
-ou com conexões pendentes. Exibir “Tentar restaurar conexões” quando for necessário,
-inclusive sem celular conectado. Erro de restauração não desaparece ao desligar.
-
 ## Atuação dos efeitos
 
 Os estados do gate e os ganhos do compressor/volume automático aparecem como

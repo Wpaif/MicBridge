@@ -1,17 +1,22 @@
 #[cfg(test)]
 mod audio_test;
+mod connection_sidebar;
 mod dsp;
 mod effect_ui;
 mod local_audio;
 mod monitor;
 mod monitor_ui;
 mod output;
+mod profiles;
+mod profiles_ui;
 mod recording;
 mod recording_ui;
 mod server;
 mod settings;
 mod state;
+mod studio_layout;
 mod theme;
+mod theme_ui;
 mod tls;
 mod tray;
 mod tray_icon;
@@ -142,7 +147,7 @@ fn scale_row(
     value: f64,
     on_change: impl Fn(f32) + 'static,
 ) -> (adw::ActionRow, gtk::Scale) {
-    let scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, range.0, range.1, step);
+    let scale = widgets::slider(range.0, range.1, step);
     // Sem isso o GTK arredonda para inteiro e desfaz valores como razão 2,5.
     let digits = if step < 1.0 { 1 } else { 0 };
     scale.set_digits(digits);
@@ -297,7 +302,7 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         move |v: bool| f(&sh.params).store(v, Relaxed)
     };
 
-    theme::install();
+    let appearance = theme::install();
 
     // Estado da conexão em destaque: conectado, desconectado, reconectando ou erro.
     let state_group = adw::PreferencesGroup::new();
@@ -457,14 +462,6 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .title("Perfil de voz")
         .build();
 
-    let preset_desc = gtk::Label::builder()
-        .xalign(0.0)
-        .margin_top(2)
-        .margin_bottom(10)
-        .margin_start(4)
-        .css_classes(["mb-profile-desc"])
-        .build();
-
     let cleanup = adw::PreferencesGroup::builder()
         .title("01 · Limpeza")
         .build();
@@ -531,117 +528,121 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         [&gate, &comp, &auto_gain],
     );
 
-    // Aplica o preset e espelha os valores nos controles avançados.
-    let sync = {
-        let sh = shared.clone();
-        let preset_desc = preset_desc.clone();
-        move |index: usize| {
-            let preset = dsp::Preset::ALL
-                .get(index)
-                .copied()
-                .unwrap_or(dsp::Preset::Chamada);
-            let prm = &sh.params;
-            prm.apply_preset(preset);
-            settings::save_preset(preset);
-            preset_desc.set_label(preset.description());
-
-            let flag = |f: fn(&dsp::Params) -> &std::sync::atomic::AtomicBool| f(prm).load(Relaxed);
-            denoise.set_active(flag(|x| &x.denoise));
-            highpass.set_active(flag(|x| &x.highpass));
-            gate.set_active(flag(|x| &x.gate));
-            deesser.set_active(flag(|x| &x.deesser));
-            presence.set_active(flag(|x| &x.presence));
-            comp.set_active(flag(|x| &x.compressor));
-            auto_gain.set_active(flag(|x| &x.auto_gain));
-            gate_scale.set_value(prm.gate_threshold() as f64);
-            thr_scale.set_value(prm.comp_threshold() as f64);
-            ratio_scale.set_value(prm.comp_ratio() as f64);
-            makeup_scale.set_value(prm.makeup_db() as f64);
-        }
-    };
-    // Perfil inicial: o da última execução ou, na primeira vez, "Chamada" (índice 1), o mais
-    // seguro para uso geral.
-    let initial = settings::load_preset()
-        .and_then(|saved| dsp::Preset::ALL.iter().position(|p| *p == saved))
-        .unwrap_or(1);
-    let preset_names: Vec<&str> = dsp::Preset::ALL.iter().map(|p| p.name()).collect();
-    let preset_bar = widgets::segmented(&preset_names, initial, sync);
+    let profile_panel = profiles_ui::panel(
+        shared.clone(),
+        profiles_ui::Controls {
+            switches: [denoise, highpass, gate, deesser, presence, comp, auto_gain],
+            scales: [gate_scale, thr_scale, ratio_scale, makeup_scale],
+        },
+    );
+    fx.add(&profile_panel);
     #[cfg(debug_assertions)]
     if std::env::var("MICBRIDGE_DEMO").is_ok() {
         shared.close_pairing();
     }
-    fx.add(&preset_bar);
-    fx.add(&preset_desc);
 
-    let modules = gtk::FlowBox::builder()
-        .selection_mode(gtk::SelectionMode::None)
-        .min_children_per_line(1)
-        .max_children_per_line(2)
-        .column_spacing(18)
-        .row_spacing(18)
-        .homogeneous(true)
-        .valign(gtk::Align::Start)
-        .build();
-    for group in [&cleanup, &tone, &dynamics, &gain] {
-        group.set_width_request(310);
-        group.set_hexpand(true);
-        group.set_valign(gtk::Align::Start);
-        modules.insert(group, -1);
-    }
-
-    let studio = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(18)
-        .hexpand(true)
-        .css_classes(["mb-studio"])
-        .build();
-    studio.append(&state_group);
-    studio.append(&fx);
-    studio.append(&modules);
     let note = gtk::Label::builder()
         .label("48 kHz · Mono → Estéreo · Limitador de segurança ativo")
         .xalign(0.0)
+        .wrap(true)
         .css_classes(["dim-label", "caption"])
         .build();
-    studio.append(&note);
-
-    let sidebar = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(24)
-        .width_request(310)
-        .css_classes(["mb-sidebar"])
-        .build();
-    sidebar.append(&qr_group);
-    sidebar.append(&conn);
-    let sidebar_clamp = adw::Clamp::builder()
-        .maximum_size(340)
-        .tightening_threshold(340)
-        .hexpand(false)
-        .valign(gtk::Align::Start)
-        .child(&sidebar)
-        .build();
-
+    conn.add_css_class("mb-sidebar");
     let workspace = gtk::Box::builder()
+        .name("studio-workspace")
         .orientation(gtk::Orientation::Horizontal)
-        .spacing(30)
+        .spacing(18)
+        .homogeneous(true)
         .margin_top(24)
         .margin_bottom(24)
         .margin_start(24)
         .margin_end(24)
         .valign(gtk::Align::Start)
+        .css_classes(["mb-studio"])
         .build();
-    workspace.append(&studio);
-    workspace.append(&sidebar_clamp);
+    let workspace_clamp = adw::Clamp::builder()
+        .maximum_size(1440)
+        .tightening_threshold(1440)
+        .child(&workspace)
+        .build();
     let scroll = gtk::ScrolledWindow::builder()
+        .name("studio-scroll")
         .hscrollbar_policy(gtk::PolicyType::Never)
         .vexpand(true)
-        .child(&workspace)
+        .child(&workspace_clamp)
+        .build();
+    let studio_bin = adw::BreakpointBin::builder()
+        .name("studio-responsive")
+        .width_request(360)
+        .height_request(100)
+        .hexpand(true)
+        .vexpand(true)
+        .child(&scroll)
+        .build();
+    let sidebar = gtk::Box::builder()
+        .name("connection-sidebar")
+        .orientation(gtk::Orientation::Vertical)
+        .width_request(340)
+        .build();
+    sidebar.append(&conn);
+    let sidebar_clamp = adw::Clamp::builder()
+        .name("connection-rail")
+        .maximum_size(340)
+        .tightening_threshold(340)
+        .hexpand(false)
+        .margin_start(18)
+        .margin_top(24)
+        .margin_bottom(24)
+        .valign(gtk::Align::Start)
+        .child(&sidebar)
+        .build();
+    let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    body.append(&sidebar_clamp);
+    body.append(&studio_bin);
+    let body_clamp = adw::Clamp::builder()
+        .maximum_size(1800)
+        .tightening_threshold(1800)
+        .child(&body)
         .build();
     let view = adw::ToolbarView::new();
     let header = adw::HeaderBar::new();
-    header.set_title_widget(Some(&adw::WindowTitle::new("MicBridge", "ESTÚDIO DE VOZ")));
+    header.set_title_widget(Some(&adw::WindowTitle::new("MicBridge", "Estúdio de voz")));
     view.add_top_bar(&header);
-    view.set_content(Some(&scroll));
+    let live_header = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .css_classes(["toolbar", "mb-live-header"])
+        .build();
+    let live_clamp = adw::Clamp::builder()
+        .maximum_size(1800)
+        .tightening_threshold(1800)
+        .child(&state_group)
+        .build();
+    live_header.append(&live_clamp);
+    let mute_button = gtk::ToggleButton::builder()
+        .name("microphone-mute")
+        .label("Silenciar microfone")
+        .tooltip_text("Silencia a saída para outros programas. Retorno no fone e gravação de teste continuam ativos.")
+        .halign(gtk::Align::End)
+        .valign(gtk::Align::Center)
+        .build();
+    let mute_shared = shared.clone();
+    mute_button.connect_toggled(move |button| {
+        let muted = button.is_active();
+        mute_shared.params.muted.store(muted, Relaxed);
+        button.set_label(if muted {
+            "Microfone silenciado"
+        } else {
+            "Silenciar microfone"
+        });
+        if muted {
+            button.add_css_class("destructive-action");
+        } else {
+            button.remove_css_class("destructive-action");
+        }
+    });
+    hero.controls.append(&mute_button);
+    view.add_top_bar(&live_header);
+    view.set_content(Some(&body_clamp));
 
     let win = adw::ApplicationWindow::builder()
         .application(app)
@@ -653,53 +654,46 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .content(&view)
         .hide_on_close(true)
         .build();
-    // Em telas estreitas os mesmos widgets passam para uma única coluna.
-    let compact = adw::Breakpoint::new(
-        adw::BreakpointCondition::parse("max-width: 1100px").expect("breakpoint válido"),
-    );
-    compact.add_setter(
-        &hero.meters,
-        "orientation",
-        Some(&gtk::Orientation::Vertical.to_value()),
-    );
-    compact.add_setter(&hero.meters, "spacing", Some(&12i32.to_value()));
-    compact.add_setter(
-        &workspace,
-        "orientation",
-        Some(&gtk::Orientation::Vertical.to_value()),
-    );
-    compact.add_setter(&sidebar, "width-request", Some(&(-1i32).to_value()));
-    compact.add_setter(&sidebar_clamp, "maximum-size", Some(&2000i32.to_value()));
-    compact.add_setter(
-        &sidebar_clamp,
-        "tightening-threshold",
-        Some(&2000i32.to_value()),
-    );
-    compact.add_setter(&modules, "max-children-per-line", Some(&1u32.to_value()));
-    compact.add_setter(&workspace, "margin-start", Some(&12i32.to_value()));
-    compact.add_setter(&workspace, "margin-end", Some(&12i32.to_value()));
-    win.add_breakpoint(compact.clone());
-
+    let appearance_button = gtk::Button::builder()
+        .icon_name("applications-graphics-symbolic")
+        .tooltip_text("Aparência")
+        .build();
+    header.pack_end(&appearance_button);
+    let parent = win.downgrade();
+    let preferences = std::rc::Rc::new(std::cell::RefCell::new(glib::WeakRef::<
+        adw::PreferencesDialog,
+    >::new()));
+    appearance_button.connect_clicked(move |_| {
+        let Some(parent) = parent.upgrade() else {
+            return;
+        };
+        if let Some(window) = preferences.borrow().upgrade() {
+            window.present(Some(&parent));
+            return;
+        }
+        let window = theme_ui::window(&parent, appearance.clone());
+        preferences.borrow().set(Some(&window));
+        window.present(Some(&parent));
+    });
     let recording_panel = recording_ui::panel(shared.clone(), &win);
     let monitor_panel = monitor_ui::panel(shared.clone());
-    let local_panels = gtk::Box::builder()
-        .orientation(gtk::Orientation::Horizontal)
-        .spacing(18)
-        .homogeneous(true)
-        .build();
-    for panel in [&recording_panel, &monitor_panel] {
-        panel.set_width_request(310);
-        panel.set_hexpand(true);
-        panel.set_valign(gtk::Align::Start);
-        local_panels.append(panel);
-    }
-    compact.add_setter(
-        &local_panels,
-        "orientation",
-        Some(&gtk::Orientation::Vertical.to_value()),
+    connection_sidebar::install(&win, &header, &sidebar, &sidebar_clamp, &conn, &hero.meters);
+    studio_layout::install(
+        &studio_bin,
+        &workspace,
+        &workspace_clamp,
+        [
+            fx.upcast(),
+            cleanup.upcast(),
+            tone.upcast(),
+            dynamics.upcast(),
+            gain.upcast(),
+            recording_panel.upcast(),
+            monitor_panel.upcast(),
+            qr_group.clone().upcast(),
+            note.upcast(),
+        ],
     );
-    compact.add_setter(&local_panels, "homogeneous", Some(&false.to_value()));
-    studio.insert_child_after(&local_panels, Some(&fx));
 
     // add_css_class, e não css_classes(): este último apaga `csd`/`background`, que dão à
     // janela os cantos arredondados e a sombra.
@@ -846,4 +840,632 @@ fn snapshot_and_quit(win: &adw::ApplicationWindow, app: &adw::Application) {
         }
         app.quit();
     });
+}
+
+#[cfg(test)]
+mod appearance_tests {
+    use super::*;
+    #[test]
+    #[ignore = "requer sessão gráfica GTK"]
+    fn connection_sidebar_stays_fixed_and_recovers_from_compact_dialog() {
+        adw::init().unwrap();
+        let f = audio_test::Fixture::new("exit 0");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", f.dir.join("data"));
+            std::env::set_var("XDG_CONFIG_HOME", f.dir.join("config"));
+        }
+        let app = adw::Application::builder()
+            .application_id("dev.wilian.MicBridge.ConnectionSidebarTest")
+            .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+            .build();
+        app.register(None::<&gtk::gio::Cancellable>).unwrap();
+        let shared = Arc::new(Shared::new());
+        build_ui(&app, shared.clone(), true);
+        let win = app.windows()[0]
+            .clone()
+            .downcast::<adw::ApplicationWindow>()
+            .unwrap();
+        win.set_default_size(1440, 900);
+        until(|| win.is_mapped() && win.width() == 1440);
+        let connection = find::<adw::PreferencesGroup>(&win, &|g| g.title() == "Conexão").unwrap();
+        assert!(
+            connection
+                .ancestor(gtk::ScrolledWindow::static_type())
+                .is_none(),
+            "conexão fixa não pode estar na rolagem"
+        );
+        let hero = find::<gtk::Box>(&win, &|b| b.has_css_class("mb-live-header")).unwrap();
+        let scroll =
+            find::<gtk::ScrolledWindow>(&win, &|s| s.widget_name() == "studio-scroll").unwrap();
+        let before = connection.compute_bounds(&win).unwrap();
+        let top = hero.compute_bounds(&win).unwrap();
+        let area = scroll.compute_bounds(&win).unwrap();
+        assert!(before.y() >= top.y() + top.height());
+        assert!(before.x() + before.width() <= area.x());
+        assert!(before.width() <= 360.0);
+        assert!(before.y() + before.height() <= win.height() as f32);
+        let adjustment = scroll.vadjustment();
+        adjustment.set_value(adjustment.upper() - adjustment.page_size());
+        let end = std::time::Instant::now() + Duration::from_millis(180);
+        until(|| std::time::Instant::now() >= end);
+        let after = connection.compute_bounds(&win).unwrap();
+        assert!((before.y() - after.y()).abs() < 1.0);
+        assert!((before.x() - after.x()).abs() < 1.0);
+        let certificate =
+            find::<adw::ActionRow>(&connection, &|r| r.title() == "Certificado · SHA-256").unwrap();
+        certificate.set_subtitle(&["AA"; 32].join(":"));
+        shared.close_pairing();
+        win.set_default_size(1181, 681);
+        until(|| win.width() == 1181 && win.height() == 681);
+        let end = std::time::Instant::now() + Duration::from_millis(180);
+        until(|| std::time::Instant::now() >= end);
+        let edge = connection.compute_bounds(&win).unwrap();
+        assert!(connection.is_mapped());
+        assert!(
+            edge.y() + edge.height() <= win.height() as f32,
+            "conexão completa deve caber no limite do modo fixo: {edge:?}"
+        );
+        let button =
+            find::<gtk::Button>(&win, &|b| b.widget_name() == "connection-toggle").unwrap();
+        assert!(!button.is_visible());
+        for (width, height) in [(420, 400), (1440, 500)] {
+            win.set_default_size(width, height);
+            until(|| win.width() == width && win.height() == height && button.is_mapped());
+            assert!(!connection.is_mapped());
+            assert!(scroll.height() >= 100);
+            button.emit_clicked();
+            until(|| win.visible_dialog().is_some() && connection.is_mapped());
+            let dialog = win.visible_dialog().unwrap();
+            assert_eq!(dialog.title(), "Conexão");
+            dialog.close();
+            until(|| win.visible_dialog().is_none());
+            assert!(!connection.is_mapped());
+            button.emit_clicked();
+            until(|| win.visible_dialog().is_some() && connection.is_mapped());
+            let dialog = win.visible_dialog().unwrap();
+            let pair =
+                find::<adw::SwitchRow>(&dialog, &|r| r.title() == "Aceitar novo celular").unwrap();
+            pair.set_active(true);
+            assert!(shared.pairing_remaining() > 0);
+            pair.set_active(false);
+            assert_eq!(shared.pairing_remaining(), 0);
+            // Reabrir a lateral durante um diálogo não deve duplicar o painel.
+            win.set_default_size(1440, 900);
+            until(|| {
+                win.width() == 1440
+                    && win.height() == 900
+                    && win.visible_dialog().is_none()
+                    && connection.is_mapped()
+            });
+            assert!(
+                connection
+                    .ancestor(gtk::ScrolledWindow::static_type())
+                    .is_none()
+            );
+            assert!(
+                !find::<adw::SwitchRow>(&connection, &|r| r.title() == "Aceitar novo celular")
+                    .unwrap()
+                    .is_active()
+            );
+        }
+        if std::env::var_os("MICBRIDGE_TEST_SNAPSHOTS").is_some() {
+            let end = std::time::Instant::now() + Duration::from_millis(250);
+            until(|| std::time::Instant::now() >= end);
+            save_layout_snapshot(&win, "/tmp/micbridge-fixed-connection.png");
+        }
+        win.destroy();
+    }
+    #[test]
+    #[ignore = "requer sessão gráfica GTK"]
+    fn studio_panels_use_natural_heights_and_bounded_responsive_columns() {
+        adw::init().unwrap();
+        let f = audio_test::Fixture::new("exit 0");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", f.dir.join("data"));
+            std::env::set_var("XDG_CONFIG_HOME", f.dir.join("config"));
+        }
+        let app = adw::Application::builder()
+            .application_id("dev.wilian.MicBridge.CompactStudioTest")
+            .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+            .build();
+        app.register(None::<&gtk::gio::Cancellable>).unwrap();
+        let shared = Arc::new(Shared::new());
+        build_ui(&app, shared.clone(), true);
+        let win = app.windows()[0]
+            .clone()
+            .downcast::<adw::ApplicationWindow>()
+            .unwrap();
+        until(|| win.is_mapped());
+        let cleanup =
+            find::<adw::PreferencesGroup>(&win, &|g| g.title() == "01 · Limpeza").unwrap();
+        let tone = find::<adw::PreferencesGroup>(&win, &|g| g.title() == "02 · Timbre").unwrap();
+        let dynamics =
+            find::<adw::PreferencesGroup>(&win, &|g| g.title() == "03 · Dinâmica").unwrap();
+        let gain = find::<adw::PreferencesGroup>(&win, &|g| g.title() == "04 · Volume").unwrap();
+        let scroll = find::<gtk::ScrolledWindow>(&win, &|_| true).unwrap();
+        let hero = find::<gtk::Box>(&win, &|b| b.has_css_class("mb-live-header")).unwrap();
+        let input = find::<gtk::LevelBar>(&hero, &|_| true).unwrap();
+        let output = find::<gtk::LevelBar>(&hero, &|bar| bar != &input).unwrap();
+        for (width, height, column_count) in [
+            (1700, 900, 3),
+            (1181, 800, 2),
+            (1180, 800, 2),
+            (1440, 900, 2),
+            (1241, 800, 2),
+            (1240, 800, 2),
+            (960, 800, 2),
+            (801, 800, 2),
+            (800, 800, 1),
+            (761, 800, 1),
+            (601, 800, 1),
+            (600, 800, 1),
+            (420, 400, 1),
+            (601, 800, 1),
+            (1440, 900, 2),
+        ] {
+            win.set_default_size(width, height);
+            until(|| win.width() == width);
+            let end = std::time::Instant::now() + Duration::from_millis(180);
+            until(|| std::time::Instant::now() >= end);
+            let a = cleanup.compute_bounds(&win).unwrap();
+            let b = tone.compute_bounds(&win).unwrap();
+            assert!(
+                (b.y() - (a.y() + a.height()) - 18.0).abs() < 2.0,
+                "timbre deve seguir limpeza sem lacuna: {a:?} {b:?}"
+            );
+            let a = dynamics.compute_bounds(&win).unwrap();
+            let b = gain.compute_bounds(&win).unwrap();
+            assert!(
+                (b.y() - (a.y() + a.height()) - 18.0).abs() < 2.0,
+                "volume deve seguir dinâmica sem lacuna"
+            );
+            let columns =
+                find::<gtk::Box>(&win, &|b| b.widget_name() == "studio-workspace").unwrap();
+            let mut count = 0;
+            let mut child = columns.first_child();
+            while let Some(column) = child {
+                let bounds = column.compute_bounds(&win).unwrap();
+                assert!(
+                    bounds.width() <= 560.0,
+                    "coluna não pode esticar demais: {bounds:?}"
+                );
+                count += 1;
+                child = column.next_sibling();
+            }
+            let usable =
+                find::<adw::BreakpointBin>(&win, &|b| b.widget_name() == "studio-responsive")
+                    .unwrap();
+            let side =
+                find::<gtk::Box>(&win, &|b| b.widget_name() == "connection-sidebar").unwrap();
+            assert_eq!(
+                count,
+                column_count,
+                "janela {width}, estúdio {}, lateral {}",
+                usable.width(),
+                side.width()
+            );
+            let recording = find::<gtk::Box>(&win, &|b| b.has_css_class("mb-recording")).unwrap();
+            let monitor = find::<gtk::Box>(&win, &|b| b.has_css_class("mb-monitor")).unwrap();
+            assert_eq!(
+                recording.parent(),
+                monitor.parent(),
+                "teste A/B e retorno devem compartilhar a coluna de testes"
+            );
+            let a = recording.compute_bounds(&win).unwrap();
+            let b = monitor.compute_bounds(&win).unwrap();
+            assert!(
+                (b.y() - (a.y() + a.height()) - 18.0).abs() < 2.0,
+                "painéis de teste devem ficar consecutivos"
+            );
+            assert!(scroll.hadjustment().upper() <= scroll.hadjustment().page_size() + 1.0);
+            assert!(scroll.height() >= 100);
+            let a = input.compute_bounds(&win).unwrap();
+            let b = output.compute_bounds(&win).unwrap();
+            if width <= 600 {
+                assert!(b.y() > a.y() + a.height());
+            } else {
+                assert!((b.y() - a.y()).abs() < 1.0 && b.x() > a.x());
+            }
+            if std::env::var_os("MICBRIDGE_TEST_SNAPSHOTS").is_some() {
+                save_layout_snapshot(&win, &format!("/tmp/micbridge-studio-{width}.png"));
+            }
+        }
+        // Maximizado em monitores largos: mantém limite e margens laterais equilibradas.
+        win.maximize();
+        until(|| win.is_maximized());
+        let columns = find::<gtk::Box>(&win, &|b| b.widget_name() == "studio-workspace").unwrap();
+        let end = std::time::Instant::now() + Duration::from_millis(180);
+        until(|| std::time::Instant::now() >= end);
+        let bounds = columns.compute_bounds(&win).unwrap();
+        assert!(bounds.width() <= 1440.0);
+        let bin =
+            find::<adw::BreakpointBin>(&win, &|b| b.widget_name() == "studio-responsive").unwrap();
+        let bin_bounds = bin.compute_bounds(&win).unwrap();
+        assert!(
+            (bounds.x() - (bin_bounds.x() + (bin_bounds.width() - bounds.width()) / 2.0)).abs()
+                < 2.0
+        );
+        assert_eq!(shared.params.gate_threshold(), -55.0);
+        if std::env::var_os("MICBRIDGE_TEST_SNAPSHOTS").is_some() {
+            save_layout_snapshot(&win, "/tmp/micbridge-studio-maximized.png");
+        }
+        win.destroy();
+    }
+    fn save_layout_snapshot(win: &adw::ApplicationWindow, path: &str) {
+        // Aguarda a pintura real: uma nova alocação pode estar pendente depois
+        // de redimensionar, mesmo que width/height já tenham sido atualizados.
+        let done = std::rc::Rc::new(std::cell::Cell::new(false));
+        let painted = done.clone();
+        let window = win.clone();
+        let path = path.to_string();
+        let clock = win.frame_clock().unwrap();
+        let handler = clock.connect_after_paint(move |_| {
+            if painted.get() {
+                return;
+            }
+            let snapshot = gtk::Snapshot::new();
+            window.snapshot_child(&window.child().unwrap(), &snapshot);
+            let node = snapshot.to_node().expect("janela renderizada");
+            window
+                .native()
+                .unwrap()
+                .renderer()
+                .unwrap()
+                .render_texture(&node, None)
+                .save_to_png(&path)
+                .unwrap();
+            painted.set(true);
+        });
+        win.queue_draw();
+        clock.request_phase(gtk::gdk::FrameClockPhase::PAINT);
+        until(|| done.get());
+        clock.disconnect(handler);
+    }
+    #[test]
+    #[ignore = "requer sessão gráfica GTK"]
+    fn custom_audio_profiles_follow_explicit_save_and_restore_controls() {
+        adw::init().unwrap();
+        let f = audio_test::Fixture::new("exit 0");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", f.dir.join("data"));
+            std::env::set_var("XDG_CONFIG_HOME", f.dir.join("config"));
+        }
+        let app = adw::Application::builder()
+            .application_id("dev.wilian.MicBridge.ProfilesTest")
+            .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+            .build();
+        app.register(None::<&gtk::gio::Cancellable>).unwrap();
+        let shared = Arc::new(Shared::new());
+        build_ui(&app, shared.clone(), true);
+        let win = app.windows()[0]
+            .clone()
+            .downcast::<adw::ApplicationWindow>()
+            .unwrap();
+        until(|| win.is_mapped());
+        let selector = find::<adw::ComboRow>(&win, &|w| w.widget_name() == "audio-profile")
+            .expect("seletor de perfis de fábrica e personalizados");
+        assert!(
+            selector.ancestor(gtk::ListBox::static_type()).is_some(),
+            "ComboRow precisa de ListBox para navegação e restauração de foco"
+        );
+        let button = |name: &str| find::<gtk::Button>(&win, &|w| w.widget_name() == name).unwrap();
+        let saved = || settings::load_profiles_from(&settings::path()).unwrap();
+        assert!(!button("profile-save").is_sensitive());
+        assert!(!button("profile-rename").is_sensitive());
+        assert!(!button("profile-delete").is_sensitive());
+        let auto = find::<adw::SwitchRow>(&win, &|r| r.title() == "Volume automático").unwrap();
+        auto.set_active(false);
+        let gain_row = find::<adw::ActionRow>(&win, &|r| r.title() == "Ganho manual (dB)").unwrap();
+        let gain = find::<gtk::Scale>(&gain_row, &|_| true).unwrap();
+        gain.set_value(12.0);
+        let original = profiles::Config::capture(&shared.params);
+        button("profile-new").emit_clicked();
+        until(|| win.visible_dialog().is_some());
+        let dialog = win.visible_dialog().unwrap();
+        let entry = find::<gtk::Entry>(&dialog, &|w| w.widget_name() == "profile-name").unwrap();
+        let confirm =
+            find::<gtk::Button>(&dialog, &|w| w.widget_name() == "profile-confirm").unwrap();
+        assert!(!confirm.is_sensitive());
+        entry.set_text("Minha voz");
+        confirm.emit_clicked();
+        until(|| saved().custom.len() == 1 && button("profile-new").is_sensitive());
+        let id = saved().selected;
+        assert_eq!(saved().custom[0].config, original);
+        assert!(!button("profile-save").is_sensitive());
+        button("profile-rename").emit_clicked();
+        until(|| win.visible_dialog().is_some());
+        let dialog = win.visible_dialog().unwrap();
+        find::<gtk::Entry>(&dialog, &|w| w.widget_name() == "profile-name")
+            .unwrap()
+            .set_text("Reuniões");
+        find::<gtk::Button>(&dialog, &|w| w.widget_name() == "profile-confirm")
+            .unwrap()
+            .emit_clicked();
+        until(|| saved().custom[0].name == "Reuniões" && button("profile-new").is_sensitive());
+        gain.set_value(15.0);
+        assert!(button("profile-save").is_sensitive());
+        assert_eq!(saved().custom[0].config.makeup_db, 12.0);
+        button("profile-save").emit_clicked();
+        until(|| {
+            saved().custom[0].config.makeup_db == 15.0 && button("profile-new").is_sensitive()
+        });
+        gain.set_value(18.0);
+        selector.set_selected(0);
+        until(|| win.visible_dialog().is_some());
+        let dialog = win.visible_dialog().unwrap();
+        find::<gtk::Button>(&dialog, &|w| w.label().as_deref() == Some("Cancelar"))
+            .unwrap()
+            .emit_clicked();
+        until(|| button("profile-new").is_sensitive());
+        assert_eq!(saved().selected, id);
+        assert_eq!(shared.params.makeup_db(), 18.0);
+        selector.set_selected(0);
+        until(|| win.visible_dialog().is_some());
+        let dialog = win.visible_dialog().unwrap();
+        find::<gtk::Button>(&dialog, &|w| w.label().as_deref() == Some("Descartar"))
+            .unwrap()
+            .emit_clicked();
+        until(|| saved().selected == "natural" && button("profile-new").is_sensitive());
+        shared.params.muted.store(true, Relaxed);
+        selector.set_selected(5);
+        until(|| saved().selected == id && button("profile-new").is_sensitive());
+        assert_eq!(shared.params.makeup_db(), 15.0);
+        assert_eq!(gain.value(), 15.0);
+        assert!(shared.params.muted.load(Relaxed));
+        // Uma falha no disco não deve alterar a biblioteca nem fechar o editor.
+        let path = settings::path();
+        std::fs::rename(&path, path.with_extension("backup")).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        button("profile-rename").emit_clicked();
+        until(|| win.visible_dialog().is_some());
+        let dialog = win.visible_dialog().unwrap();
+        find::<gtk::Entry>(&dialog, &|w| w.widget_name() == "profile-name")
+            .unwrap()
+            .set_text("Falha");
+        let confirm =
+            find::<gtk::Button>(&dialog, &|w| w.widget_name() == "profile-confirm").unwrap();
+        confirm.emit_clicked();
+        until(|| confirm.is_sensitive());
+        assert!(win.visible_dialog().is_some());
+        assert!(
+            find::<gtk::Label>(&dialog, &|w| w.text().contains("Não foi possível salvar"))
+                .is_some()
+        );
+        find::<gtk::Button>(&dialog, &|w| w.label().as_deref() == Some("Cancelar"))
+            .unwrap()
+            .emit_clicked();
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::rename(path.with_extension("backup"), &path).unwrap();
+        assert_eq!(saved().custom[0].name, "Reuniões");
+        let mut long_name = saved();
+        long_name.rename(&id, &"V".repeat(60)).unwrap();
+        settings::save_profiles_to(&path, &long_name).unwrap();
+        win.destroy();
+        let restored = Arc::new(Shared::new());
+        build_ui(&app, restored.clone(), true);
+        let win = app.windows()[0]
+            .clone()
+            .downcast::<adw::ApplicationWindow>()
+            .unwrap();
+        until(|| win.is_mapped());
+        win.set_default_size(420, 400);
+        until(|| win.width() == 420);
+        assert_eq!(restored.params.makeup_db(), 15.0);
+        assert!(!restored.params.auto_gain.load(Relaxed));
+        assert!(!restored.params.muted.load(Relaxed));
+        find::<gtk::Button>(&win, &|w| w.widget_name() == "profile-delete")
+            .unwrap()
+            .emit_clicked();
+        until(|| win.visible_dialog().is_some());
+        let dialog = win.visible_dialog().unwrap();
+        find::<gtk::Button>(&dialog, &|w| w.label().as_deref() == Some("Excluir"))
+            .unwrap()
+            .emit_clicked();
+        until(|| saved().custom.is_empty());
+        assert_eq!(saved().selected, "chamada");
+        win.destroy();
+        let invalid = r#"{"voice_profiles":{"version":99,"selected":"chamada","custom":[]}}"#;
+        std::fs::write(settings::path(), invalid).unwrap();
+        build_ui(&app, Arc::new(Shared::new()), true);
+        let win = app.windows()[0].clone();
+        until(|| win.is_mapped());
+        assert!(
+            !find::<gtk::Button>(&win, &|w| w.widget_name() == "profile-new")
+                .unwrap()
+                .is_sensitive()
+        );
+        assert!(
+            !find::<adw::ComboRow>(&win, &|w| w.widget_name() == "audio-profile")
+                .unwrap()
+                .is_sensitive()
+        );
+        assert_eq!(std::fs::read_to_string(settings::path()).unwrap(), invalid);
+        win.destroy();
+    }
+    #[test]
+    #[ignore = "requer sessão gráfica GTK"]
+    fn mute_control_is_fixed_visible_and_preserves_connection_and_preset() {
+        adw::init().unwrap();
+        let f = audio_test::Fixture::new("exit 0");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", f.dir.join("data"));
+            std::env::set_var("XDG_CONFIG_HOME", f.dir.join("config"));
+        }
+        let app = adw::Application::builder()
+            .application_id("dev.wilian.MicBridge.MuteTest")
+            .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+            .build();
+        app.register(None::<&gtk::gio::Cancellable>).unwrap();
+        let shared = Arc::new(Shared::new());
+        build_ui(&app, shared.clone(), true);
+        let win = app.windows()[0].clone();
+        until(|| win.is_mapped());
+        let button = find::<gtk::ToggleButton>(&win, &|b| b.widget_name() == "microphone-mute")
+            .expect("mute disponível no topo fixo");
+        assert!(
+            button
+                .ancestor(gtk::ScrolledWindow::static_type())
+                .is_none()
+        );
+        assert!(!button.is_active());
+        let generation = shared.generation();
+        let threshold = shared.params.gate_threshold();
+        button.emit_clicked();
+        assert!(shared.params.muted.load(Relaxed));
+        assert!(button.has_css_class("destructive-action"));
+        assert_eq!(button.label().as_deref(), Some("Microfone silenciado"));
+        assert_eq!(shared.generation(), generation);
+        assert_eq!(shared.params.gate_threshold(), threshold);
+        button.emit_clicked();
+        assert!(!shared.params.muted.load(Relaxed));
+        assert!(!button.has_css_class("destructive-action"));
+        assert_eq!(button.label().as_deref(), Some("Silenciar microfone"));
+        for (width, height) in [(420, 400), (1200, 800)] {
+            win.set_default_size(width, height);
+            until(|| win.width() == width && button.is_mapped());
+            let bounds = button.compute_bounds(&win).unwrap();
+            assert!(bounds.x() >= 0.0 && bounds.x() + bounds.width() <= win.width() as f32);
+            let scroll = find::<gtk::ScrolledWindow>(&win, &|_| true).unwrap();
+            assert!(scroll.height() >= 100);
+        }
+        win.destroy();
+    }
+    fn find<T: IsA<gtk::Widget> + Clone>(
+        w: &impl IsA<gtk::Widget>,
+        yes: &impl Fn(&T) -> bool,
+    ) -> Option<T> {
+        let w = w.as_ref();
+        if let Some(t) = w.downcast_ref::<T>() {
+            if yes(t) {
+                return Some(t.clone());
+            }
+        }
+        let mut child = w.first_child();
+        while let Some(w) = child {
+            if let Some(t) = find(&w, yes) {
+                return Some(t);
+            }
+            child = w.next_sibling();
+        }
+        None
+    }
+    fn until(mut yes: impl FnMut() -> bool) {
+        let end = std::time::Instant::now() + Duration::from_secs(5);
+        while !yes() {
+            while glib::MainContext::default().pending() {
+                glib::MainContext::default().iteration(false);
+            }
+            assert!(std::time::Instant::now() < end, "GTK timeout");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    #[test]
+    #[ignore = "requer sessão gráfica GTK"]
+    fn fixed_monitoring_header_survives_scroll_and_narrow_window() {
+        adw::init().unwrap();
+        let f = audio_test::Fixture::new("exit 0");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", f.dir.join("data"));
+            std::env::set_var("XDG_CONFIG_HOME", f.dir.join("config"));
+        }
+        let app = adw::Application::builder()
+            .application_id("dev.wilian.MicBridge.AppearanceLayoutTest")
+            .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+            .build();
+        app.register(None::<&gtk::gio::Cancellable>).unwrap();
+        let source =
+            std::env::var("MICBRIDGE_TEST_APPEARANCE_SOURCE").unwrap_or_else(|_| "system".into());
+        let appearance = theme::Appearance {
+            source: match source.as_str() {
+                "dark" => theme::Source::Dark,
+                "light" => theme::Source::Light,
+                "custom" => theme::Source::Custom,
+                _ => theme::Source::System,
+            },
+            custom: Some(
+                theme::Palette::parse(include_str!("../data/themes/graphite.json")).unwrap(),
+            ),
+            ..Default::default()
+        };
+        settings::save_appearance_to(&settings::path(), &appearance).unwrap();
+        unsafe {
+            std::env::set_var("MICBRIDGE_DEMO", "voice");
+        }
+        build_ui(&app, Arc::new(Shared::new()), true);
+        let win = app.windows()[0]
+            .clone()
+            .downcast::<adw::ApplicationWindow>()
+            .unwrap();
+        until(|| win.is_mapped());
+        if std::env::var_os("ADW_DEBUG_HIGH_CONTRAST").is_some() {
+            assert!(adw::StyleManager::default().is_high_contrast());
+        }
+        let hero = find::<gtk::Box>(&win, &|b| b.has_css_class("mb-live-header")).unwrap();
+        assert!(
+            hero.ancestor(gtk::ScrolledWindow::static_type()).is_none(),
+            "meters must live outside scrolled content"
+        );
+        let scroll = find::<gtk::ScrolledWindow>(&win, &|_| true).unwrap();
+        for (w, h) in [(1200, 800), (420, 400)] {
+            win.set_default_size(w, h);
+            until(|| win.width() == w);
+            let before = hero.compute_bounds(&win).unwrap();
+            let adjustment = scroll.vadjustment();
+            adjustment.set_value(adjustment.upper() - adjustment.page_size());
+            let end = std::time::Instant::now() + Duration::from_millis(180);
+            until(|| std::time::Instant::now() >= end);
+            let after = hero.compute_bounds(&win).unwrap();
+            assert!((before.y() - after.y()).abs() < 1.0);
+            assert!(
+                scroll.height() >= 100,
+                "fixed header leaves useful workspace"
+            );
+            assert!(after.width() <= win.width() as f32);
+            if std::env::var_os("MICBRIDGE_TEST_SNAPSHOTS").is_some() {
+                let snapshot = gtk::Snapshot::new();
+                win.snapshot_child(&win.child().unwrap(), &snapshot);
+                let node = snapshot.to_node().expect("rendered window");
+                let texture = win
+                    .native()
+                    .unwrap()
+                    .renderer()
+                    .unwrap()
+                    .render_texture(&node, None);
+                texture
+                    .save_to_png(format!("/tmp/micbridge-appearance-{source}-{w}.png"))
+                    .unwrap();
+            }
+            adjustment.set_value(0.0);
+            if std::env::var_os("MICBRIDGE_TEST_SNAPSHOTS").is_some() {
+                let end = std::time::Instant::now() + Duration::from_millis(180);
+                until(|| std::time::Instant::now() >= end);
+                let snapshot = gtk::Snapshot::new();
+                win.snapshot_child(&win.child().unwrap(), &snapshot);
+                let texture = win
+                    .native()
+                    .unwrap()
+                    .renderer()
+                    .unwrap()
+                    .render_texture(&snapshot.to_node().unwrap(), None);
+                texture
+                    .save_to_png(format!("/tmp/micbridge-appearance-{source}-{w}-top.png"))
+                    .unwrap();
+            }
+        }
+        win.destroy();
+    }
+    #[test]
+    #[ignore = "requer sessão gráfica GTK"]
+    fn appearance_uses_system_style_instead_of_forcing_dark() {
+        adw::init().unwrap();
+        let f = audio_test::Fixture::new("exit 0");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", f.dir.join("data"));
+        }
+        theme::install();
+        assert_eq!(
+            adw::StyleManager::default().color_scheme(),
+            adw::ColorScheme::Default
+        );
+    }
 }

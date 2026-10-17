@@ -39,6 +39,8 @@ const AGC_ATTACK_S: f32 = 0.15;
 const AGC_RELEASE_S: f32 = 1.5;
 
 pub struct Params {
+    /// Silencia somente o microfone virtual; retorno e captura seguem ativos.
+    pub muted: AtomicBool,
     pub denoise: AtomicBool,
     pub gate: AtomicBool,
     pub compressor: AtomicBool,
@@ -85,6 +87,7 @@ fn finite_clamp(v: f32, min: f32, max: f32, fallback: f32) -> f32 {
 impl Default for Params {
     fn default() -> Self {
         Self {
+            muted: AtomicBool::new(false),
             denoise: AtomicBool::new(true),
             gate: AtomicBool::new(true),
             compressor: AtomicBool::new(true),
@@ -235,7 +238,11 @@ impl Params {
     }
 
     pub fn out_level(&self) -> f32 {
-        load_f32(&self.out_level)
+        if self.muted.load(Relaxed) {
+            0.0
+        } else {
+            load_f32(&self.out_level)
+        }
     }
 
     pub fn frames(&self) -> u32 {

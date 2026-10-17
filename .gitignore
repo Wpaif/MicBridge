@@ -1,2 +1,10 @@
-app/target/
-.zed
+# Build Rust (Cargo.lock continua versionado).
+/app/target/
+
+# Preferências locais do editor.
+/.zed/
+
+# Arquivos temporários das ferramentas de desenvolvimento.
+/.superpowers/
+**/__pycache__/
+*.py[cod]

@@ -1,5 +1,5 @@
 //! Saída para o PipeWire. Reaproveita o esquema do `vdo_audio`:
-//! sink `vdo_input` -> fonte virtual `Microfone_VDO`.
+//! sink `vdo_input` -> fonte virtual `MicBridge`.
 
 use anyhow::{Context, Result};
 use tokio::io::AsyncWriteExt;
@@ -33,8 +33,8 @@ pub fn spawn_virtual_mic() -> Result<Child> {
         .args([
             "-m",
             "[FL FR]",
-            "--capture-props=media.class=Audio/Sink node.name=vdo_input node.description=VDO_Input",
-            "--playback-props=media.class=Audio/Source node.name=vdo_mic node.description=Microfone_VDO",
+            "--capture-props=media.class=Audio/Sink node.name=vdo_input node.description=MicBridge_Input",
+            "--playback-props=media.class=Audio/Source node.name=vdo_mic node.description=MicBridge",
         ])
         .kill_on_drop(true)
         .die_with_parent()

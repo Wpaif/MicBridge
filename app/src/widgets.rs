@@ -1,8 +1,23 @@
-//! Widgets próprios do MicBridge (estilo em `data/style.css`, regras em `DESIGN.md`).
+//! Widgets próprios do MicBridge (estilo em `data/style.css`, regras em `docs/design.md`).
 
 use crate::state::Link;
 use adw::prelude::*;
-use std::rc::Rc;
+
+pub fn slider(min: f64, max: f64, step: f64) -> gtk::Scale {
+    let scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, min, max, step);
+    // Desativa só o tratamento da roda no GtkRange. O evento continua até o
+    // ScrolledWindow, e os controladores de arraste/teclado permanecem intactos.
+    let controllers = scale.observe_controllers();
+    for index in 0..controllers.n_items() {
+        if let Some(scroll) = controllers
+            .item(index)
+            .and_then(|c| c.downcast::<gtk::EventControllerScroll>().ok())
+        {
+            scroll.set_propagation_phase(gtk::PropagationPhase::None);
+        }
+    }
+    scale
+}
 
 /// Acima disso o medidor fica amarelo, e depois vermelho (perto de estourar).
 const METER_HOT: f64 = 0.70;
@@ -11,6 +26,7 @@ const METER_CLIP: f64 = 0.90;
 /// Card de status em destaque: bolinha, estado, detalhe e medidores de entrada/saída.
 pub struct Hero {
     pub root: gtk::Box,
+    pub controls: gtk::Box,
     pub meters: gtk::Box,
     dot: gtk::Box,
     title: gtk::Label,
@@ -28,12 +44,15 @@ pub fn hero() -> Hero {
         .build();
     let title = gtk::Label::builder()
         .label("Desconectado")
+        .ellipsize(gtk::pango::EllipsizeMode::End)
         .xalign(0.0)
         .css_classes(["mb-hero-title"])
         .build();
     let detail = gtk::Label::builder()
         .xalign(0.0)
         .wrap(true)
+        .lines(1)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
         .css_classes(["mb-hero-detail"])
         .build();
 
@@ -49,8 +68,8 @@ pub fn hero() -> Hero {
     head.append(&dot);
     head.append(&texts);
 
-    let (in_row, in_bar, in_value) = meter("ENTRADA");
-    let (out_row, out_bar, out_value) = meter("SAÍDA TRATADA");
+    let (in_row, in_bar, in_value) = meter("Entrada");
+    let (out_row, out_bar, out_value) = meter("Saída tratada");
 
     let root = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -67,6 +86,7 @@ pub fn hero() -> Hero {
 
     Hero {
         root,
+        controls: head,
         meters,
         dot,
         title,
@@ -83,6 +103,7 @@ impl Hero {
     pub fn set_state(&self, link: Link, label: &str, detail: &str, speaking: bool) {
         self.title.set_label(label);
         self.detail.set_label(detail);
+        self.detail.set_tooltip_text(Some(detail));
         for c in ["ok", "warn", "err", "off", "speaking"] {
             self.dot.remove_css_class(c);
         }
@@ -135,7 +156,6 @@ fn meter(label: &str) -> (gtk::Box, gtk::LevelBar, gtk::Label) {
     let text = gtk::Label::builder()
         .label(label)
         .xalign(0.0)
-        .width_request(112)
         .css_classes(["mb-meter-label"])
         .build();
 
@@ -148,26 +168,38 @@ fn meter(label: &str) -> (gtk::Box, gtk::LevelBar, gtk::Label) {
     let head = gtk::Box::builder().spacing(12).build();
     head.append(&text);
     head.append(&value);
-    let ticks = gtk::DrawingArea::builder().content_height(14).build();
-    ticks.set_draw_func(|_, cr, width, _| {
-        cr.set_source_rgba(0.85, 0.88, 0.93, 0.55);
-        cr.select_font_face(
-            "monospace",
-            gtk::cairo::FontSlant::Normal,
-            gtk::cairo::FontWeight::Normal,
+    let ticks = gtk::Grid::builder().column_homogeneous(true).build();
+    for (i, text) in ["−60", "−48", "−36", "−24", "−12", "0 dBFS"]
+        .iter()
+        .enumerate()
+    {
+        // Interior labels are centered at 2/10,4/10,6/10,8/10 of the bar.
+        // End labels share two columns too, so narrow windows can still shrink.
+        ticks.attach(
+            &gtk::Label::builder()
+                .label(*text)
+                .xalign(if i == 0 {
+                    0.0
+                } else if i == 5 {
+                    1.0
+                } else {
+                    0.5
+                })
+                .hexpand(true)
+                .css_classes(["mb-meter-tick"])
+                .build(),
+            if i == 0 {
+                0
+            } else if i == 5 {
+                8
+            } else {
+                i as i32 * 2 - 1
+            },
+            0,
+            2,
+            1,
         );
-        cr.set_font_size(10.0);
-        for (i, text) in ["−60", "−48", "−36", "−24", "−12", "0 dBFS"]
-            .iter()
-            .enumerate()
-        {
-            let extent = cr.text_extents(text).map(|e| e.width()).unwrap_or(0.0);
-            let x = (width as f64 * i as f64 / 5.0 - extent / 2.0)
-                .clamp(0.0, (width as f64 - extent).max(0.0));
-            cr.move_to(x, 11.0);
-            let _ = cr.show_text(text);
-        }
-    });
+    }
     let row = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(8)
@@ -178,44 +210,169 @@ fn meter(label: &str) -> (gtk::Box, gtk::LevelBar, gtk::Label) {
     (row, bar, value)
 }
 
-/// Controle segmentado (um botão por opção). Chama `on_select` com o índice, inclusive
-/// uma vez para a opção inicial.
-pub fn segmented(
-    labels: &[&str],
-    selected: usize,
-    on_select: impl Fn(usize) + 'static,
-) -> gtk::FlowBox {
-    let on_select = Rc::new(on_select);
-    let root = gtk::FlowBox::builder()
-        .selection_mode(gtk::SelectionMode::None)
-        .min_children_per_line(1)
-        .max_children_per_line(5)
-        .column_spacing(2)
-        .row_spacing(2)
-        .homogeneous(true)
-        .css_classes(["mb-segmented"])
-        .build();
-
-    let mut buttons: Vec<gtk::ToggleButton> = Vec::new();
-    for (i, label) in labels.iter().enumerate() {
-        let button = gtk::ToggleButton::builder()
-            .label(*label)
-            .hexpand(true)
+#[cfg(test)]
+mod meter_tests {
+    use super::*;
+    #[test]
+    #[ignore = "requer GDK_BACKEND=x11, sessão gráfica e libXtst para entrada real"]
+    fn slider_wheel_scrolls_parent_without_changing_value_and_keeps_keyboard_and_drag() {
+        gtk::init().unwrap();
+        assert!(
+            gtk::gdk::Display::default()
+                .unwrap()
+                .type_()
+                .name()
+                .contains("X11"),
+            "execute com GDK_BACKEND=x11"
+        );
+        let title = format!("MicBridge Slider Scroll Test {}", std::process::id());
+        let scale = slider(0.0, 100.0, 1.0);
+        scale.set_value(50.0);
+        let content = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(18)
+            .margin_start(24)
+            .margin_end(24)
+            .margin_top(24)
             .build();
-        if let Some(first) = buttons.first() {
-            button.set_group(Some(first));
-        }
-        let cb = on_select.clone();
-        button.connect_toggled(move |b| {
-            if b.is_active() {
-                cb(i);
+        content.append(&scale);
+        content.append(&gtk::Box::builder().height_request(1400).build());
+        let scroll = gtk::ScrolledWindow::builder().child(&content).build();
+        let win = gtk::Window::builder()
+            .title(&title)
+            .default_width(480)
+            .default_height(320)
+            .child(&scroll)
+            .build();
+        win.present();
+        pump();
+        let xid = unsafe {
+            // Símbolo opcional apenas neste teste X11; não adiciona dependências
+            // de link X11/XTest à aplicação nem aos testes comuns.
+            let library = libc::dlopen(c"libgtk-4.so.1".as_ptr(), libc::RTLD_LAZY);
+            assert!(!library.is_null());
+            let symbol = libc::dlsym(library, c"gdk_x11_surface_get_xid".as_ptr());
+            assert!(!symbol.is_null());
+            let get_xid: unsafe extern "C" fn(*mut gtk::gdk::ffi::GdkSurface) -> libc::c_ulong =
+                std::mem::transmute(symbol);
+            let id = get_xid(win.surface().unwrap().as_ptr());
+            libc::dlclose(library);
+            id
+        };
+        assert!(scale.grab_focus());
+        let send = |action: &str| {
+            let bounds = scale.compute_bounds(&win).unwrap();
+            let mut process = std::process::Command::new("python3")
+                .arg(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/tests/gtk_pointer_input.py"
+                ))
+                .arg(xid.to_string())
+                .arg(((bounds.x() + bounds.width() / 2.0) as i32).to_string())
+                .arg(((bounds.y() + bounds.height() / 2.0) as i32).to_string())
+                .arg(action)
+                .arg((bounds.width() as i32 / 5).to_string())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while process.try_wait().unwrap().is_none() {
+                while glib::MainContext::default().pending() {
+                    glib::MainContext::default().iteration(false);
+                }
+                if std::time::Instant::now() >= deadline {
+                    let _ = process.kill();
+                    let _ = process.wait();
+                    panic!("tempo esgotado ao enviar entrada X11");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(3));
             }
-        });
-        root.insert(&button, -1);
-        buttons.push(button);
+            let result = process.wait_with_output().unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            pump();
+        };
+        send("wheel");
+        assert_eq!(
+            scale.value(),
+            50.0,
+            "roda não deve alterar o ajuste mesmo com foco"
+        );
+        assert!(
+            scroll.vadjustment().value() > 0.0,
+            "a roda deve continuar rolando o painel"
+        );
+        scroll.vadjustment().set_value(0.0);
+        pump();
+        scale.grab_focus();
+        send("key");
+        assert_eq!(
+            scale.value(),
+            51.0,
+            "setas devem continuar ajustando o valor"
+        );
+        send("drag");
+        assert!(
+            scale.value() > 60.0,
+            "arraste deve continuar ajustando o valor"
+        );
+        win.destroy();
     }
-    if let Some(b) = buttons.get(selected) {
-        b.set_active(true);
+    fn pump() {
+        let end = std::time::Instant::now() + std::time::Duration::from_millis(180);
+        while std::time::Instant::now() < end {
+            while glib::MainContext::default().pending() {
+                glib::MainContext::default().iteration(false);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(3));
+        }
     }
-    root
+    #[test]
+    #[ignore = "requer sessão gráfica GTK"]
+    fn meter_ticks_match_the_linear_dbfs_scale_at_each_width() {
+        adw::init().unwrap();
+        let (row, bar, _) = meter("Entrada");
+        let win = gtk::Window::builder()
+            .default_width(500)
+            .default_height(120)
+            .child(&row)
+            .build();
+        win.present();
+        fn until(mut yes: impl FnMut() -> bool) {
+            let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !yes() {
+                while glib::MainContext::default().pending() {
+                    glib::MainContext::default().iteration(false);
+                }
+                assert!(std::time::Instant::now() < end);
+                std::thread::sleep(std::time::Duration::from_millis(3));
+            }
+        }
+        for width in [500, 300] {
+            win.set_default_size(width, 120);
+            until(|| win.width() == width && bar.is_mapped());
+            let scale = bar.compute_bounds(&win).unwrap();
+            let ticks = row.last_child().unwrap();
+            let mut child = ticks.first_child();
+            let mut i = 0;
+            while let Some(label) = child {
+                if i > 0 && i < 5 {
+                    let rect = label.compute_bounds(&win).unwrap();
+                    let center = rect.x() + rect.width() / 2.0;
+                    assert!(
+                        (center - (scale.x() + scale.width() * i as f32 / 5.0)).abs() <= 1.0,
+                        "tick{i} misplaced: {center}"
+                    );
+                }
+                child = label.next_sibling();
+                i += 1;
+            }
+            assert_eq!(i, 6);
+        }
+        win.destroy();
+    }
 }

@@ -59,6 +59,7 @@ fn main() -> glib::ExitCode {
     let shared = Arc::new(Shared::new());
     let shutdown_shared = shared.clone();
     app.connect_shutdown(move |_| shutdown_shared.stop_audio_tools());
+    let final_shared = shared.clone();
 
     // Runtime tokio (WebRTC + HTTP) em thread própria; GTK fica na principal.
     let rt = tokio::runtime::Runtime::new().expect("tokio");
@@ -93,6 +94,7 @@ fn main() -> glib::ExitCode {
     std::mem::forget(app.hold());
     {
         let app = app.clone();
+        let quit_shared = shared.clone();
         glib::spawn_future_local(async move {
             while let Ok(ev) = tray_rx.recv().await {
                 match ev {
@@ -104,7 +106,13 @@ fn main() -> glib::ExitCode {
                             w.present();
                         }
                     }
-                    tray::TrayEvent::Quit => app.quit(),
+                    tray::TrayEvent::Quit => {
+                        quit_shared.stop_audio_tools();
+                        if let Err(e) = quit_shared.local_audio.shutdown_and_wait().await {
+                            tracing::warn!("restauração pendente ao sair: {e}");
+                        }
+                        app.quit();
+                    }
                 }
             }
         });
@@ -119,6 +127,10 @@ fn main() -> glib::ExitCode {
     });
     // O GApplication não deve interpretar nossas flags (--hidden).
     let code = app.run_with_args::<&str>(&[]);
+    final_shared.stop_audio_tools();
+    if let Err(e) = rt.block_on(final_shared.local_audio.shutdown_and_wait()) {
+        tracing::warn!("restauração pendente: {e}");
+    }
     drop(rt);
     code
 }

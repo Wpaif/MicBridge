@@ -201,7 +201,8 @@ o áudio ao vivo continua sem esperar pelo gravador.
 
 ## Retorno no fone
 
-No painel **Retorno no fone**, escolha a saída de áudio e ative **Ouvir voz tratada**.
+No painel **Retorno no fone**, escolha a saída de áudio e ative
+**Ajuste em tempo real · retorno exclusivo**.
 O retorno começa desligado, com volume de 25%. Esse controle afeta apenas o que você
 ouve localmente: chamadas, gravações e perfis continuam usando o mesmo áudio tratado.
 Use fones para evitar que o som volte ao microfone. Há atraso de monitoramento;
@@ -216,6 +217,21 @@ Ouvir uma gravação A/B encerra primeiro o retorno ao vivo. Ligar o retorno enc
 primeiro a reprodução A/B. Gravar um novo teste pode continuar com o retorno ligado.
 Se o retorno não acompanhar o áudio, ele é interrompido e o painel informa a falha;
 a saída para chamadas não espera por ele.
+
+Durante o ajuste, o MicBridge mantém somente o retorno conectado à saída escolhida,
+como ao reorganizar os cabos no qpwgraph. Os outros aplicativos ficam temporariamente
+desconectados dessa saída; outras saídas e o microfone virtual não são alterados.
+Você fala no celular e ouve os ajustes de tratamento no fone.
+
+O painel mostra **Preparando saída exclusiva…** até confirmar os links. Ao desligar,
+mostra **Restaurando conexões…** e tenta restaurar as conexões removidas que ainda
+forem válidas. Se houver falha, use **Tentar restaurar conexões**; uma nova reprodução
+local aguarda a recuperação. Troca de saída, A/B, desconexão do celular e saída normal
+do aplicativo também encerram o ajuste e passam pela restauração.
+
+Se o processo terminar abruptamente, o registro local permite tentar recuperar os
+links na próxima abertura. Dispositivos ou portas removidos/substituídos não são
+religados automaticamente. Não é necessário ter o qpwgraph instalado.
 
 ## Atuação dos efeitos
 

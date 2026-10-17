@@ -48,15 +48,17 @@ impl Choices {
 struct Presentation {
     active: bool,
     can_toggle: bool,
+    can_restore: bool,
     text: String,
 }
 fn presentation(status: &MonitorStatus, connected: bool, available: bool) -> Presentation {
     let active = matches!(status.phase, MonitorPhase::Opening | MonitorPhase::Active);
     let text = match status.phase {
         MonitorPhase::Disabled => "Retorno desligado".into(),
-        MonitorPhase::Opening => "Preparando retorno…".into(),
+        MonitorPhase::Restoring => "Restaurando conexões…".into(),
+        MonitorPhase::Opening => "Preparando saída exclusiva…".into(),
         MonitorPhase::Active => format!(
-            "Retorno ativo em {}",
+            "Retorno exclusivo em {}",
             status
                 .target
                 .as_ref()
@@ -70,7 +72,10 @@ fn presentation(status: &MonitorStatus, connected: bool, available: bool) -> Pre
     };
     Presentation {
         active,
-        can_toggle: active || (connected && available),
+        can_restore: status.restore_pending && status.phase != MonitorPhase::Restoring,
+        can_toggle: !status.restore_pending
+            && status.phase != MonitorPhase::Restoring
+            && (active || (connected && available)),
         text,
     }
 }
@@ -121,7 +126,148 @@ mod tests {
             generation: Some(1),
             volume_percent: 25.0,
             error: None,
+            restore_report: None,
+            restore_pending: false,
         }
+    }
+    #[test]
+    fn exclusive_presentation_waits_for_routing_and_offers_retry_only_after_failure() {
+        let opening = presentation(&status(MonitorPhase::Opening), true, true);
+        assert_eq!(opening.text, "Preparando saída exclusiva…");
+        assert!(opening.active);
+        let active = presentation(&status(MonitorPhase::Active), true, true);
+        assert!(active.text.starts_with("Retorno exclusivo em "));
+        let restoring = presentation(&status(MonitorPhase::Restoring), true, true);
+        assert_eq!(restoring.text, "Restaurando conexões…");
+        assert!(!restoring.active);
+        assert!(!restoring.can_toggle);
+        assert!(!restoring.can_restore);
+        let mut failed = status(MonitorPhase::Failed);
+        failed.restore_pending = true;
+        failed.error = Some("Falha ao restaurar".into());
+        let pending = presentation(&failed, false, false);
+        assert!(pending.can_restore);
+        assert!(!pending.can_toggle);
+        assert_eq!(pending.text, "Falha ao restaurar");
+    }
+    #[test]
+    #[ignore = "requer sessão gráfica GTK"]
+    fn exclusive_panel_prepares_restores_retries_and_releases_during_query() {
+        use crate::{
+            audio_test::{Fixture, SLEEP},
+            monitor::{
+                Monitor,
+                routing::{Routing, controller::tests::Fake, graph::tests::target},
+            },
+            recording::playback::Playback,
+        };
+        use std::sync::atomic::Ordering::SeqCst;
+        adw::init().unwrap();
+        let app = adw::Application::builder()
+            .application_id("dev.wilian.MicBridge.ExclusivePanelTest")
+            .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+            .build();
+        app.register(None::<&gtk::gio::Cancellable>).unwrap();
+        fn until(mut yes: impl FnMut() -> bool) {
+            let deadline = Instant::now() + Duration::from_secs(4);
+            while !yes() {
+                while glib::MainContext::default().pending() {
+                    glib::MainContext::default().iteration(false);
+                }
+                assert!(Instant::now() < deadline, "GTK update timed out");
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        }
+        fn find<T: IsA<gtk::Widget> + Clone>(
+            w: &impl IsA<gtk::Widget>,
+            predicate: &impl Fn(&T) -> bool,
+        ) -> Option<T> {
+            let w = w.as_ref();
+            if let Some(t) = w.downcast_ref::<T>() {
+                if predicate(t) {
+                    return Some(t.clone());
+                }
+            }
+            let mut c = w.first_child();
+            while let Some(w) = c {
+                if let Some(t) = find::<T>(&w, predicate) {
+                    return Some(t);
+                }
+                c = w.next_sibling();
+            }
+            None
+        }
+        let f = Fixture::new(SLEEP);
+        let b = Fake::new();
+        let r = Routing::new(Arc::new(b.clone()), f.dir.join("journal.json"));
+        let shared = Arc::new(Shared::with_audio_services(
+            Monitor::with_test_routing(f.executable.clone(), r),
+            Playback::new(),
+            crate::monitor::devices::DeviceCatalog::with_query(Arc::new(|| {
+                Box::pin(async { Ok(vec![target()]) })
+            })),
+        ));
+        shared.set_link(Link::Connected);
+        let parent = adw::ApplicationWindow::builder()
+            .application(&app)
+            .default_width(520)
+            .default_height(600)
+            .build();
+        let root = panel(shared.clone());
+        parent.set_content(Some(&root));
+        parent.present();
+        until(|| parent.is_realized());
+        assert!(
+            find::<gtk::Label>(&root, &|l| l.text()
+                == "Durante o ajuste, outros aplicativos ficam desconectados desta saída")
+            .is_some()
+        );
+        let dropdown = find::<gtk::DropDown>(&root, &|_| true).unwrap();
+        let switch = find::<gtk::Switch>(&root, &|_| true).unwrap();
+        until(|| dropdown.model().is_some_and(|m| m.n_items() == 2));
+        dropdown.set_selected(1);
+        until(|| switch.is_sensitive());
+        switch.set_active(true);
+        until(|| shared.monitor.status().phase == MonitorPhase::Active);
+        until(|| {
+            find::<gtk::Label>(&root, &|l| l.text().starts_with("Retorno exclusivo em ")).is_some()
+        });
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        *b.pause.lock().unwrap() = Some(rx);
+        b.fail_restore.store(true, SeqCst);
+        switch.set_active(false);
+        until(|| find::<gtk::Label>(&root, &|l| l.text() == "Restaurando conexões…").is_some());
+        let _ = tx.send(());
+        let retry = find::<gtk::Button>(&root, &|b| {
+            b.label().as_deref() == Some("Tentar restaurar conexões")
+        })
+        .unwrap();
+        until(|| retry.is_visible());
+        assert!(!switch.is_sensitive());
+        b.fail_restore.store(false, SeqCst);
+        retry.emit_clicked();
+        until(|| !shared.monitor.status().restore_pending && switch.is_sensitive());
+        assert!(!retry.is_visible());
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        *b.pause.lock().unwrap() = Some(rx);
+        b.entered.store(false, SeqCst);
+        switch.set_active(true);
+        until(|| b.entered.load(SeqCst));
+        let weak = root.downgrade();
+        parent.set_content(None::<&gtk::Widget>);
+        drop(dropdown);
+        drop(switch);
+        drop(retry);
+        drop(root);
+        parent.destroy();
+        drop(parent);
+        until(|| weak.upgrade().is_none());
+        let stopped = shared.local_audio.shutdown_and_wait();
+        let _ = tx.send(());
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(stopped)
+            .unwrap();
     }
     #[test]
     #[ignore = "requer sessão gráfica GTK"]
@@ -360,10 +506,11 @@ pub fn panel(shared: Arc<Shared>) -> gtk::Box {
     device_row.append(&refresh);
     let switch = gtk::Switch::builder()
         .valign(gtk::Align::Center)
-        .tooltip_text("Ouvir voz tratada no fone")
+        .tooltip_text("Ouvir voz tratada e desconectar outros aplicativos desta saída")
         .build();
     let switch_label = gtk::Label::builder()
-        .label("_Ouvir voz tratada")
+        .label("_Ajuste em tempo real · retorno exclusivo")
+        .wrap(true)
         .use_underline(true)
         .xalign(0.0)
         .hexpand(true)
@@ -397,15 +544,28 @@ pub fn panel(shared: Arc<Shared>) -> gtk::Box {
         .wrap(true)
         .css_classes(["dim-label"])
         .build();
+    let exclusive_hint = gtk::Label::builder()
+        .label("Durante o ajuste, outros aplicativos ficam desconectados desta saída")
+        .xalign(0.0)
+        .wrap(true)
+        .css_classes(["caption", "dim-label"])
+        .build();
+    let retry = gtk::Button::with_label("Tentar restaurar conexões");
+    retry.set_visible(false);
+    retry.set_halign(gtk::Align::Start);
+    let sh = shared.clone();
+    retry.connect_clicked(move |_| sh.monitor.retry_restore());
     let hint=gtk::Label::builder().label("Use fones para evitar que o som volte ao microfone. O retorno tem atraso de monitoramento.").xalign(0.0).wrap(true).css_classes(["caption","dim-label"]).build();
     for widget in [
         title.upcast_ref::<gtk::Widget>(),
         label.upcast_ref(),
         device_row.upcast_ref(),
         switch_row.upcast_ref(),
+        exclusive_hint.upcast_ref(),
         volume_label.upcast_ref(),
         volume_row.upcast_ref(),
         status.upcast_ref(),
+        retry.upcast_ref(),
         hint.upcast_ref(),
     ] {
         root.append(widget);
@@ -496,15 +656,21 @@ pub fn panel(shared: Arc<Shared>) -> gtk::Box {
         let available = current.available && snapshot.error.is_none() && !snapshot.busy;
         let view = presentation(&m, shared.status().link == Link::Connected, available);
         switch.set_sensitive(view.can_toggle);
+        retry.set_visible(view.can_restore);
+        retry.set_sensitive(view.can_restore);
         switch.set_active(view.active);
         volume.set_value(m.volume_percent as f64);
         volume_text.set_label(&format!("{:.0}%", m.volume_percent));
-        let message = error
-            .borrow()
-            .clone()
-            .or_else(|| m.error.clone())
-            .or_else(|| snapshot.error.clone())
-            .unwrap_or(view.text);
+        let message = if m.phase == MonitorPhase::Restoring {
+            view.text.clone()
+        } else {
+            error
+                .borrow()
+                .clone()
+                .or_else(|| m.error.clone())
+                .or_else(|| snapshot.error.clone())
+                .unwrap_or(view.text)
+        };
         status.set_label(&message);
         updating.set(false);
         glib::ControlFlow::Continue

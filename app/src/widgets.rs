@@ -1,4 +1,4 @@
-//! Widgets próprios do MicBridge (estilo em `data/style.css`, regras em `DESIGN.md`).
+//! Widgets próprios do MicBridge (estilo em `data/style.css`, regras em `docs/design.md`).
 
 use crate::state::Link;
 use adw::prelude::*;

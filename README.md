@@ -1,313 +1,89 @@
 <div align="center">
-
-<img src="app/data/dev.wilian.MicBridge.svg" width="128" alt="MicBridge"/>
+  <img src="app/data/dev.wilian.MicBridge.svg" width="112" alt="MicBridge"/>
+</div>
 
 # MicBridge
 
-**Use o celular como microfone do PC, com áudio tratado em tempo real.**
+Use o celular como microfone do PC pela rede local, com tratamento de voz em
+tempo real. O áudio sai do navegador via WebRTC/Opus e chega ao **Microfone_VDO**,
+uma entrada virtual do PipeWire que pode ser selecionada no Discord, OBS e outros
+programas. Não é necessário instalar um app no celular.
 
-![Rust](https://img.shields.io/badge/Rust-GTK4%20%2B%20libadwaita-dea584?logo=rust&logoColor=white)
-![WebRTC](https://img.shields.io/badge/WebRTC-Opus-7c5cff)
-![PipeWire](https://img.shields.io/badge/PipeWire-Linux-22d3ee)
+Interface para Linux em Rust, GTK4 e libadwaita, com status fixo, conexão lateral
+e painéis de tratamento e teste organizados por contexto.
 
-</div>
+## Recursos
 
----
+- Perfis Natural, Chamada, Podcast, Streaming e Original, além de perfis locais
+  personalizados com salvamento explícito.
+- RNNoise, filtro de graves, gate, de-esser, presença, compressor, volume automático
+  e limitador, com medidores e indicadores de atuação dos efeitos.
+- Teste de voz de até 30 segundos, comparação original/tratado e exportação WAV.
+- Retorno no fone com saída escolhida, volume próprio e ajuste exclusivo que
+  restaura os links de áudio ao terminar.
+- Mute da saída virtual, preservando retorno e gravação de teste.
+- Pareamento por QR, HTTPS com CA local, reconexão e anúncio mDNS opcional.
+- Temas claro/escuro/personalizado, transparência e acompanhamento automático da
+  paleta Omarchy no modo sistema.
+- Deslizantes protegidos contra alterações acidentais durante a rolagem.
 
-## ✨ O que é
+Os recursos acima descrevem esta linha de desenvolvimento, não uma release
+publicada. Consulte o [plano de evolução](docs/roadmap.md) para itens pendentes.
 
-O MicBridge transforma o celular em um microfone sem fio para o PC, **só na rede local**.
-Você abre uma página no celular (via QR code), o áudio viaja por **WebRTC** com baixa latência
-e o app em Rust trata o som antes de entregá-lo a um microfone virtual do PipeWire, que você
-seleciona no Discord, OBS, Meet etc.
+## Instalação
 
-## 🎛️ Recursos
-
-- 📱 **Celular como microfone** pela página web, sem instalar app no celular
-- ⚡ **Baixa latência** com WebRTC (Opus sobre UDP, sem STUN, apenas LAN)
-- 🎚️ **Perfis de voz de um clique**: Natural, Chamada, Podcast, Streaming ou Original (sem tratamento); o app lembra o último escolhido
-- 🔇 **Cancelamento de ruído** com RNNoise e **filtro de graves** contra zumbido e vibração de mesa
-- 🚪 **Noise gate** com hold e limiar ajustável
-- 🗣️ **De-esser** (suaviza chiados) e **realce de clareza** da voz
-- 🗜️ **Compressor** (limiar, razão), **volume automático** e limitador de pico
-- 📊 **Medidores** de entrada e saída em tempo real
-- 🔳 **QR code** para conectar rapidamente
-- 🖥️ **Interface GTK4 + libadwaita** nativa do GNOME
-- 🔔 **Ícone na bandeja** com bolinha de status no padrão do Discord: 🟢 conectado (com anel pulsando quando há voz), 🟡 conectando/reconectando e 🔴 erro (piscando), ⚪ desconectado; fechar a janela só a esconde
-- 🚀 **Servidor HTTPS embutido**: sobe com o app e para quando ele fecha, sem Ruby nem dependências extras
-- 🔁 **Reconexão automática**: Wi-Fi caiu ou tela bloqueou? O celular volta sozinho, sem novo QR
-- 💾 **Pareamento persistente**: QR só na primeira vez; depois o celular é reconhecido
-- 🚦 **Estado sempre visível**: conectado, desconectado, reconectando ou erro (janela e bandeja)
-- 🩹 **PipeWire autorrecuperável**: se o microfone virtual sumir, é recriado sem reiniciar nada
-- 🏷️ **Nome fixo `micbridge.local`** via mDNS (avahi): o endereço não muda mesmo que o IP mude
-- 🔐 **Pareamento seguro**: token no QR code, janela de pareamento temporária e um celular por vez
-- 🔏 **TLS com CA local**: certificado gerado pelo próprio app e impressão digital visível na janela
-
-## 🧭 Como funciona
-
-```
- Celular (página HTTPS + WebRTC)
-        │  SDP offer  (POST /offer)
-        ▼
- App Rust (GTK4 / libadwaita, servidor axum + rustls)
-        ▲                              │
-        └── áudio Opus via WebRTC ─────┤  decode
-              (UDP, LAN)               ▼
-        graves ▶ RNNoise ▶ gate ▶ de-esser ▶ clareza ▶ compressor ▶ volume auto ▶ limitador
-                                       │
-                                       ▼ pw-cat
-                              sink  vdo_input
-                                       │
-                                       ▼
-                           🎤 fonte  "Microfone_VDO"
-```
-
-| Pasta | Conteúdo |
-|-------|----------|
-| `app/` | App Rust: UI, servidor HTTPS (axum), certificados (rcgen), WebRTC (`webrtc` 0.21), DSP, bandeja |
-| `app/web/` | Página do celular (HTML, JS e CSS), embutida no binário |
-| `scripts/` | `install.sh` (instala/reinstala app + atalho) e `uninstall.sh` |
-
-## 📋 Requisitos
-
-- Linux com **PipeWire** (`pw-cat`, `pw-loopback`)
-- **Rust** (edição 2024), **GTK ≥ 4.16**, **libadwaita ≥ 1.6**, **libopus**
-- `librsvg` (`rsvg-convert`) para gerar os ícones na instalação
-- **avahi** (opcional, recomendado) para o nome fixo `micbridge.local`: `sudo systemctl enable --now avahi-daemon`
-- GNOME: extensão **AppIndicator** para o ícone da bandeja
-
-## 🚀 Instalação
+Requer Linux com PipeWire, Rust/Cargo, GTK ≥ 4.16, libadwaita ≥ 1.6, libopus e
+ferramentas de compilação/áudio. A instalação também usa `rsvg-convert`.
 
 ```sh
-git clone git@github.com:Wpaif/MicBridge.git
+git clone https://github.com/Wpaif/MicBridge.git
 cd MicBridge
 ./scripts/install.sh
 ```
 
-Isso compila o app e instala binário, ícones e o atalho no menu de aplicativos.
-Procure por **MicBridge**.
+O script compila em release e instala para o usuário atual. Para requisitos,
+atualização, reinstalação limpa e remoção, veja [Instalação](docs/installation.md).
 
-| Comando | Efeito |
-|---------|--------|
-| `./scripts/install.sh` | Instala ou atualiza por cima, mantendo pareamento e certificados |
-| `./scripts/install.sh --reinstall` | Instalação limpa (apaga o pareamento e o build; **mantém a CA**) |
-| `./scripts/install.sh --reinstall --new-ca` | Idem, gerando também uma CA nova |
-| `./scripts/uninstall.sh` | Remove app, atalho, ícones e autostart; preserva pareamento e certificados |
-| `./scripts/uninstall.sh --purge` | Remove também pareamento e certificados (`--keep-ca` preserva a CA) |
+## Começar a usar
 
-## ▶️ Uso
+1. Abra o MicBridge no PC e coloque o celular na mesma rede.
+2. Habilite **Aceitar novo celular**, escaneie o QR e autorize o microfone no navegador.
+3. Toque em **Iniciar microfone** no celular.
+4. Escolha **Microfone_VDO** no programa de chamada ou gravação.
+5. Ajuste um perfil de voz e use A/B ou retorno no fone para comparar.
 
-**Primeira vez**
-1. Abra o **MicBridge**: o microfone virtual e o servidor sobem sozinhos e o QR code já aparece.
-   Instale a CA no celular uma vez (veja *Segurança*) para o navegador não mostrar avisos.
-2. No celular (mesma rede), escaneie o QR e toque em **Iniciar microfone**. Pronto.
-3. No Discord/OBS, escolha **Microfone_VDO** como entrada.
-4. Na janela do app, escolha um **Perfil de voz** (Chamada é o padrão). Os controles individuais
-   ficam nos módulos **Limpeza**, **Timbre**, **Dinâmica** e **Volume**.
+O navegador precisa aceitar o HTTPS. Consulte [Certificados](docs/security.md#certificados).
+O retorno exclusivo desconecta temporariamente outros aplicativos da saída
+selecionada; a parada tenta restaurá-los. Fechar a janela só a esconde; use
+**Sair** na bandeja para encerrar o app.
 
-**Depois**
-Abra o MicBridge (ou ative **Iniciar com o sistema** para ele subir escondido na bandeja) e abra
-a página no celular: ele é reconhecido e o áudio volta sozinho. Dica: adicione a página à tela
-inicial do celular.
+Instruções completas de perfis, mute, testes, retorno e temas estão no
+[Guia de uso](docs/usage.md).
 
-O estado aparece no topo da janela e no ícone da bandeja: **Conectado**, **Reconectando**
-(a conexão caiu; o celular tenta voltar sozinho), **Desconectado** ou **Erro**.
+## Documentação
 
-**Nome fixo (mDNS):** com o `avahi-daemon` ativo, o app anuncia `micbridge.local` e o QR passa a
-usar `https://micbridge.local:3443`. O cookie de pareamento é por endereço, então com o nome fixo
-ele continua valendo mesmo que o IP do PC mude por DHCP. Sem o avahi, o app usa o IP (a janela
-indica qual dos dois está em uso) e uma mudança de IP exige parear de novo; nesse caso, reserve o
-IP no roteador.
+| Assunto | Referência |
+|---|---|
+| Todos os guias | [Índice](docs/README.md) |
+| Erros de conexão, cortes e retorno | [Solução de problemas](docs/troubleshooting.md) |
+| Pareamento, TLS e dados locais | [Segurança e dados](docs/security.md) |
+| Módulos e caminho do áudio | [Arquitetura](docs/architecture.md) |
+| Build, testes e arquivos locais | [Desenvolvimento](docs/development.md) |
+| Convenções da interface | [Design](docs/design.md) |
+| Oito melhorias planejadas | [Evolução](docs/roadmap.md) |
 
-> Limitações: navegadores móveis podem suspender o microfone com a tela bloqueada (a página mantém
-> a tela acesa com Wake Lock enquanto transmite); alguns Androids antigos não resolvem `.local`
-> (use o IP); o servidor escuta no IP de quando subiu, então reabra o app se o IP mudar.
-
-Para encerrar de verdade, use **Sair** no menu da bandeja. O botão "X" apenas esconde a janela.
-
-### Desenvolvimento
+## Desenvolvimento
 
 ```sh
-cd app && cargo run --release   # app (o servidor HTTPS já vem embutido)
-cargo test                      # testes do DSP
+cargo build --offline --manifest-path app/Cargo.toml
+cargo test --offline --manifest-path app/Cargo.toml
+cargo fmt --manifest-path app/Cargo.toml --check
 ```
 
-Pareamento e certificados ficam em `~/.local/share/micbridge` (respeita `XDG_DATA_HOME`).
+O modo offline exige dependências previamente disponíveis. Testes GTK e de
+hardware têm procedimentos próprios em [Desenvolvimento](docs/development.md#testes).
+Mantenha os guias atualizados antes de alterar este resumo.
 
-## 🛠️ Ajustes de áudio
+## Licença
 
-O painel **Conexão** fica fixo à esquerda, abaixo do status; os ajustes e testes
-rolam na área direita. Em janelas pequenas ou baixas, abra **Conexão** pelo botão
-de rede na barra superior. O painel aparece num diálogo sem perder seus controles.
-
-Escolha um **Perfil de voz** e refine nos módulos de tratamento:
-
-Ajuste os deslizantes por arraste ou pelas setas do teclado. A roda do mouse
-continua rolando o painel, sem alterar valores ao passar sobre os controles.
-
-| Controle | Efeito |
-|----------|--------|
-| Cancelamento de ruído | Remove ruído de fundo (RNNoise) |
-| Filtro de graves | Corta zumbido e vibração abaixo de ~80 Hz |
-| Noise gate / limiar | Atenua abaixo do nível definido |
-| Suavizar chiados | De-esser: reduz "s" e "ch" agressivos |
-| Realçar clareza da voz | Reforço suave perto de 3 kHz |
-| Compressor / limiar / razão | Nivela a dinâmica da voz |
-| Volume automático | Mantém o nível constante e congela nas pausas; dispensa o ganho manual |
-| Ganho manual | Só vale com o volume automático desligado; passa por um limitador de pico |
-
-### Perfis personalizados
-
-Depois de ajustar a voz, use **Salvar como novo…** e escolha um nome. O seletor
-reúne os cinco perfis de fábrica e seus perfis personalizados. Você pode salvar
-alterações, renomear ou excluir os personalizados; os de fábrica ficam protegidos.
-
-**Alterações não salvas** indica ajustes que ainda não foram gravados. Trocar de
-perfil nessa situação pede confirmação para descartá-los. Renomear não salva os
-ajustes pendentes. Excluir o perfil ativo retorna ao perfil **Chamada**.
-Ao abrir novamente, o aplicativo restaura o último perfil selecionado e seus
-ajustes salvos. Mute, retorno no fone e aparência continuam independentes.
-
-Os perfis são locais, sem importação/exportação. São aceitos até 32 perfis, com
-nomes únicos de até 60 caracteres. Erros de salvamento são exibidos e preservam
-os dados anteriores. Uma biblioteca incompatível ou danificada é preservada e
-bloqueia a edição de perfis até a correção das preferências.
-
-## 🔒 Segurança
-
-- **Pareamento por token:** a cada abertura o app gera um token aleatório (128 bits) embutido
-  no QR code, aceito só com a janela de pareamento aberta. Ao parear, o app entrega ao celular um
-  id e um segredo de longa duração (256 bits) guardados num cookie (`Secure`, `HttpOnly`,
-  `SameSite=Strict`, 1 ano). O token do QR muda a cada execução, mas o celular já pareado
-  continua reconhecido: não precisa escanear de novo.
-- **Um celular por vez:** enquanto um dispositivo estiver conectado, outro recebe 409. O mesmo
-  celular pode reconectar (recarregar a página) e assume a própria conexão.
-- **Janela de pareamento:** novos celulares só entram enquanto a opção **Aceitar novo celular**
-  estiver ativa. Ela abre por 5 min só quando não há nenhum celular pareado (primeira utilização) e
-  fecha sozinha após cada pareamento. As credenciais de cada celular ficam em disco só como hash
-  (`~/.local/share/micbridge/devices.json`, modo 600); **Esquecer todos** revoga tudo.
-  Com ela fechada, um QR vazado não serve; só celulares já pareados reconectam.
-- **TLS com CA local:** o app cria a *MicBridge Local CA* (em `~/.local/share/micbridge/certs`) e
-  assina o certificado do servidor com ela. Baixe a CA no celular em `https://<IP>:3443/ca.crt`,
-  instale-a como certificado de CA e confie nela uma vez: o navegador passa a aceitar sem avisos, o
-  que protege contra alguém se passando pelo servidor. A chave da CA nunca sai do PC e a CA é
-  preservada em reinstalações. O certificado do servidor é refeito sozinho quando o IP muda. Sem instalar a CA, confira a **impressão digital SHA-256** mostrada no
-  app com a do aviso do navegador.
-- **Superfície de rede:** o servidor HTTPS escuta só na interface da LAN e no loopback (não em
-  `0.0.0.0`). Respostas levam CSP restrita, `no-store` e `nosniff`.
-- **Camada de rede (fora do app):** para isolamento forte, use uma VLAN/rede de convidados
-  separada, regra de firewall liberando a porta 3443 só para o IP do celular, ou uma VPN
-  (ex.: Tailscale).
-
-## 📄 Licença
-
-Projeto pessoal, sem licença definida.
-
-## Teste de voz e comparação A/B
-
-No painel **Teste de voz**, toque em **Gravar teste**, fale e depois em **Parar gravação**.
-A captura termina automaticamente após 30 segundos de áudio recebido. Você pode ouvir
-**Original** (PCM recebido antes dos efeitos locais) e **Tratado** (resultado do DSP).
-A reprodução usa a saída padrão do sistema; use fones para evitar realimentação.
-Iniciar outro teste encerra a reprodução e substitui o anterior. Uma desconexão finaliza
-o trecho capturado: reconectar não continua a gravação antiga.
-
-**Exportar WAVs** permite escolher um destino e grava dois arquivos mono a 48 kHz,
-PCM de 16 bits: o original e um arquivo com sufixo `-tratado.wav`. O aplicativo pede
-confirmação antes de substituir arquivos existentes. Cancelar não grava nada. Falhas
-informam se apenas um dos arquivos foi concluído. Nenhum teste é salvo automaticamente.
-
-O RNNoise introduz atraso interno; as versões preservam as posições de captura antes e
-depois do DSP, sem compensar esse atraso. O teste serve para comparar timbre, volume e
-cortes, e não para medir a latência total entre celular e saída. Se a fila de captura
-lotar, a gravação termina como **Teste incompleto**, preservando o trecho disponível;
-o áudio ao vivo continua sem esperar pelo gravador.
-
-## Silenciar o microfone
-
-O botão **Silenciar microfone**, no painel superior fixo, silencia a saída
-`Microfone_VDO` usada por outros programas. Enquanto ativo, mostra
-**Microfone silenciado** em destaque e o medidor de saída fica zerado.
-O medidor de entrada, o retorno no fone e a gravação de teste continuam ativos.
-Clique novamente para retomar a saída, mantendo conexão e configurações.
-O aplicativo inicia desmutado; o mute não é salvo entre execuções.
-Áudio já entregue aos buffers do sistema ainda pode ser ouvido por um breve instante.
-
-## Retorno no fone
-
-No painel **Retorno no fone**, escolha a saída de áudio e ative
-**Ajuste em tempo real · retorno exclusivo**.
-O retorno começa desligado, com volume de 25%. Esse controle afeta apenas o que você
-ouve localmente: chamadas, gravações e perfis continuam usando o mesmo áudio tratado.
-Use fones para evitar que o som volte ao microfone. Há atraso de monitoramento;
-o aplicativo não apresenta a latência solicitada ao PipeWire como latência total.
-
-**Atualizar saídas** renova a lista. Trocar o dispositivo, desconectar o celular,
-remover a saída ou uma falha de reprodução desliga o retorno; escolha e ative novamente
-quando estiver pronto. O aplicativo nunca muda automaticamente para outra saída.
-O microfone virtual do próprio MicBridge não aparece como destino de retorno.
-
-Ouvir uma gravação A/B encerra primeiro o retorno ao vivo. Ligar o retorno encerra
-primeiro a reprodução A/B. Gravar um novo teste pode continuar com o retorno ligado.
-Se o retorno não acompanhar o áudio, ele é interrompido e o painel informa a falha;
-a saída para chamadas não espera por ele.
-
-Durante o ajuste, o MicBridge mantém somente o retorno conectado à saída escolhida,
-como ao reorganizar os cabos no qpwgraph. Os outros aplicativos ficam temporariamente
-desconectados dessa saída; outras saídas e o microfone virtual não são alterados.
-Você fala no celular e ouve os ajustes de tratamento no fone.
-
-O painel mostra **Preparando saída exclusiva…** até confirmar os links. Ao desligar,
-mostra **Restaurando conexões…** e tenta restaurar as conexões removidas que ainda
-forem válidas. Se houver falha, use **Tentar restaurar conexões**; uma nova reprodução
-local aguarda a recuperação. Troca de saída, A/B, desconexão do celular e saída normal
-do aplicativo também encerram o ajuste e passam pela restauração.
-
-Se o processo terminar abruptamente, o registro local permite tentar recuperar os
-links na próxima abertura. Dispositivos ou portas removidos/substituídos não são
-religados automaticamente. Não é necessário ter o qpwgraph instalado.
-
-## Atuação dos efeitos
-
-Os controles de **Noise gate**, **Compressor** e **Volume automático** mostram o
-que o tratamento está fazendo enquanto recebe áudio:
-
-- Gate: **Aberto**, **Em espera** durante a pausa de sustentação ou **Atenuando**.
-- Compressor: redução de ganho em dB no último frame processado.
-- Volume automático: ajuste em dB; positivo aumenta, negativo reduz o volume.
-
-Efeitos desativados mostram **Desligado**. Sem conexão ou após 300 ms sem novos
-frames, os efeitos habilitados mostram **Sem áudio**. Silêncio recebido continua
-sendo áudio processado e pode mostrar o gate atenuando. Os indicadores observam o
-DSP e não alteram o áudio enviado às chamadas, ao teste A/B ou ao retorno.
-
-## Aparência e integração com o desktop
-
-O botão **Aparência** na barra superior abre uma prévia com Aplicar/Cancelar e
-Restaurar padrão. O padrão acompanha as preferências do sistema (claro/escuro e
-cores disponibilizadas pelo GNOME/KDE). Também há modos Claro, Escuro e Personalizado.
-Em uma sessão Omarchy detectada, Seguir o sistema acompanha automaticamente sua paleta. A conexão e os medidores permanecem fixos ao rolar.
-
-Na sessão Omarchy, a paleta ativa é lida de
-`$XDG_STATE_HOME/omarchy/current/theme/colors.toml` (padrão
-`~/.local/state/omarchy/current/theme/colors.toml`), com suporte ao caminho legado
-em `~/.config/omarchy/current/theme/colors.toml`. Alterações são verificadas a cada
-dois segundos, fora da thread GTK. Se houver erro, a última paleta válida é mantida;
-sem paleta válida, permanece o visual nativo com aviso.
-
-Importe/exporte paletas JSON v1 pelo diálogo. Veja
-[Graphite](app/data/themes/graphite.json) como exemplo. Cores usam `#RRGGBB`; texto
-precisa de contraste 4,5:1 sobre fundo e superfície. Arquivos limitados a 64 KiB.
-A opacidade do fundo vai de 60 a 100%; textos e medidores permanecem opacos. Alto
-contraste usa cores nativas e fundo opaco. Desfoque depende do compositor e não é
-configurado pelo aplicativo. Preferências não alteram o tema global do desktop.
-
-A implementação usa GTK4/libadwaita também no KDE; integra preferências disponíveis
-pelo ambiente, sem reproduzir controles Qt. Ensaios gráficos foram feitos no desktop
-disponível e com paletas Omarchy simuladas; a execução em instalações reais de
-GNOME/KDE/Omarchy continua sujeita à validação nesses ambientes.
-
-A detecção usa a sessão atual: `XDG_CURRENT_DESKTOP=Hyprland` com `OMARCHY_PATH`
-ou uma sessão identificada como `Omarchy`. GNOME/KDE continuam usando o visual
-nativo, mesmo que haja arquivos Omarchy antigos no diretório do usuário. A antiga
-preferência `omarchy` é lida como `system`, preservando opacidade e tema importado.
+O repositório ainda não define uma licença de distribuição.

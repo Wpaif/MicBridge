@@ -6,6 +6,8 @@ mod local_audio;
 mod monitor;
 mod monitor_ui;
 mod output;
+mod profiles;
+mod profiles_ui;
 mod recording;
 mod recording_ui;
 mod server;
@@ -458,14 +460,6 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .title("Perfil de voz")
         .build();
 
-    let preset_desc = gtk::Label::builder()
-        .xalign(0.0)
-        .margin_top(2)
-        .margin_bottom(10)
-        .margin_start(4)
-        .css_classes(["mb-profile-desc"])
-        .build();
-
     let cleanup = adw::PreferencesGroup::builder()
         .title("01 · Limpeza")
         .build();
@@ -532,47 +526,18 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         [&gate, &comp, &auto_gain],
     );
 
-    // Aplica o preset e espelha os valores nos controles avançados.
-    let sync = {
-        let sh = shared.clone();
-        let preset_desc = preset_desc.clone();
-        move |index: usize| {
-            let preset = dsp::Preset::ALL
-                .get(index)
-                .copied()
-                .unwrap_or(dsp::Preset::Chamada);
-            let prm = &sh.params;
-            prm.apply_preset(preset);
-            settings::save_preset(preset);
-            preset_desc.set_label(preset.description());
-
-            let flag = |f: fn(&dsp::Params) -> &std::sync::atomic::AtomicBool| f(prm).load(Relaxed);
-            denoise.set_active(flag(|x| &x.denoise));
-            highpass.set_active(flag(|x| &x.highpass));
-            gate.set_active(flag(|x| &x.gate));
-            deesser.set_active(flag(|x| &x.deesser));
-            presence.set_active(flag(|x| &x.presence));
-            comp.set_active(flag(|x| &x.compressor));
-            auto_gain.set_active(flag(|x| &x.auto_gain));
-            gate_scale.set_value(prm.gate_threshold() as f64);
-            thr_scale.set_value(prm.comp_threshold() as f64);
-            ratio_scale.set_value(prm.comp_ratio() as f64);
-            makeup_scale.set_value(prm.makeup_db() as f64);
-        }
-    };
-    // Perfil inicial: o da última execução ou, na primeira vez, "Chamada" (índice 1), o mais
-    // seguro para uso geral.
-    let initial = settings::load_preset()
-        .and_then(|saved| dsp::Preset::ALL.iter().position(|p| *p == saved))
-        .unwrap_or(1);
-    let preset_names: Vec<&str> = dsp::Preset::ALL.iter().map(|p| p.name()).collect();
-    let preset_bar = widgets::segmented(&preset_names, initial, sync);
+    let profile_panel = profiles_ui::panel(
+        shared.clone(),
+        profiles_ui::Controls {
+            switches: [denoise, highpass, gate, deesser, presence, comp, auto_gain],
+            scales: [gate_scale, thr_scale, ratio_scale, makeup_scale],
+        },
+    );
+    fx.add(&profile_panel);
     #[cfg(debug_assertions)]
     if std::env::var("MICBRIDGE_DEMO").is_ok() {
         shared.close_pairing();
     }
-    fx.add(&preset_bar);
-    fx.add(&preset_desc);
 
     let modules = gtk::FlowBox::builder()
         .selection_mode(gtk::SelectionMode::None)
@@ -909,6 +874,167 @@ fn snapshot_and_quit(win: &adw::ApplicationWindow, app: &adw::Application) {
 #[cfg(test)]
 mod appearance_tests {
     use super::*;
+    #[test]
+    #[ignore = "requer sessão gráfica GTK"]
+    fn custom_audio_profiles_follow_explicit_save_and_restore_controls() {
+        adw::init().unwrap();
+        let f = audio_test::Fixture::new("exit 0");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", f.dir.join("data"));
+            std::env::set_var("XDG_CONFIG_HOME", f.dir.join("config"));
+        }
+        let app = adw::Application::builder()
+            .application_id("dev.wilian.MicBridge.ProfilesTest")
+            .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+            .build();
+        app.register(None::<&gtk::gio::Cancellable>).unwrap();
+        let shared = Arc::new(Shared::new());
+        build_ui(&app, shared.clone(), true);
+        let win = app.windows()[0]
+            .clone()
+            .downcast::<adw::ApplicationWindow>()
+            .unwrap();
+        until(|| win.is_mapped());
+        let selector = find::<adw::ComboRow>(&win, &|w| w.widget_name() == "audio-profile")
+            .expect("seletor de perfis de fábrica e personalizados");
+        assert!(
+            selector.ancestor(gtk::ListBox::static_type()).is_some(),
+            "ComboRow precisa de ListBox para navegação e restauração de foco"
+        );
+        let button = |name: &str| find::<gtk::Button>(&win, &|w| w.widget_name() == name).unwrap();
+        let saved = || settings::load_profiles_from(&settings::path()).unwrap();
+        assert!(!button("profile-save").is_sensitive());
+        assert!(!button("profile-rename").is_sensitive());
+        assert!(!button("profile-delete").is_sensitive());
+        let auto = find::<adw::SwitchRow>(&win, &|r| r.title() == "Volume automático").unwrap();
+        auto.set_active(false);
+        let gain_row = find::<adw::ActionRow>(&win, &|r| r.title() == "Ganho manual (dB)").unwrap();
+        let gain = find::<gtk::Scale>(&gain_row, &|_| true).unwrap();
+        gain.set_value(12.0);
+        let original = profiles::Config::capture(&shared.params);
+        button("profile-new").emit_clicked();
+        until(|| win.visible_dialog().is_some());
+        let dialog = win.visible_dialog().unwrap();
+        let entry = find::<gtk::Entry>(&dialog, &|w| w.widget_name() == "profile-name").unwrap();
+        let confirm =
+            find::<gtk::Button>(&dialog, &|w| w.widget_name() == "profile-confirm").unwrap();
+        assert!(!confirm.is_sensitive());
+        entry.set_text("Minha voz");
+        confirm.emit_clicked();
+        until(|| saved().custom.len() == 1 && button("profile-new").is_sensitive());
+        let id = saved().selected;
+        assert_eq!(saved().custom[0].config, original);
+        assert!(!button("profile-save").is_sensitive());
+        button("profile-rename").emit_clicked();
+        until(|| win.visible_dialog().is_some());
+        let dialog = win.visible_dialog().unwrap();
+        find::<gtk::Entry>(&dialog, &|w| w.widget_name() == "profile-name")
+            .unwrap()
+            .set_text("Reuniões");
+        find::<gtk::Button>(&dialog, &|w| w.widget_name() == "profile-confirm")
+            .unwrap()
+            .emit_clicked();
+        until(|| saved().custom[0].name == "Reuniões" && button("profile-new").is_sensitive());
+        gain.set_value(15.0);
+        assert!(button("profile-save").is_sensitive());
+        assert_eq!(saved().custom[0].config.makeup_db, 12.0);
+        button("profile-save").emit_clicked();
+        until(|| {
+            saved().custom[0].config.makeup_db == 15.0 && button("profile-new").is_sensitive()
+        });
+        gain.set_value(18.0);
+        selector.set_selected(0);
+        until(|| win.visible_dialog().is_some());
+        let dialog = win.visible_dialog().unwrap();
+        find::<gtk::Button>(&dialog, &|w| w.label().as_deref() == Some("Cancelar"))
+            .unwrap()
+            .emit_clicked();
+        until(|| button("profile-new").is_sensitive());
+        assert_eq!(saved().selected, id);
+        assert_eq!(shared.params.makeup_db(), 18.0);
+        selector.set_selected(0);
+        until(|| win.visible_dialog().is_some());
+        let dialog = win.visible_dialog().unwrap();
+        find::<gtk::Button>(&dialog, &|w| w.label().as_deref() == Some("Descartar"))
+            .unwrap()
+            .emit_clicked();
+        until(|| saved().selected == "natural" && button("profile-new").is_sensitive());
+        shared.params.muted.store(true, Relaxed);
+        selector.set_selected(5);
+        until(|| saved().selected == id && button("profile-new").is_sensitive());
+        assert_eq!(shared.params.makeup_db(), 15.0);
+        assert_eq!(gain.value(), 15.0);
+        assert!(shared.params.muted.load(Relaxed));
+        // Uma falha no disco não deve alterar a biblioteca nem fechar o editor.
+        let path = settings::path();
+        std::fs::rename(&path, path.with_extension("backup")).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        button("profile-rename").emit_clicked();
+        until(|| win.visible_dialog().is_some());
+        let dialog = win.visible_dialog().unwrap();
+        find::<gtk::Entry>(&dialog, &|w| w.widget_name() == "profile-name")
+            .unwrap()
+            .set_text("Falha");
+        let confirm =
+            find::<gtk::Button>(&dialog, &|w| w.widget_name() == "profile-confirm").unwrap();
+        confirm.emit_clicked();
+        until(|| confirm.is_sensitive());
+        assert!(win.visible_dialog().is_some());
+        assert!(
+            find::<gtk::Label>(&dialog, &|w| w.text().contains("Não foi possível salvar"))
+                .is_some()
+        );
+        find::<gtk::Button>(&dialog, &|w| w.label().as_deref() == Some("Cancelar"))
+            .unwrap()
+            .emit_clicked();
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::rename(path.with_extension("backup"), &path).unwrap();
+        assert_eq!(saved().custom[0].name, "Reuniões");
+        let mut long_name = saved();
+        long_name.rename(&id, &"V".repeat(60)).unwrap();
+        settings::save_profiles_to(&path, &long_name).unwrap();
+        win.destroy();
+        let restored = Arc::new(Shared::new());
+        build_ui(&app, restored.clone(), true);
+        let win = app.windows()[0]
+            .clone()
+            .downcast::<adw::ApplicationWindow>()
+            .unwrap();
+        until(|| win.is_mapped());
+        win.set_default_size(420, 400);
+        until(|| win.width() == 420);
+        assert_eq!(restored.params.makeup_db(), 15.0);
+        assert!(!restored.params.auto_gain.load(Relaxed));
+        assert!(!restored.params.muted.load(Relaxed));
+        find::<gtk::Button>(&win, &|w| w.widget_name() == "profile-delete")
+            .unwrap()
+            .emit_clicked();
+        until(|| win.visible_dialog().is_some());
+        let dialog = win.visible_dialog().unwrap();
+        find::<gtk::Button>(&dialog, &|w| w.label().as_deref() == Some("Excluir"))
+            .unwrap()
+            .emit_clicked();
+        until(|| saved().custom.is_empty());
+        assert_eq!(saved().selected, "chamada");
+        win.destroy();
+        let invalid = r#"{"voice_profiles":{"version":99,"selected":"chamada","custom":[]}}"#;
+        std::fs::write(settings::path(), invalid).unwrap();
+        build_ui(&app, Arc::new(Shared::new()), true);
+        let win = app.windows()[0].clone();
+        until(|| win.is_mapped());
+        assert!(
+            !find::<gtk::Button>(&win, &|w| w.widget_name() == "profile-new")
+                .unwrap()
+                .is_sensitive()
+        );
+        assert!(
+            !find::<adw::ComboRow>(&win, &|w| w.widget_name() == "audio-profile")
+                .unwrap()
+                .is_sensitive()
+        );
+        assert_eq!(std::fs::read_to_string(settings::path()).unwrap(), invalid);
+        win.destroy();
+    }
     #[test]
     #[ignore = "requer sessão gráfica GTK"]
     fn mute_control_is_fixed_visible_and_preserves_connection_and_preset() {

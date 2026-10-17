@@ -2,7 +2,6 @@
 
 use crate::state::Link;
 use adw::prelude::*;
-use std::rc::Rc;
 
 /// Acima disso o medidor fica amarelo, e depois vermelho (perto de estourar).
 const METER_HOT: f64 = 0.70;
@@ -193,48 +192,6 @@ fn meter(label: &str) -> (gtk::Box, gtk::LevelBar, gtk::Label) {
     row.append(&bar);
     row.append(&ticks);
     (row, bar, value)
-}
-
-/// Controle segmentado (um botão por opção). Chama `on_select` com o índice, inclusive
-/// uma vez para a opção inicial.
-pub fn segmented(
-    labels: &[&str],
-    selected: usize,
-    on_select: impl Fn(usize) + 'static,
-) -> gtk::FlowBox {
-    let on_select = Rc::new(on_select);
-    let root = gtk::FlowBox::builder()
-        .selection_mode(gtk::SelectionMode::None)
-        .min_children_per_line(1)
-        .max_children_per_line(5)
-        .column_spacing(2)
-        .row_spacing(2)
-        .homogeneous(true)
-        .css_classes(["mb-segmented"])
-        .build();
-
-    let mut buttons: Vec<gtk::ToggleButton> = Vec::new();
-    for (i, label) in labels.iter().enumerate() {
-        let button = gtk::ToggleButton::builder()
-            .label(*label)
-            .hexpand(true)
-            .build();
-        if let Some(first) = buttons.first() {
-            button.set_group(Some(first));
-        }
-        let cb = on_select.clone();
-        button.connect_toggled(move |b| {
-            if b.is_active() {
-                cb(i);
-            }
-        });
-        root.insert(&button, -1);
-        buttons.push(button);
-    }
-    if let Some(b) = buttons.get(selected) {
-        b.set_active(true);
-    }
-    root
 }
 
 #[cfg(test)]

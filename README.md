@@ -103,7 +103,7 @@ Procure por **MicBridge**.
 2. No celular (mesma rede), escaneie o QR e toque em **Iniciar microfone**. Pronto.
 3. No Discord/OBS, escolha **Microfone_VDO** como entrada.
 4. Na janela do app, escolha um **Perfil de voz** (Chamada é o padrão). Os controles individuais
-   ficam em **Ajustes avançados**.
+   ficam nos módulos **Limpeza**, **Timbre**, **Dinâmica** e **Volume**.
 
 **Depois**
 Abra o MicBridge (ou ative **Iniciar com o sistema** para ele subir escondido na bandeja) e abra
@@ -136,7 +136,7 @@ Pareamento e certificados ficam em `~/.local/share/micbridge` (respeita `XDG_DAT
 
 ## 🛠️ Ajustes de áudio
 
-Escolha um **Perfil de voz** e pronto. Para refinar, abra **Ajustes avançados**:
+Escolha um **Perfil de voz** e refine nos módulos de tratamento:
 
 | Controle | Efeito |
 |----------|--------|
@@ -148,6 +148,23 @@ Escolha um **Perfil de voz** e pronto. Para refinar, abra **Ajustes avançados**
 | Compressor / limiar / razão | Nivela a dinâmica da voz |
 | Volume automático | Mantém o nível constante e congela nas pausas; dispensa o ganho manual |
 | Ganho manual | Só vale com o volume automático desligado; passa por um limitador de pico |
+
+### Perfis personalizados
+
+Depois de ajustar a voz, use **Salvar como novo…** e escolha um nome. O seletor
+reúne os cinco perfis de fábrica e seus perfis personalizados. Você pode salvar
+alterações, renomear ou excluir os personalizados; os de fábrica ficam protegidos.
+
+**Alterações não salvas** indica ajustes que ainda não foram gravados. Trocar de
+perfil nessa situação pede confirmação para descartá-los. Renomear não salva os
+ajustes pendentes. Excluir o perfil ativo retorna ao perfil **Chamada**.
+Ao abrir novamente, o aplicativo restaura o último perfil selecionado e seus
+ajustes salvos. Mute, retorno no fone e aparência continuam independentes.
+
+Os perfis são locais, sem importação/exportação. São aceitos até 32 perfis, com
+nomes únicos de até 60 caracteres. Erros de salvamento são exibidos e preservam
+os dados anteriores. Uma biblioteca incompatível ou danificada é preservada e
+bloqueia a edição de perfis até a correção das preferências.
 
 ## 🔒 Segurança
 

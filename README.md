@@ -1,5 +1,13 @@
 <div align="center">
   <img src="app/data/dev.wilian.MicBridge.svg" width="112" alt="MicBridge"/>
+
+  [![CI](https://github.com/Wpaif/MicBridge/actions/workflows/ci.yml/badge.svg)](https://github.com/Wpaif/MicBridge/actions/workflows/ci.yml)
+  ![Linux](https://img.shields.io/badge/plataforma-Linux-informational?logo=linux&logoColor=white)
+  ![Rust](https://img.shields.io/badge/Rust-2024-orange?logo=rust&logoColor=white)
+  ![GTK4](https://img.shields.io/badge/GTK-4.16%2B-4a86cf?logo=gtk&logoColor=white)
+  ![libadwaita](https://img.shields.io/badge/libadwaita-1.6%2B-3584e4)
+  ![PipeWire](https://img.shields.io/badge/%C3%A1udio-PipeWire-8a2be2)
+  ![WebRTC](https://img.shields.io/badge/WebRTC-Opus-green)
 </div>
 
 # MicBridge
@@ -23,6 +31,9 @@ e painéis de tratamento e teste organizados por contexto.
   restaura os links de áudio ao terminar.
 - Mute da saída virtual, preservando retorno e gravação de teste.
 - Pareamento por QR, HTTPS com CA local, reconexão e anúncio mDNS opcional.
+  Um celular já pareado pode ler o QR novamente só para abrir a interface, sem
+  reabrir o pareamento. Vários celulares podem ser pareados, mas só um fica
+  conectado por vez.
 - Temas claro/escuro/personalizado, transparência e acompanhamento automático da
   paleta Omarchy no modo sistema.
 - Deslizantes protegidos contra alterações acidentais durante a rolagem.
@@ -48,7 +59,8 @@ atualização, reinstalação limpa e remoção, veja [Instalação](docs/instal
 
 1. Abra o MicBridge no PC e coloque o celular na mesma rede.
 2. Habilite **Aceitar novo celular**, escaneie o QR e autorize o microfone no navegador.
-3. Toque em **Iniciar microfone** no celular.
+3. Toque em **Iniciar microfone** no celular. Nas próximas vezes, ler o QR de novo
+   abre a interface; **Aceitar novo celular** só é preciso para um celular novo.
 4. Escolha **MicBridge** no programa de chamada ou gravação.
 5. Ajuste um perfil de voz e use A/B ou retorno no fone para comparar.
 

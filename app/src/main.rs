@@ -3,6 +3,7 @@ mod audio_test;
 mod connection_sidebar;
 mod dsp;
 mod effect_ui;
+mod jitter;
 mod local_audio;
 mod monitor;
 mod monitor_ui;

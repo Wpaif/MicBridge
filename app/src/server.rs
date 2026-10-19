@@ -5,6 +5,7 @@
 //!
 //! O celular se identifica pelo cookie de pareamento.
 
+use crate::jitter::{JitterBuffer, Pop};
 use crate::state::{Link, Shared};
 use crate::{dsp, output, recording, tls, web};
 use anyhow::{Result, anyhow};
@@ -29,6 +30,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering::Relaxed},
 };
+use std::time::{Duration, Instant};
 use webrtc::media_stream::track_remote::{TrackRemote, TrackRemoteEvent};
 use webrtc::peer_connection::{
     PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCIceGatheringState,
@@ -189,8 +191,9 @@ impl PeerConnectionEventHandler for Handler {
 
     async fn on_track(&self, track: Arc<dyn TrackRemote>) {
         let (shared, generation) = (self.shared.clone(), self.generation);
+        let runtime = self.runtime.clone();
         self.runtime.spawn(Box::pin(async move {
-            if let Err(e) = pump(track, shared.clone(), generation).await {
+            if let Err(e) = pump(runtime, track, shared.clone(), generation).await {
                 tracing::error!("pipeline de áudio: {e:#}");
                 if shared.is_current(generation) {
                     shared.set_error(Some(format!("Falha no processamento de áudio: {e}")));
@@ -200,73 +203,88 @@ impl PeerConnectionEventHandler for Handler {
     }
 }
 
-/// RTP/Opus -> PCM -> DSP -> PipeWire.
-async fn pump(track: Arc<dyn TrackRemote>, shared: Arc<Shared>, generation: u64) -> Result<()> {
+/// RTP/Opus -> jitter buffer -> PCM -> DSP -> PipeWire.
+///
+/// Um receptor só enfileira os pacotes; a reprodução segue um relógio de 10 ms (um frame
+/// do DSP), então a saída não depende do ritmo irregular da rede.
+async fn pump(
+    runtime: Arc<dyn Runtime>,
+    track: Arc<dyn TrackRemote>,
+    shared: Arc<Shared>,
+    generation: u64,
+) -> Result<()> {
     let _capture_session = recording::CaptureSession::new(shared.recorder.clone(), generation);
     let _monitor_session =
         crate::local_audio::MonitorSession::new(shared.local_audio.clone(), generation);
     let mut decoder = opus::Decoder::new(48_000, opus::Channels::Mono)?;
     let mut dsp = dsp::Processor::for_generation(&shared.params, generation);
     let mut sink = output::ResilientSink::new();
-    let mut last_seq: Option<u16> = None;
     let mut last_len = 960; // tamanho do último pacote, usado para reconstruir os perdidos
     let mut pcm = vec![0f32; 5760]; // até 120 ms
     let mut frames = FrameQueue::default();
 
-    while let Some(evt) = track.poll().await {
-        if !shared.is_current(generation) {
-            break; // este celular reconectou com outra conexão
-        }
-        let TrackRemoteEvent::OnRtpPacket(pkt) = evt else {
-            continue;
-        };
-        let seq = pkt.header.sequence_number;
+    let jitter = Arc::new(Mutex::new(JitterBuffer::default()));
+    let ended = Arc::new(AtomicBool::new(false));
+    let receiver = {
+        let (jitter, ended, shared) = (jitter.clone(), ended.clone(), shared.clone());
+        runtime.spawn(Box::pin(async move {
+            while let Some(evt) = track.poll().await {
+                if !shared.is_current(generation) {
+                    break; // este celular reconectou com outra conexão
+                }
+                if let TrackRemoteEvent::OnRtpPacket(pkt) = evt {
+                    jitter.lock().unwrap().insert(
+                        pkt.header.sequence_number,
+                        pkt.header.timestamp,
+                        pkt.payload.to_vec(),
+                        Instant::now(),
+                    );
+                }
+            }
+            ended.store(true, Relaxed);
+        }))
+    };
 
-        let mut lost = 0;
-        if let Some(prev) = last_seq {
-            match lost_packets(prev, seq) {
-                None => continue, // duplicado / atrasado
-                Some(n) => lost = n,
+    let mut clock = runtime.interval(Duration::from_millis(10));
+    let result: Result<()> = async {
+        loop {
+            clock.tick().await;
+            if !shared.is_current(generation) {
+                return Ok(());
+            }
+            while frames.len() < dsp::FRAME {
+                let popped = jitter.lock().unwrap().pop(Instant::now());
+                let (input, fec) = match popped {
+                    Pop::Wait => break,
+                    Pop::Packet(p) if !p.is_empty() => {
+                        let n = decoder.decode_float(&p, &mut pcm, false)?;
+                        last_len = n;
+                        frames.push(&pcm[..n]);
+                        continue;
+                    }
+                    Pop::Packet(_) => (Vec::new(), false),
+                    // Perda: o pacote seguinte pode trazer o FEC do que faltou.
+                    Pop::Lost(next) => {
+                        let fec = next.is_some();
+                        (next.unwrap_or_default(), fec)
+                    }
+                };
+                let out = &mut pcm[..last_len];
+                let n = match decoder.decode_float(&input, out, fec) {
+                    Ok(n) => n,
+                    Err(_) => decoder.decode_float(&[], out, false)?,
+                };
+                frames.push(&pcm[..n]);
+            }
+            emit(&mut dsp, &mut sink, &mut frames, &shared, generation).await?;
+            if ended.load(Relaxed) && jitter.lock().unwrap().len() == 0 {
+                return Ok(());
             }
         }
-        last_seq = Some(seq);
-
-        // Perdas: conceal (PLC) do Opus; o último pacote perdido é recuperado do FEC
-        // embutido neste pacote, quando houver.
-        for i in 0..lost {
-            let use_fec = i + 1 == lost && !pkt.payload.is_empty();
-            let input: &[u8] = if use_fec { &pkt.payload } else { &[] };
-            let out = &mut pcm[..last_len];
-            let n = match decoder.decode_float(input, out, use_fec) {
-                Ok(n) => n,
-                Err(_) => decoder.decode_float(&[], out, false)?,
-            };
-            frames.push(&pcm[..n]);
-            emit(&mut dsp, &mut sink, &mut frames, &shared, generation).await?;
-        }
-
-        if pkt.payload.is_empty() {
-            continue;
-        }
-        let n = decoder.decode_float(&pkt.payload, &mut pcm, false)?;
-        last_len = n;
-        frames.push(&pcm[..n]);
-        emit(&mut dsp, &mut sink, &mut frames, &shared, generation).await?;
     }
-    Ok(())
-}
-
-/// Máximo de pacotes reconstruídos por perda (100 ms a 20 ms/pacote); acima disso o
-/// áudio segue do pacote atual, em vez de inventar um trecho longo.
-const MAX_CONCEALED: usize = 5;
-
-/// Quantos pacotes se perderam entre `prev` e `seq`; `None` para duplicado/atrasado.
-fn lost_packets(prev: u16, seq: u16) -> Option<usize> {
-    let gap = seq.wrapping_sub(prev);
-    if gap == 0 || gap > 0x8000 {
-        return None;
-    }
-    Some((gap as usize - 1).min(MAX_CONCEALED))
+    .await;
+    receiver.abort();
+    result
 }
 
 /// Acumula o PCM decodificado e libera só frames inteiros do DSP. Pacotes Opus de
@@ -281,9 +299,12 @@ impl FrameQueue {
     fn push(&mut self, samples: &[f32]) {
         self.buf.extend_from_slice(samples);
     }
-    /// Move todos os frames completos para `out` e mantém a sobra.
-    fn take_frames(&mut self, out: &mut Vec<f32>) {
-        let whole = self.buf.len() / dsp::FRAME * dsp::FRAME;
+    fn len(&self) -> usize {
+        self.buf.len()
+    }
+    /// Move até `max` frames completos para `out` e mantém o resto.
+    fn take_frames(&mut self, out: &mut Vec<f32>, max: usize) {
+        let whole = (self.buf.len() / dsp::FRAME).min(max) * dsp::FRAME;
         out.clear();
         out.extend(self.buf.drain(..whole));
     }
@@ -297,7 +318,7 @@ async fn emit(
     generation: u64,
 ) -> Result<()> {
     let mut ready = Vec::new();
-    frames.take_frames(&mut ready);
+    frames.take_frames(&mut ready, 1);
     if ready.is_empty() {
         return Ok(());
     }
@@ -406,37 +427,26 @@ mod pump_tests {
     use super::*;
 
     #[test]
-    fn lost_packets_counts_gaps_wraparound_and_ignores_late_or_duplicate() {
-        assert_eq!(lost_packets(10, 11), Some(0));
-        assert_eq!(lost_packets(10, 12), Some(1));
-        assert_eq!(lost_packets(10, 14), Some(3));
-        assert_eq!(lost_packets(65535, 1), Some(1));
-        assert_eq!(lost_packets(10, 10), None);
-        assert_eq!(lost_packets(10, 9), None);
-        assert_eq!(lost_packets(10, 5000), Some(MAX_CONCEALED));
-    }
-
-    #[test]
     fn frame_queue_releases_only_whole_frames_and_keeps_the_remainder() {
         let mut q = FrameQueue::default();
         let mut out = Vec::new();
         // pacotes de 5 ms (240): só o segundo fecha 480
         q.push(&vec![0.1; 240]);
-        q.take_frames(&mut out);
+        q.take_frames(&mut out, usize::MAX);
         assert!(out.is_empty());
         q.push(&vec![0.2; 240]);
-        q.take_frames(&mut out);
+        q.take_frames(&mut out, usize::MAX);
         assert_eq!(out.len(), dsp::FRAME);
         // pacote de 20 ms (960): dois frames, sem sobra
         q.push(&vec![0.3; 960]);
-        q.take_frames(&mut out);
+        q.take_frames(&mut out, usize::MAX);
         assert_eq!(out.len(), 2 * dsp::FRAME);
         // 120 + 960 = 1080: dois frames e sobra de 120
         q.push(&vec![0.4; 120]);
         q.push(&vec![0.5; 960]);
-        q.take_frames(&mut out);
+        q.take_frames(&mut out, usize::MAX);
         assert_eq!(out.len(), 2 * dsp::FRAME);
-        q.take_frames(&mut out);
+        q.take_frames(&mut out, usize::MAX);
         assert!(out.is_empty());
         assert_eq!(q.buf.len(), 120);
         assert_eq!(q.buf[0], 0.5, "a sobra preserva a ordem");

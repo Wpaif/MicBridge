@@ -209,7 +209,9 @@ async fn pump(track: Arc<dyn TrackRemote>, shared: Arc<Shared>, generation: u64)
     let mut dsp = dsp::Processor::for_generation(&shared.params, generation);
     let mut sink = output::ResilientSink::new();
     let mut last_seq: Option<u16> = None;
+    let mut last_len = 960; // tamanho do último pacote, usado para reconstruir os perdidos
     let mut pcm = vec![0f32; 5760]; // até 120 ms
+    let mut frames = FrameQueue::default();
 
     while let Some(evt) = track.poll().await {
         if !shared.is_current(generation) {
@@ -220,44 +222,94 @@ async fn pump(track: Arc<dyn TrackRemote>, shared: Arc<Shared>, generation: u64)
         };
         let seq = pkt.header.sequence_number;
 
-        // Perda de exatamente 1 pacote: conceal (PLC) do Opus.
+        let mut lost = 0;
         if let Some(prev) = last_seq {
-            let gap = seq.wrapping_sub(prev);
-            if gap == 0 || gap > 0x8000 {
-                continue; // duplicado / atrasado
-            }
-            if gap == 2 {
-                let n = decoder.decode_float(&[], &mut pcm[..960], false)?;
-                emit(&mut dsp, &mut sink, &mut pcm[..n], &shared, generation).await?;
+            match lost_packets(prev, seq) {
+                None => continue, // duplicado / atrasado
+                Some(n) => lost = n,
             }
         }
         last_seq = Some(seq);
+
+        // Perdas: conceal (PLC) do Opus; o último pacote perdido é recuperado do FEC
+        // embutido neste pacote, quando houver.
+        for i in 0..lost {
+            let use_fec = i + 1 == lost && !pkt.payload.is_empty();
+            let input: &[u8] = if use_fec { &pkt.payload } else { &[] };
+            let out = &mut pcm[..last_len];
+            let n = match decoder.decode_float(input, out, use_fec) {
+                Ok(n) => n,
+                Err(_) => decoder.decode_float(&[], out, false)?,
+            };
+            frames.push(&pcm[..n]);
+            emit(&mut dsp, &mut sink, &mut frames, &shared, generation).await?;
+        }
 
         if pkt.payload.is_empty() {
             continue;
         }
         let n = decoder.decode_float(&pkt.payload, &mut pcm, false)?;
-        emit(&mut dsp, &mut sink, &mut pcm[..n], &shared, generation).await?;
+        last_len = n;
+        frames.push(&pcm[..n]);
+        emit(&mut dsp, &mut sink, &mut frames, &shared, generation).await?;
     }
     Ok(())
+}
+
+/// Máximo de pacotes reconstruídos por perda (100 ms a 20 ms/pacote); acima disso o
+/// áudio segue do pacote atual, em vez de inventar um trecho longo.
+const MAX_CONCEALED: usize = 5;
+
+/// Quantos pacotes se perderam entre `prev` e `seq`; `None` para duplicado/atrasado.
+fn lost_packets(prev: u16, seq: u16) -> Option<usize> {
+    let gap = seq.wrapping_sub(prev);
+    if gap == 0 || gap > 0x8000 {
+        return None;
+    }
+    Some((gap as usize - 1).min(MAX_CONCEALED))
+}
+
+/// Acumula o PCM decodificado e libera só frames inteiros do DSP. Pacotes Opus de
+/// 2,5 ou 5 ms não fecham um frame de 10 ms; a sobra espera o próximo pacote em vez
+/// de seguir sem tratamento.
+#[derive(Default)]
+struct FrameQueue {
+    buf: Vec<f32>,
+}
+
+impl FrameQueue {
+    fn push(&mut self, samples: &[f32]) {
+        self.buf.extend_from_slice(samples);
+    }
+    /// Move todos os frames completos para `out` e mantém a sobra.
+    fn take_frames(&mut self, out: &mut Vec<f32>) {
+        let whole = self.buf.len() / dsp::FRAME * dsp::FRAME;
+        out.clear();
+        out.extend(self.buf.drain(..whole));
+    }
 }
 
 async fn emit(
     dsp: &mut dsp::Processor,
     sink: &mut output::ResilientSink,
-    pcm: &mut [f32],
+    frames: &mut FrameQueue,
     shared: &Shared,
     generation: u64,
 ) -> Result<()> {
+    let mut ready = Vec::new();
+    frames.take_frames(&mut ready);
+    if ready.is_empty() {
+        return Ok(());
+    }
     prepare_output(
         dsp,
-        pcm,
+        &mut ready,
         &shared.params,
         &shared.recorder,
         &shared.monitor,
         generation,
     );
-    sink.write_mono(pcm).await;
+    sink.write_mono(&ready).await;
     Ok(())
 }
 
@@ -347,4 +399,66 @@ async fn negotiate(st: &AppState, device: String, offer_sdp: String) -> Result<S
         let _ = old.pc.close().await;
     }
     Ok(sdp)
+}
+
+#[cfg(test)]
+mod pump_tests {
+    use super::*;
+
+    #[test]
+    fn lost_packets_counts_gaps_wraparound_and_ignores_late_or_duplicate() {
+        assert_eq!(lost_packets(10, 11), Some(0));
+        assert_eq!(lost_packets(10, 12), Some(1));
+        assert_eq!(lost_packets(10, 14), Some(3));
+        assert_eq!(lost_packets(65535, 1), Some(1));
+        assert_eq!(lost_packets(10, 10), None);
+        assert_eq!(lost_packets(10, 9), None);
+        assert_eq!(lost_packets(10, 5000), Some(MAX_CONCEALED));
+    }
+
+    #[test]
+    fn frame_queue_releases_only_whole_frames_and_keeps_the_remainder() {
+        let mut q = FrameQueue::default();
+        let mut out = Vec::new();
+        // pacotes de 5 ms (240): só o segundo fecha 480
+        q.push(&vec![0.1; 240]);
+        q.take_frames(&mut out);
+        assert!(out.is_empty());
+        q.push(&vec![0.2; 240]);
+        q.take_frames(&mut out);
+        assert_eq!(out.len(), dsp::FRAME);
+        // pacote de 20 ms (960): dois frames, sem sobra
+        q.push(&vec![0.3; 960]);
+        q.take_frames(&mut out);
+        assert_eq!(out.len(), 2 * dsp::FRAME);
+        // 120 + 960 = 1080: dois frames e sobra de 120
+        q.push(&vec![0.4; 120]);
+        q.push(&vec![0.5; 960]);
+        q.take_frames(&mut out);
+        assert_eq!(out.len(), 2 * dsp::FRAME);
+        q.take_frames(&mut out);
+        assert!(out.is_empty());
+        assert_eq!(q.buf.len(), 120);
+        assert_eq!(q.buf[0], 0.5, "a sobra preserva a ordem");
+    }
+
+    #[test]
+    fn opus_fec_and_plc_recover_burst_loss_without_failing() {
+        let mut enc =
+            opus::Encoder::new(48_000, opus::Channels::Mono, opus::Application::Voip).unwrap();
+        enc.set_inband_fec(true).unwrap();
+        enc.set_packet_loss_perc(20).unwrap();
+        let mut dec = opus::Decoder::new(48_000, opus::Channels::Mono).unwrap();
+        let tone: Vec<f32> = (0..960).map(|i| (i as f32 * 0.05).sin() * 0.3).collect();
+        let mut pkts = Vec::new();
+        for _ in 0..4 {
+            pkts.push(enc.encode_vec_float(&tone, 400).unwrap());
+        }
+        let mut out = vec![0f32; 960];
+        dec.decode_float(&pkts[0], &mut out, false).unwrap();
+        // pacotes 1 e 2 perdidos: PLC para o 1, FEC (do pacote 3) para o 2
+        assert_eq!(dec.decode_float(&[], &mut out, false).unwrap(), 960);
+        assert_eq!(dec.decode_float(&pkts[3], &mut out, true).unwrap(), 960);
+        assert_eq!(dec.decode_float(&pkts[3], &mut out, false).unwrap(), 960);
+    }
 }

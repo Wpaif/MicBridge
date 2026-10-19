@@ -164,6 +164,10 @@ async fn index(
 ) -> Response {
     // Pareamento: o QR traz `?t=<token>`; troca por um cookie de longa duração.
     if let Some(token) = q.get("t").filter(|t| !t.is_empty()) {
+        // Celular já pareado que releu o QR só para abrir a interface: não precisa da janela.
+        if credentials(&h).is_some_and(|(id, secret)| st.shared.verify_device(&id, &secret)) {
+            return secured((StatusCode::SEE_OTHER, [(header::LOCATION, "/")]).into_response());
+        }
         if st.shared.pairing_remaining() == 0 {
             return denied(MSG_CLOSED, None);
         }

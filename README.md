@@ -1,16 +1,20 @@
 <div align="center">
-  <img src="app/data/dev.wilian.MicBridge.svg" width="112" alt="MicBridge"/>
+  <img src="app/data/dev.wilian.MicBridge.svg" width="128" alt="MicBridge"/>
 
-  [![CI](https://github.com/Wpaif/MicBridge/actions/workflows/ci.yml/badge.svg)](https://github.com/Wpaif/MicBridge/actions/workflows/ci.yml)
-  ![Linux](https://img.shields.io/badge/plataforma-Linux-informational?logo=linux&logoColor=white)
-  ![Rust](https://img.shields.io/badge/Rust-2024-orange?logo=rust&logoColor=white)
-  ![GTK4](https://img.shields.io/badge/GTK-4.16%2B-4a86cf?logo=gtk&logoColor=white)
-  ![libadwaita](https://img.shields.io/badge/libadwaita-1.6%2B-3584e4)
-  ![PipeWire](https://img.shields.io/badge/%C3%A1udio-PipeWire-8a2be2)
-  ![WebRTC](https://img.shields.io/badge/WebRTC-Opus-green)
+  <h1>MicBridge</h1>
+
+  <p><strong>Use o celular como microfone do PC, com tratamento de voz em tempo real.</strong></p>
+
+  <p>
+  <a href="https://github.com/Wpaif/MicBridge/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Wpaif/MicBridge/ci.yml?style=flat-square&labelColor=0d1226&label=CI&logo=githubactions&logoColor=white" alt="CI"/></a>
+  <img src="https://img.shields.io/badge/plataforma-Linux-f472b6?style=flat-square&labelColor=0d1226&logo=linux&logoColor=white" alt="plataforma Linux"/>
+  <img src="https://img.shields.io/badge/Rust-2024-a78bfa?style=flat-square&labelColor=0d1226&logo=rust&logoColor=white" alt="Rust 2024"/>
+  <img src="https://img.shields.io/badge/GTK-4.16%2B-818cf8?style=flat-square&labelColor=0d1226&logo=gtk&logoColor=white" alt="GTK 4.16+"/>
+  <img src="https://img.shields.io/badge/libadwaita-1.6%2B-60a5fa?style=flat-square&labelColor=0d1226&logo=gnome&logoColor=white" alt="libadwaita 1.6+"/>
+  <img src="https://img.shields.io/badge/%C3%A1udio-PipeWire-38bdf8?style=flat-square&labelColor=0d1226&logo=pipewire&logoColor=white" alt="áudio PipeWire"/>
+  <img src="https://img.shields.io/badge/WebRTC-Opus-22d3ee?style=flat-square&labelColor=0d1226&logo=webrtc&logoColor=white" alt="WebRTC Opus"/>
+  </p>
 </div>
-
-# MicBridge
 
 Use o celular como microfone do PC pela rede local, com tratamento de voz em
 tempo real. O áudio sai do navegador via WebRTC/Opus e chega ao **MicBridge**,

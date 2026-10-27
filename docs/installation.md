@@ -54,9 +54,20 @@ cai para GTK. Para forçar uma delas:
 
 No modo Quickshell o atalho executa `micbridge --quickshell`: o motor roda como
 daemon com a bandeja e a janela é um processo `qs` à parte. Fechar a janela não
-desliga o microfone; use **Sair** na bandeja. A interface Quickshell ainda cobre
-só conexão, pareamento, mute, perfis e efeitos; retorno, teste de voz e edição de
-perfis continuam apenas na interface GTK.
+desliga o microfone; use **Sair** na bandeja. Abrir o MicBridge com a janela já
+aberta a traz para frente (Hyprland e Sway).
+
+A interface Quickshell tem os mesmos recursos da GTK, exceto o diálogo de
+aparência: as cores seguem o tema atual do Omarchy e mudam junto com ele. Fora do
+Omarchy, usa uma paleta escura padrão. Atalhos de teclado:
+
+| Tecla | Ação |
+|---|---|
+| `M` | Silenciar ou reativar o microfone virtual |
+| `P` | Aceitar novo celular |
+| `1`–`9` | Escolher o perfil de voz |
+| `N` / `S` / `R` / `Del` | Salvar como novo, salvar alterações, renomear, excluir perfil |
+| `Esc` | Fechar a confirmação aberta ou, sem nenhuma, a janela |
 
 Quando `XDG_DATA_HOME` não está definido, o padrão é `~/.local/share`.
 Abra **MicBridge** pelo menu de aplicativos. A atualização comum preserva os

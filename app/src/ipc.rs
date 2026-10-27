@@ -1,9 +1,16 @@
 //! Modo daemon para a interface Quickshell: o motor roda sem GTK e conversa com a
 //! UI por um socket Unix, uma mensagem JSON por linha (o mesmo formato do flea).
 //!
-//! UI → daemon: `{"c":"mute","on":true}`, `{"c":"pairing","on":true}`,
-//! `{"c":"profile","id":"chamada"}`, `{"c":"effect","name":"denoise","on":false}`,
-//! `{"c":"forget"}`, `{"c":"quit"}`.
+//! UI → daemon, um objeto com o comando em `c`:
+//! - janela e conexão: `show`, `ping`, `quit`, `pairing`/`mute`/`autostart` (`on`), `forget`;
+//! - tratamento: `effect` (`name`, `on`), `tune` (`name`, `value`);
+//! - perfis: `profile` (`id`), `profile_new`/`profile_rename` (`name`), `profile_save`,
+//!   `profile_delete`;
+//! - retorno: `monitor` (`on`), `monitor_output` (`id` do node ou null),
+//!   `monitor_volume` (`value`), `monitor_refresh`, `monitor_retry`;
+//! - teste de voz: `record` (`on`), `play` (`version`), `stop_play`, `export` (`path`),
+//!   `export_confirm` (`on`).
+//!
 //! Daemon → UI: `{"t":"qr",...}` quando o link muda e `{"t":"state",...}` a cada
 //! mudança de estado (no máximo 10 vezes por segundo, por causa dos medidores).
 

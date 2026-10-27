@@ -56,8 +56,14 @@ a conclusão das operações correspondentes.
 `$XDG_RUNTIME_DIR/micbridge.sock` (0600). A janela é um processo `qs -p app/ui`
 que conversa com ele por JSON, uma mensagem por linha: o daemon envia `qr` e
 `state` quando mudam (no máximo 10 vezes por segundo) e a UI envia comandos como
-`{"c":"mute","on":true}` ou `{"c":"profile","id":"chamada"}`. Uma segunda execução
-encontra o socket e só pede `show`.
+`{"c":"mute","on":true}` ou `{"c":"profile","id":"chamada"}`; a lista completa está
+no topo de `ipc.rs`. Uma segunda execução encontra o socket e só pede `show`.
+
+O daemon não duplica regras da interface GTK: apresentação do retorno, do teste de
+voz e dos indicadores de efeito vem das funções puras de `monitor_ui.rs`,
+`recording_ui.rs` e `effect_ui.rs`, e a edição de perfis usa `profiles::Library`.
+Confirmações que no GTK são diálogos (substituir WAVs, descartar alterações,
+excluir perfil) aparecem dentro da janela QML.
 
 ## Concorrência e recuperação
 

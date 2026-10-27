@@ -11,6 +11,10 @@ use crate::dsp::Preset;
 use crate::monitor::MonitorPhase;
 use crate::monitor_ui::{Choices, PendingAction, RefreshSchedule};
 use crate::profiles::Library;
+use crate::recording::Version;
+use crate::recording_ui::{
+    Destinations, ExportOutcome, Notice, OperationKey, current_notice, export_selection,
+};
 use crate::settings;
 use crate::state::{Link, Shared};
 use serde_json::{Value, json};
@@ -64,6 +68,17 @@ pub struct Daemon {
     readout: Mutex<crate::effect_ui::Readout>,
     started: std::time::Instant,
     monitor: Arc<Mutex<MonitorControl>>,
+    recording: Arc<Mutex<RecordingControl>>,
+}
+
+/// Exportação do teste de voz: a confirmação de substituição fica pendente aqui
+/// até a UI responder, e o aviso só vale enquanto a operação que o gerou é a atual.
+#[derive(Default)]
+struct RecordingControl {
+    exporting: bool,
+    sequence: u64,
+    notice: Option<crate::recording_ui::Notice>,
+    confirm: Option<crate::recording_ui::Destinations>,
 }
 
 /// Mesmo ciclo do painel GTK de retorno: ação em curso, erro da última tentativa
@@ -108,6 +123,7 @@ impl Daemon {
             )),
             started: std::time::Instant::now(),
             monitor: Arc::default(),
+            recording: Arc::default(),
             shared,
         })
     }
@@ -213,6 +229,34 @@ impl Daemon {
                     }
                 });
             }
+            "record" if on => {
+                self.recording.lock().unwrap().notice = None;
+                self.shared.start_recording();
+            }
+            "record" => self.shared.recorder.stop(self.shared.recorder.status().id),
+            "play" => {
+                let version = match msg["version"].as_str().unwrap_or_default() {
+                    "original" => Version::Original,
+                    "treated" => Version::Treated,
+                    other => return Err(format!("versão desconhecida: {other}")),
+                };
+                let take = self.current_take().ok_or("Nenhum teste gravado")?;
+                self.recording.lock().unwrap().notice = None;
+                self.shared.play_recording(take, version);
+            }
+            "stop_play" => self.shared.stop_recording_playback(),
+            "export" => {
+                let path = msg["path"].as_str().ok_or("destino ausente")?;
+                self.export(Destinations::new(std::path::Path::new(path)), false)?;
+            }
+            "export_confirm" => {
+                let pending = self.recording.lock().unwrap().confirm.take();
+                if let Some(dest) = pending.filter(|_| on) {
+                    self.export(dest, true)?;
+                } else {
+                    self.notify_export("Exportação cancelada.".into());
+                }
+            }
             "tune" => {
                 let p = &self.shared.params;
                 let value = msg["value"].as_f64().ok_or("valor ausente")? as f32;
@@ -245,6 +289,95 @@ impl Daemon {
             other => return Err(format!("comando desconhecido: {other}")),
         }
         Ok(())
+    }
+
+    fn current_take(&self) -> Option<Arc<crate::recording::Take>> {
+        self.shared.recorder.take(self.shared.recorder.status().id)
+    }
+
+    fn operation_key(&self, sequence: u64) -> OperationKey {
+        OperationKey {
+            recording: self.shared.recorder.status().id,
+            playback: self.shared.playback.status().operation,
+            export: sequence,
+        }
+    }
+
+    fn notify_export(&self, text: String) {
+        let mut control = self.recording.lock().unwrap();
+        let key = self.operation_key(control.sequence);
+        control.notice = Some(Notice { key, text });
+    }
+
+    /// Grava os dois WAVs fora da thread do socket. Arquivos existentes só são
+    /// substituídos depois de `export_confirm`, como no diálogo GTK.
+    fn export(&self, dest: Destinations, confirmed: bool) -> Result<(), String> {
+        let take = self.current_take().ok_or("Nenhum teste gravado")?;
+        let mut control = self.recording.lock().unwrap();
+        if control.exporting {
+            return Ok(());
+        }
+        if dest.needs_confirmation() && !confirmed {
+            control.confirm = Some(dest);
+            return Ok(());
+        }
+        control.exporting = true;
+        control.sequence = control.sequence.wrapping_add(1);
+        let key = self.operation_key(control.sequence);
+        let recording = self.recording.clone();
+        tokio::task::spawn_blocking(move || {
+            let text = match export_selection(&take, Some(&dest), confirmed) {
+                Ok(ExportOutcome::Saved) => "Os dois arquivos WAV foram exportados.".into(),
+                Ok(ExportOutcome::Cancelled) => "Exportação cancelada: o destino mudou. Escolha novamente para confirmar a substituição.".into(),
+                Err(e) => e,
+            };
+            let mut control = recording.lock().unwrap();
+            control.exporting = false;
+            control.notice = Some(Notice { key, text });
+        });
+        Ok(())
+    }
+
+    fn recording_state(&self, connected: bool) -> Value {
+        let r = self.shared.recorder.status();
+        let pb = self.shared.playback.status();
+        let control = self.recording.lock().unwrap();
+        let view = crate::recording_ui::presentation(&r, &pb, connected, control.exporting);
+        let key = OperationKey {
+            recording: r.id,
+            playback: pb.operation,
+            export: control.sequence,
+        };
+        let message = crate::recording_ui::message(
+            &r,
+            &pb,
+            &view,
+            connected,
+            control.exporting,
+            current_notice(&control.notice, key),
+        );
+        let playing = (pb.playing && pb.take_id == Some(r.id))
+            .then_some(pb.version)
+            .flatten()
+            .map(|v| match v {
+                Version::Original => "original",
+                Version::Treated => "treated",
+            });
+        json!({
+            "caption": crate::recording_ui::caption(&r, &view),
+            "progress": (r.samples as f64 / crate::recording::MAX_SAMPLES as f64).min(1.0),
+            "can_start": view.can_start,
+            "can_stop": view.can_stop,
+            "can_listen": view.can_listen,
+            "can_export": view.can_export,
+            "can_stop_play": pb.playing,
+            "playing": playing,
+            "message": message,
+            "confirm": control.confirm.as_ref().map(|d| json!({
+                "original": d.original,
+                "treated": d.treated,
+            })),
+        })
     }
 
     fn toggle_monitor(&self, on: bool) {
@@ -414,6 +547,7 @@ impl Daemon {
             },
             "activity": activity,
             "monitor": self.monitor_state(st.link == Link::Connected),
+            "recording": self.recording_state(st.link == Link::Connected),
             // Níveis arredondados para não reenviar o estado por ruído de ponto flutuante.
             "in": (p.in_level() * 1000.0).round() / 1000.0,
             "out": (p.out_level() * 1000.0).round() / 1000.0,
@@ -602,6 +736,60 @@ mod tests {
         assert_eq!(d.monitor_state(true)["active"], false);
         crate::audio_test::wait(|| d.monitor_state(true)["busy"] == false);
         assert_eq!(d.shared.monitor.status().phase, MonitorPhase::Disabled);
+        d.shared.stop_audio_tools();
+    }
+
+    /// Grava um bloco curto pelo protocolo e espera o teste ficar pronto.
+    fn record_take(d: &Daemon) {
+        d.shared.set_link(Link::Connected);
+        d.handle(r#"{"c":"record","on":true}"#).unwrap();
+        assert_eq!(d.recording_state(true)["can_stop"], true);
+        let mut pcm = [0.01; 480];
+        crate::recording::process_block(
+            &mut crate::dsp::Processor::new(),
+            &mut pcm,
+            &d.shared.params,
+            &d.shared.recorder,
+            d.shared.generation(),
+        );
+        d.handle(r#"{"c":"record","on":false}"#).unwrap();
+        crate::audio_test::wait(|| d.recording_state(true)["can_export"] == true);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn voice_test_exports_and_confirms_before_replacing() {
+        let f = Fixture::new("exit 0");
+        let d = daemon(&f);
+        assert_eq!(d.recording_state(false)["can_start"], false);
+        assert!(d.handle(r#"{"c":"play","version":"original"}"#).is_err());
+        record_take(&d);
+        assert_eq!(d.recording_state(true)["can_listen"], true);
+
+        let path = f.dir.join("teste-original.wav");
+        let export = json!({ "c": "export", "path": path }).to_string();
+        d.handle(&export).unwrap();
+        crate::audio_test::wait(|| {
+            d.recording_state(true)["message"] == "Os dois arquivos WAV foram exportados."
+        });
+        let treated = f.dir.join("teste-tratado.wav");
+        assert!(path.exists() && treated.exists());
+
+        // Já existem: nada é escrito até a confirmação.
+        std::fs::write(&treated, b"antigo").unwrap();
+        d.handle(&export).unwrap();
+        let rec = d.recording_state(true);
+        assert_eq!(rec["confirm"]["treated"], treated.to_str().unwrap());
+        d.handle(r#"{"c":"export_confirm","on":false}"#).unwrap();
+        assert!(d.recording_state(true)["confirm"].is_null());
+        assert_eq!(d.recording_state(true)["message"], "Exportação cancelada.");
+        assert_eq!(std::fs::read(&treated).unwrap(), b"antigo");
+
+        d.handle(&export).unwrap();
+        d.handle(r#"{"c":"export_confirm","on":true}"#).unwrap();
+        crate::audio_test::wait(|| {
+            d.recording_state(true)["message"] == "Os dois arquivos WAV foram exportados."
+        });
+        assert_ne!(std::fs::read(&treated).unwrap(), b"antigo");
         d.shared.stop_audio_tools();
     }
 

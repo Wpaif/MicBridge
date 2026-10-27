@@ -1,12 +1,26 @@
 //@ pragma UseQApplication
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Dialogs
 import Quickshell
 
 // Janela do MicBridge para tiling WMs. O motor é o daemon `micbridge --quickshell`;
 // fechar a janela encerra só este processo, o microfone continua na bandeja.
 ShellRoot {
     Backend { id: backend }
+
+    // O par -tratado.wav sai ao lado do arquivo escolhido; a substituição é confirmada na janela.
+    FileDialog {
+        id: exportDialog
+        title: "Salvar teste original e tratado"
+        fileMode: FileDialog.SaveFile
+        acceptLabel: "Exportar"
+        nameFilters: ["Áudio WAV (*.wav)"]
+        currentFolder: "file://" + Quickshell.env("HOME")
+        selectedFile: "file://" + Quickshell.env("HOME") + "/teste-original.wav"
+        options: FileDialog.DontConfirmOverwrite
+        onAccepted: backend.send({ c: "export", path: decodeURIComponent(String(selectedFile).replace(/^file:\/\//, "")) })
+    }
 
     FloatingWindow {
         id: win
@@ -23,6 +37,7 @@ ShellRoot {
             : (link === "connecting" || link === "reconnecting") ? Theme.warn : Theme.muted
 
         readonly property var mon: st.monitor || ({})
+        readonly property var rec: st.recording || ({})
         function effect(key) { return st.effects ? st.effects[key] === true : false }
         function setEffect(key, on) { backend.send({ c: "effect", name: key, on: on }) }
         function tuning(key) { return st.tuning ? st.tuning[key] : 0 }
@@ -204,6 +219,103 @@ ShellRoot {
                             font.family: Theme.font
                             font.pixelSize: 11
                             wrapMode: Text.Wrap
+                        }
+
+                        Section { text: "Teste de voz" }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 10
+                            Layout.rightMargin: 10
+                            spacing: 10
+                            Text {
+                                text: win.rec.caption || ""
+                                color: Theme.foreground
+                                font.family: Theme.font
+                                font.pixelSize: 12
+                            }
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 4
+                                radius: 2
+                                color: Theme.surface
+                                Rectangle {
+                                    width: parent.width * (win.rec.progress || 0)
+                                    height: parent.height
+                                    radius: 2
+                                    color: win.rec.can_stop ? Theme.urgent : Theme.accent
+                                }
+                            }
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 10
+                            spacing: 6
+                            Button {
+                                text: win.rec.can_stop ? "Parar gravação" : "Gravar teste"
+                                accent: win.rec.can_stop || false
+                                enabled: win.rec.can_start || win.rec.can_stop || false
+                                onClicked: backend.send({ c: "record", on: !win.rec.can_stop })
+                            }
+                            Chip {
+                                text: "Ouvir original"
+                                active: win.rec.playing === "original"
+                                enabled: win.rec.can_listen || false
+                                onClicked: backend.send(active ? { c: "stop_play" } : { c: "play", version: "original" })
+                            }
+                            Chip {
+                                text: "Ouvir tratado"
+                                active: win.rec.playing === "treated"
+                                enabled: win.rec.can_listen || false
+                                onClicked: backend.send(active ? { c: "stop_play" } : { c: "play", version: "treated" })
+                            }
+                            Button {
+                                text: "Exportar WAVs"
+                                enabled: (win.rec.can_export || false) && !win.rec.confirm
+                                onClicked: exportDialog.open()
+                            }
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 10
+                            text: win.rec.message || ""
+                            color: Theme.muted
+                            font.family: Theme.font
+                            font.pixelSize: 11
+                            wrapMode: Text.Wrap
+                        }
+                        // Confirmação de substituição, no lugar do diálogo do GTK.
+                        Rectangle {
+                            Layout.fillWidth: true
+                            visible: !!win.rec.confirm
+                            implicitHeight: confirmBox.implicitHeight + 20
+                            radius: Theme.radius
+                            color: "transparent"
+                            border.color: Theme.urgent
+                            ColumnLayout {
+                                id: confirmBox
+                                anchors { fill: parent; margins: 10 }
+                                spacing: 6
+                                Text {
+                                    text: "Substituir arquivos do teste?"
+                                    color: Theme.foreground
+                                    font.family: Theme.font
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: win.rec.confirm ? win.rec.confirm.original + "\n" + win.rec.confirm.treated : ""
+                                    color: Theme.muted
+                                    font.family: Theme.font
+                                    font.pixelSize: 11
+                                    elide: Text.ElideMiddle
+                                }
+                                Row {
+                                    spacing: 6
+                                    Button { text: "Cancelar"; onClicked: backend.send({ c: "export_confirm", on: false }) }
+                                    Button { text: "Substituir"; accent: true; onClicked: backend.send({ c: "export_confirm", on: true }) }
+                                }
+                            }
                         }
 
                         Section { text: "Perfil de voz" }

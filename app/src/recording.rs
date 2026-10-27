@@ -35,7 +35,7 @@ use std::sync::{
     mpsc,
 };
 use std::time::Duration;
-const MAX_SAMPLES: usize = 1_440_000;
+pub(crate) const MAX_SAMPLES: usize = 1_440_000;
 const MAX_BLOCK: usize = 5760;
 struct Pair {
     id: RecordingId,

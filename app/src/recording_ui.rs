@@ -5,15 +5,15 @@ use std::{
     sync::Arc,
 };
 #[derive(Debug)]
-struct Presentation {
-    can_start: bool,
-    can_stop: bool,
-    can_listen: bool,
-    can_export: bool,
-    duration: String,
-    warning: Option<String>,
+pub(crate) struct Presentation {
+    pub(crate) can_start: bool,
+    pub(crate) can_stop: bool,
+    pub(crate) can_listen: bool,
+    pub(crate) can_export: bool,
+    pub(crate) duration: String,
+    pub(crate) warning: Option<String>,
 }
-fn presentation(
+pub(crate) fn presentation(
     r: &RecordingStatus,
     _: &PlaybackStatus,
     connected: bool,
@@ -30,28 +30,28 @@ fn presentation(
     }
 }
 #[derive(Debug)]
-struct Destinations {
-    original: PathBuf,
-    treated: PathBuf,
+pub(crate) struct Destinations {
+    pub(crate) original: PathBuf,
+    pub(crate) treated: PathBuf,
 }
 impl Destinations {
-    fn new(path: &Path) -> Self {
+    pub(crate) fn new(path: &Path) -> Self {
         let original = path.with_extension("wav");
         let stem = original.file_stem().unwrap_or_default().to_string_lossy();
         let stem = stem.strip_suffix("-original").unwrap_or(&stem);
         let treated = original.with_file_name(format!("{stem}-tratado.wav"));
         Self { original, treated }
     }
-    fn needs_confirmation(&self) -> bool {
+    pub(crate) fn needs_confirmation(&self) -> bool {
         self.original.exists() || self.treated.exists()
     }
 }
 #[derive(Debug, PartialEq, Eq)]
-enum ExportOutcome {
+pub(crate) enum ExportOutcome {
     Cancelled,
     Saved,
 }
-fn export_selection(
+pub(crate) fn export_selection(
     take: &Take,
     dest: Option<&Destinations>,
     confirmed: bool,
@@ -81,20 +81,55 @@ fn export_selection(
     Ok(ExportOutcome::Saved)
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct OperationKey {
-    recording: u64,
-    playback: u64,
-    export: u64,
+pub(crate) struct OperationKey {
+    pub(crate) recording: u64,
+    pub(crate) playback: u64,
+    pub(crate) export: u64,
 }
-struct Notice {
-    key: OperationKey,
-    text: String,
+pub(crate) struct Notice {
+    pub(crate) key: OperationKey,
+    pub(crate) text: String,
 }
-fn current_notice(notice: &Option<Notice>, key: OperationKey) -> Option<&str> {
+pub(crate) fn current_notice(notice: &Option<Notice>, key: OperationKey) -> Option<&str> {
     notice
         .as_ref()
         .filter(|n| n.key == key)
         .map(|n| n.text.as_str())
+}
+/// Linha de estado: fase do teste e duração gravada.
+pub(crate) fn caption(r: &RecordingStatus, view: &Presentation) -> String {
+    let caption = match r.state {
+        TakeState::Empty => "Pronto para gravar",
+        TakeState::Recording => "Gravando",
+        TakeState::Ready => "Teste pronto",
+        TakeState::Incomplete => "Teste incompleto",
+    };
+    format!("{caption} · {}", view.duration)
+}
+/// Mensagem do painel, da mais urgente para a dica padrão.
+pub(crate) fn message<'a>(
+    r: &RecordingStatus,
+    pb: &'a PlaybackStatus,
+    view: &'a Presentation,
+    connected: bool,
+    exporting: bool,
+    notice: Option<&'a str>,
+) -> &'a str {
+    if exporting {
+        "Exportando o teste selecionado…"
+    } else if let Some(text) = notice {
+        text
+    } else if let Some(error) = pb.error.as_deref().filter(|_| pb.take_id == Some(r.id)) {
+        error
+    } else if let Some(warning) = view.warning.as_deref() {
+        warning
+    } else if !connected {
+        "Conecte o celular para gravar um novo teste."
+    } else if pb.playing {
+        "Reproduzindo no dispositivo de saída padrão do sistema."
+    } else {
+        "Até 30 segundos. Nada é salvo até você escolher Exportar WAVs."
+    }
 }
 
 #[cfg(test)]
@@ -438,34 +473,21 @@ pub fn panel(shared: Arc<Shared>, parent: &adw::ApplicationWindow) -> gtk::Box {
                 button.remove_css_class("suggested-action");
             }
         }
-        let caption = match r.state {
-            TakeState::Empty => "Pronto para gravar",
-            TakeState::Recording => "Gravando",
-            TakeState::Ready => "Teste pronto",
-            TakeState::Incomplete => "Teste incompleto",
-        };
-        state.set_label(&format!("{caption} · {}", view.duration));
+        state.set_label(&caption(&r, &view));
         let key = OperationKey {
             recording: r.id,
             playback: pb.operation,
             export: export_sequence.get(),
         };
         let n = notice.borrow();
-        let text = if exporting.get() {
-            "Exportando o teste selecionado…"
-        } else if let Some(text) = current_notice(&n, key) {
-            text
-        } else if let Some(error) = pb.error.as_deref().filter(|_| pb.take_id == Some(r.id)) {
-            error
-        } else if let Some(warning) = view.warning.as_deref() {
-            warning
-        } else if !connected {
-            "Conecte o celular para gravar um novo teste."
-        } else if pb.playing {
-            "Reproduzindo no dispositivo de saída padrão do sistema."
-        } else {
-            "Até 30 segundos. Nada é salvo até você escolher Exportar WAVs."
-        };
+        let text = self::message(
+            &r,
+            &pb,
+            &view,
+            connected,
+            exporting.get(),
+            current_notice(&n, key),
+        );
         message.set_label(text);
         glib::ControlFlow::Continue
     };

@@ -57,6 +57,12 @@ daemon com a bandeja e a janela é um processo `qs` à parte. Fechar a janela n�
 desliga o microfone; use **Sair** na bandeja. Abrir o MicBridge com a janela já
 aberta a traz para frente (Hyprland e Sway).
 
+No Omarchy, o instalador acrescenta um bloco marcado a
+`~/.config/hypr/bindings.lua` que dá à janela a tag `floating-window` do próprio
+Omarchy, que a deixa flutuando e centralizada em 875×600. Se o Hyprland acusar
+erro depois de recarregar, o arquivo anterior volta. Reinstalar com `--ui=gtk` ou
+desinstalar remove o bloco inteiro; o resto do arquivo não é tocado.
+
 A interface Quickshell tem os mesmos recursos da GTK, exceto o diálogo de
 aparência: as cores seguem o tema atual do Omarchy e mudam junto com ele. Fora do
 Omarchy, usa uma paleta escura padrão. Atalhos de teclado:
@@ -79,7 +85,7 @@ dados locais, incluindo perfis, pareamento e certificados.
 |---|---|
 | `./scripts/install.sh --reinstall` | Remove dados do app e o build, recompila e reinstala; preserva a CA local. |
 | `./scripts/install.sh --reinstall --new-ca` | Também substitui a CA; os celulares precisam confiar na nova CA. |
-| `./scripts/uninstall.sh` | Remove binário, atalho, ícones e autostart; preserva os dados do app. |
+| `./scripts/uninstall.sh` | Remove binário, atalho, ícones, autostart, interface QML e a regra de janela do Hyprland; preserva os dados do app. |
 | `./scripts/uninstall.sh --purge` | Remove também perfis, preferências, pareamento, certificados e demais dados do app. |
 | `./scripts/uninstall.sh --purge --keep-ca` | Remove os dados, preservando apenas `ca.pem` e `ca.key`. |
 

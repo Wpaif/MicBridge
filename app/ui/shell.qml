@@ -115,9 +115,19 @@ ShellRoot {
                     Layout.preferredWidth: 300
                     color: Qt.darker(Theme.background, 1.15)
 
-                    ColumnLayout {
+                    // Rola só quando a janela é baixa demais; senão o certificado fica no rodapé.
+                    Flickable {
+                        id: side
                         anchors.fill: parent
-                        anchors.margins: 18
+                        contentHeight: sideColumn.height + 36
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+
+                    ColumnLayout {
+                        id: sideColumn
+                        x: 18; y: 18
+                        width: side.width - 36
+                        height: Math.max(side.height - 36, implicitHeight)
                         spacing: Theme.gap
 
                         RowLayout {
@@ -230,6 +240,7 @@ ShellRoot {
                                 Timer { id: copiedTimer; interval: 1500; onTriggered: win.copied = false }
                             }
                         }
+                    }
                     }
                 }
 

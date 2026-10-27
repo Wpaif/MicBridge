@@ -132,6 +132,14 @@ sed -e "s|^Icon=.*|Icon=$APP_ID|" \
     "$APP_DIR/data/$APP_ID.desktop" > "$DATA_HOME/applications/$APP_ID.desktop"
 chmod 644 "$DATA_HOME/applications/$APP_ID.desktop"
 
+# No Omarchy, a janela Quickshell flutua como os outros diálogos; trocar para GTK
+# remove a regra. Uma falha aqui não desfaz a instalação.
+if [[ "$UI" == quickshell ]]; then
+  "$PROJECT_DIR/scripts/hypr-float.sh" add || echo "Aviso: não consegui configurar a janela flutuante." >&2
+else
+  "$PROJECT_DIR/scripts/hypr-float.sh" remove || true
+fi
+
 # Um autostart criado antes segue a interface escolhida agora.
 AUTOSTART="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/$APP_ID.desktop"
 [[ -f "$AUTOSTART" ]] && sed -i "s|^Exec=.*|Exec=$EXEC --hidden|" "$AUTOSTART"

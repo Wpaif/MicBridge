@@ -310,7 +310,7 @@ impl Drop for MonitorSession {
     }
 }
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{
         audio_test::{Fixture, SLEEP, alive, wait},

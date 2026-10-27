@@ -22,6 +22,7 @@ ShellRoot {
             : link === "error" ? Theme.urgent
             : (link === "connecting" || link === "reconnecting") ? Theme.warn : Theme.muted
 
+        readonly property var mon: st.monitor || ({})
         function effect(key) { return st.effects ? st.effects[key] === true : false }
         function setEffect(key, on) { backend.send({ c: "effect", name: key, on: on }) }
         function tuning(key) { return st.tuning ? st.tuning[key] : 0 }
@@ -153,36 +154,70 @@ ShellRoot {
                             onToggled: on => backend.send({ c: "mute", on: on })
                         }
 
+                        Section { text: "Retorno no fone" }
+                        Toggle {
+                            Layout.fillWidth: true
+                            title: "Ouvir a voz tratada"
+                            hint: win.mon.message || ""
+                            checked: win.mon.active || false
+                            enabled: win.mon.can_toggle || false
+                            onToggled: on => backend.send({ c: "monitor", on: on })
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 10
+                            spacing: 6
+                            Repeater {
+                                model: win.mon.outputs || []
+                                delegate: Chip {
+                                    required property var modelData
+                                    text: modelData.label
+                                    active: modelData.id === win.mon.selected
+                                    enabled: win.mon.can_choose || false
+                                    onClicked: backend.send({ c: "monitor_output", id: active ? null : modelData.id })
+                                }
+                            }
+                            Button {
+                                text: "Atualizar saídas"
+                                enabled: win.mon.can_refresh || false
+                                onClicked: backend.send({ c: "monitor_refresh" })
+                            }
+                            Button {
+                                text: "Restaurar conexões"
+                                accent: true
+                                visible: win.mon.can_retry || false
+                                onClicked: backend.send({ c: "monitor_retry" })
+                            }
+                        }
+                        Slider {
+                            Layout.fillWidth: true
+                            title: "Volume do retorno"
+                            from: 0; to: 100; step: 1; unit: "%"
+                            value: win.mon.volume || 0
+                            onMoved: v => backend.send({ c: "monitor_volume", value: v })
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 10
+                            text: "Exclusivo: desconecta outros apps da saída escolhida e os restaura ao parar."
+                            color: Theme.muted
+                            font.family: Theme.font
+                            font.pixelSize: 11
+                            wrapMode: Text.Wrap
+                        }
+
                         Section { text: "Perfil de voz" }
                         Flow {
                             Layout.fillWidth: true
                             spacing: 6
                             Repeater {
                                 model: win.st.profiles || []
-                                delegate: Rectangle {
+                                delegate: Chip {
                                     required property var modelData
                                     required property int index
-                                    readonly property bool active: modelData.id === win.st.profile
-                                    width: chip.implicitWidth + 24
-                                    height: 30
-                                    radius: Theme.radius
-                                    color: active ? Theme.accent : (chipArea.containsMouse ? Theme.surface : "transparent")
-                                    border.color: active ? Theme.accent : Theme.surface
-                                    Text {
-                                        id: chip
-                                        anchors.centerIn: parent
-                                        text: (index < 9 ? (index + 1) + "  " : "") + modelData.name
-                                        color: parent.active ? Theme.background : Theme.foreground
-                                        font.family: Theme.font
-                                        font.pixelSize: 12
-                                    }
-                                    MouseArea {
-                                        id: chipArea
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: backend.send({ c: "profile", id: modelData.id })
-                                    }
+                                    text: (index < 9 ? (index + 1) + "  " : "") + modelData.name
+                                    active: modelData.id === win.st.profile
+                                    onClicked: backend.send({ c: "profile", id: modelData.id })
                                 }
                             }
                         }

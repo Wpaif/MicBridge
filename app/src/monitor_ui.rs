@@ -5,14 +5,14 @@ use crate::monitor::{
 };
 use std::time::Duration;
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct Choices {
-    devices: Vec<Option<OutputDevice>>,
-    labels: Vec<String>,
-    selected: u32,
-    available: bool,
+pub(crate) struct Choices {
+    pub(crate) devices: Vec<Option<OutputDevice>>,
+    pub(crate) labels: Vec<String>,
+    pub(crate) selected: u32,
+    pub(crate) available: bool,
 }
 impl Choices {
-    fn new(snapshot: &DeviceSnapshot, selected: Option<&OutputDevice>) -> Self {
+    pub(crate) fn new(snapshot: &DeviceSnapshot, selected: Option<&OutputDevice>) -> Self {
         let mut c = Self {
             devices: vec![None],
             labels: vec!["Escolha uma saída".into()],
@@ -45,13 +45,17 @@ impl Choices {
         c
     }
 }
-struct Presentation {
-    active: bool,
-    can_toggle: bool,
-    can_restore: bool,
-    text: String,
+pub(crate) struct Presentation {
+    pub(crate) active: bool,
+    pub(crate) can_toggle: bool,
+    pub(crate) can_restore: bool,
+    pub(crate) text: String,
 }
-fn presentation(status: &MonitorStatus, connected: bool, available: bool) -> Presentation {
+pub(crate) fn presentation(
+    status: &MonitorStatus,
+    connected: bool,
+    available: bool,
+) -> Presentation {
     let active = matches!(status.phase, MonitorPhase::Opening | MonitorPhase::Active);
     let text = match status.phase {
         MonitorPhase::Disabled => "Retorno desligado".into(),
@@ -84,16 +88,16 @@ fn presentation(status: &MonitorStatus, connected: bool, available: bool) -> Pre
 }
 // Keep the user's pending intent stable across intermediate worker cleanup states.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum PendingAction {
+pub(crate) enum PendingAction {
     Starting(u64),
     Stopping,
     Recovering,
 }
 impl PendingAction {
-    fn active(self) -> bool {
+    pub(crate) fn active(self) -> bool {
         matches!(self, Self::Starting(_))
     }
-    fn text(self) -> &'static str {
+    pub(crate) fn text(self) -> &'static str {
         if self.active() {
             "Preparando saída exclusiva…"
         } else {
@@ -102,11 +106,11 @@ impl PendingAction {
     }
 }
 #[derive(Default)]
-struct RefreshSchedule {
-    last: Option<Duration>,
+pub(crate) struct RefreshSchedule {
+    pub(crate) last: Option<Duration>,
 }
 impl RefreshSchedule {
-    fn due(&mut self, now: Duration, active: bool, busy: bool) -> bool {
+    pub(crate) fn due(&mut self, now: Duration, active: bool, busy: bool) -> bool {
         if busy {
             return false;
         }

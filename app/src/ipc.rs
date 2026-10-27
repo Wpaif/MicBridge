@@ -8,6 +8,8 @@
 //! mudança de estado (no máximo 10 vezes por segundo, por causa dos medidores).
 
 use crate::dsp::Preset;
+use crate::monitor::MonitorPhase;
+use crate::monitor_ui::{Choices, PendingAction, RefreshSchedule};
 use crate::profiles::Library;
 use crate::settings;
 use crate::state::{Link, Shared};
@@ -61,6 +63,16 @@ pub struct Daemon {
     quitting: AtomicBool,
     readout: Mutex<crate::effect_ui::Readout>,
     started: std::time::Instant,
+    monitor: Arc<Mutex<MonitorControl>>,
+}
+
+/// Mesmo ciclo do painel GTK de retorno: ação em curso, erro da última tentativa
+/// e consulta periódica das saídas.
+#[derive(Default)]
+struct MonitorControl {
+    pending: Option<PendingAction>,
+    error: Option<String>,
+    schedule: RefreshSchedule,
 }
 
 impl Daemon {
@@ -95,6 +107,7 @@ impl Daemon {
                 shared.generation(),
             )),
             started: std::time::Instant::now(),
+            monitor: Arc::default(),
             shared,
         })
     }
@@ -154,6 +167,52 @@ impl Daemon {
                 };
                 flag.store(on, Relaxed);
             }
+            "monitor_output" => {
+                // Pelo id do node: a lista pode ter mudado desde que a UI a desenhou.
+                let id = msg["id"].as_u64();
+                let target = self
+                    .shared
+                    .devices
+                    .snapshot()
+                    .devices
+                    .into_iter()
+                    .chain(self.shared.monitor_output())
+                    .find(|d| Some(u64::from(d.id)) == id);
+                if id.is_some() && target.is_none() {
+                    return Err("Saída não encontrada".into());
+                }
+                self.shared.select_monitor_output(target);
+                self.monitor.lock().unwrap().error = None;
+            }
+            "monitor" => self.toggle_monitor(on),
+            "monitor_volume" => {
+                let value = msg["value"].as_f64().ok_or("valor ausente")?;
+                self.shared.monitor.set_volume(value as f32);
+            }
+            "monitor_refresh" => {
+                if !self.shared.devices.snapshot().busy {
+                    let mut control = self.monitor.lock().unwrap();
+                    control.schedule.last = Some(self.started.elapsed());
+                    control.error = None;
+                    self.shared.devices.refresh();
+                }
+            }
+            "monitor_retry" => {
+                let mut control = self.monitor.lock().unwrap();
+                if control.pending.is_some() || !self.shared.monitor.status().restore_pending {
+                    return Ok(());
+                }
+                control.pending = Some(PendingAction::Recovering);
+                let done = self.shared.monitor.retry_restore();
+                let monitor = self.monitor.clone();
+                tokio::spawn(async move {
+                    let _ = done.await;
+                    let mut control = monitor.lock().unwrap();
+                    if control.pending == Some(PendingAction::Recovering) {
+                        control.pending = None;
+                    }
+                });
+            }
             "tune" => {
                 let p = &self.shared.params;
                 let value = msg["value"].as_f64().ok_or("valor ausente")? as f32;
@@ -186,6 +245,95 @@ impl Daemon {
             other => return Err(format!("comando desconhecido: {other}")),
         }
         Ok(())
+    }
+
+    fn toggle_monitor(&self, on: bool) {
+        let mut control = self.monitor.lock().unwrap();
+        // Um clique por vez: enquanto prepara ou restaura, o pedido é ignorado.
+        if control.pending.is_some() {
+            return;
+        }
+        control.error = None;
+        if on {
+            let result = self
+                .shared
+                .monitor_output()
+                .ok_or_else(|| "Escolha uma saída para o retorno".to_string())
+                .and_then(|target| self.shared.start_monitor(target));
+            match result {
+                Ok(id) => control.pending = Some(PendingAction::Starting(id)),
+                Err(e) => control.error = Some(e),
+            }
+        } else {
+            control.pending = Some(PendingAction::Stopping);
+            self.shared.stop_monitor();
+            let done = self.shared.monitor.stop_and_wait();
+            let monitor = self.monitor.clone();
+            tokio::spawn(async move {
+                let _ = done.await;
+                let mut control = monitor.lock().unwrap();
+                if control.pending == Some(PendingAction::Stopping) {
+                    control.pending = None;
+                }
+            });
+        }
+    }
+
+    /// Espelha o `update` do painel GTK: o que pode ser clicado e qual mensagem mostrar.
+    fn monitor_state(&self, connected: bool) -> Value {
+        let m = self.shared.monitor.status();
+        let mut control = self.monitor.lock().unwrap();
+        if let Some(PendingAction::Starting(id)) = control.pending {
+            let settled = matches!(m.phase, MonitorPhase::Active | MonitorPhase::Failed);
+            if settled || !self.shared.local_audio.monitor_requested(id) {
+                control.pending = None;
+            }
+        }
+        let action = control.pending;
+        let transitioning =
+            action.is_some() || matches!(m.phase, MonitorPhase::Opening | MonitorPhase::Restoring);
+        let snapshot = self.shared.devices.snapshot();
+        if control.schedule.due(
+            self.started.elapsed(),
+            m.phase == MonitorPhase::Active,
+            snapshot.busy,
+        ) {
+            self.shared.devices.refresh();
+        }
+        let choices = Choices::new(&snapshot, self.shared.monitor_output().as_ref());
+        let available = choices.available && snapshot.error.is_none() && !snapshot.busy;
+        let view = crate::monitor_ui::presentation(&m, connected, available);
+        let message = if let Some(action) = action {
+            action.text().to_string()
+        } else if m.phase == MonitorPhase::Restoring {
+            view.text.clone()
+        } else {
+            control
+                .error
+                .clone()
+                .or_else(|| m.error.clone())
+                .or_else(|| snapshot.error.clone())
+                .unwrap_or(view.text)
+        };
+        let outputs: Vec<Value> = choices
+            .devices
+            .iter()
+            .zip(&choices.labels)
+            .skip(1)
+            .map(|(d, label)| json!({ "id": d.as_ref().map(|d| d.id), "label": label }))
+            .collect();
+        json!({
+            "active": action.map(PendingAction::active).unwrap_or(view.active),
+            "can_toggle": view.can_toggle && !transitioning,
+            "can_retry": view.can_restore && !transitioning,
+            "can_choose": choices.devices.len() > 1 && !transitioning,
+            "can_refresh": !snapshot.busy && !transitioning,
+            "busy": transitioning,
+            "selected": self.shared.monitor_output().map(|d| d.id),
+            "outputs": outputs,
+            "volume": m.volume_percent.round(),
+            "message": message,
+        })
     }
 
     fn qr(&self) -> Value {
@@ -265,6 +413,7 @@ impl Daemon {
                 "makeup_db": p.makeup_db(),
             },
             "activity": activity,
+            "monitor": self.monitor_state(st.link == Link::Connected),
             // Níveis arredondados para não reenviar o estado por ruído de ponto flutuante.
             "in": (p.in_level() * 1000.0).round() / 1000.0,
             "out": (p.out_level() * 1000.0).round() / 1000.0,
@@ -394,6 +543,75 @@ mod tests {
         assert_eq!(saved.selected, "bruto");
         assert!(d.handle(r#"{"c":"profile","id":"inexistente"}"#).is_err());
         assert_eq!(d.state()["profile"], "bruto");
+    }
+
+    fn with_output(f: &Fixture) -> Arc<Daemon> {
+        use crate::monitor::{Monitor, devices::DeviceCatalog};
+        use crate::recording::playback::Playback;
+        let query: crate::monitor::devices::DeviceQuery =
+            Arc::new(|| Box::pin(async { Ok(vec![crate::local_audio::tests::output()]) }));
+        let shared = Shared::with_audio_services(
+            Monitor::with_executable(f.executable.clone()),
+            Playback::with_command(f.executable.clone(), vec![]),
+            DeviceCatalog::with_query(query),
+        );
+        shared.devices.refresh();
+        crate::audio_test::wait(|| !shared.devices.snapshot().busy);
+        Daemon::with_settings(Arc::new(shared), f.dir.join("settings.json"))
+    }
+
+    #[test]
+    fn monitor_output_is_chosen_by_node_id_and_requires_connection() {
+        let f = Fixture::new(crate::audio_test::SLEEP);
+        let d = with_output(&f);
+        let mon = d.monitor_state(false);
+        assert_eq!(mon["outputs"][0]["label"], "Fone");
+        assert_eq!(mon["can_toggle"], false, "sem saída escolhida");
+        assert!(d.handle(r#"{"c":"monitor_output","id":999}"#).is_err());
+        d.handle(r#"{"c":"monitor_output","id":1}"#).unwrap();
+        assert_eq!(d.monitor_state(false)["selected"], 1);
+        // Desconectado: o pedido não abre a saída e a mensagem explica por quê.
+        d.handle(r#"{"c":"monitor","on":true}"#).unwrap();
+        let mon = d.monitor_state(false);
+        assert_eq!(mon["active"], false);
+        assert_eq!(mon["message"], "Conecte o celular para ativar o retorno");
+        // Trocar a saída limpa o erro anterior; null desmarca.
+        d.handle(r#"{"c":"monitor_output","id":null}"#).unwrap();
+        let mon = d.monitor_state(false);
+        assert!(mon["selected"].is_null());
+        assert_eq!(mon["message"], "Retorno desligado");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn monitor_starts_and_stops_while_connected() {
+        let f = Fixture::new(crate::audio_test::SLEEP);
+        let d = with_output(&f);
+        d.shared.set_link(Link::Connected);
+        d.handle(r#"{"c":"monitor_output","id":1}"#).unwrap();
+        d.handle(r#"{"c":"monitor","on":true}"#).unwrap();
+        assert_eq!(
+            d.monitor_state(true)["active"],
+            true,
+            "otimista enquanto prepara"
+        );
+        crate::audio_test::wait(|| d.shared.monitor.status().phase == MonitorPhase::Active);
+        let mon = d.monitor_state(true);
+        assert_eq!(mon["busy"], false);
+        assert_eq!(mon["message"], "Retorno exclusivo em Fone");
+        d.handle(r#"{"c":"monitor","on":false}"#).unwrap();
+        assert_eq!(d.monitor_state(true)["active"], false);
+        crate::audio_test::wait(|| d.monitor_state(true)["busy"] == false);
+        assert_eq!(d.shared.monitor.status().phase, MonitorPhase::Disabled);
+        d.shared.stop_audio_tools();
+    }
+
+    #[test]
+    fn monitor_volume_is_clamped() {
+        let f = Fixture::new("exit 0");
+        let d = daemon(&f);
+        d.handle(r#"{"c":"monitor_volume","value":140}"#).unwrap();
+        assert_eq!(d.monitor_state(false)["volume"], 100.0);
+        assert!(d.handle(r#"{"c":"monitor_volume"}"#).is_err());
     }
 
     #[test]

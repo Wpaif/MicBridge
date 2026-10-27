@@ -22,6 +22,11 @@ ShellRoot {
             : link === "error" ? Theme.urgent
             : (link === "connecting" || link === "reconnecting") ? Theme.warn : Theme.muted
 
+        function effect(key) { return st.effects ? st.effects[key] === true : false }
+        function setEffect(key, on) { backend.send({ c: "effect", name: key, on: on }) }
+        function tuning(key) { return st.tuning ? st.tuning[key] : 0 }
+        function activity(key) { return st.activity ? st.activity[key] : "" }
+
         Item {
             anchors.fill: parent
             focus: true
@@ -193,25 +198,94 @@ ShellRoot {
                             font.pixelSize: 11
                         }
 
-                        Section { text: "Tratamento" }
-                        Repeater {
-                            model: [
-                                { key: "denoise", title: "Redução de ruído", hint: "RNNoise" },
-                                { key: "highpass", title: "Filtro de graves", hint: "Corta rumble abaixo de ~80 Hz" },
-                                { key: "gate", title: "Gate", hint: "Fecha o microfone no silêncio" },
-                                { key: "deesser", title: "De-esser", hint: "Suaviza sibilantes" },
-                                { key: "presence", title: "Presença", hint: "Realça a inteligibilidade (~3 kHz)" },
-                                { key: "compressor", title: "Compressor", hint: "Nivela picos de volume" },
-                                { key: "auto_gain", title: "Volume automático", hint: "Mantém o volume constante" }
-                            ]
-                            delegate: Toggle {
-                                required property var modelData
-                                Layout.fillWidth: true
-                                title: modelData.title
-                                hint: modelData.hint
-                                checked: win.st.effects ? win.st.effects[modelData.key] : false
-                                onToggled: on => backend.send({ c: "effect", name: modelData.key, on: on })
-                            }
+                        Section { text: "Limpeza" }
+                        Toggle {
+                            Layout.fillWidth: true
+                            title: "Redução de ruído"
+                            hint: "RNNoise"
+                            checked: win.effect("denoise")
+                            onToggled: on => win.setEffect("denoise", on)
+                        }
+                        Toggle {
+                            Layout.fillWidth: true
+                            title: "Filtro de graves"
+                            hint: "Corta rumble abaixo de ~80 Hz"
+                            checked: win.effect("highpass")
+                            onToggled: on => win.setEffect("highpass", on)
+                        }
+                        Toggle {
+                            Layout.fillWidth: true
+                            title: "Noise gate"
+                            hint: win.activity("gate")
+                            checked: win.effect("gate")
+                            onToggled: on => win.setEffect("gate", on)
+                        }
+                        Slider {
+                            Layout.fillWidth: true
+                            title: "Limiar do gate"
+                            from: -80; to: -20; step: 1; unit: " dB"
+                            value: win.tuning("gate_db")
+                            enabled: win.effect("gate")
+                            onMoved: v => backend.send({ c: "tune", name: "gate_db", value: v })
+                        }
+
+                        Section { text: "Tom" }
+                        Toggle {
+                            Layout.fillWidth: true
+                            title: "Suavizar chiados (\"s\")"
+                            hint: "De-esser"
+                            checked: win.effect("deesser")
+                            onToggled: on => win.setEffect("deesser", on)
+                        }
+                        Toggle {
+                            Layout.fillWidth: true
+                            title: "Realçar clareza da voz"
+                            hint: "Presença (~3 kHz)"
+                            checked: win.effect("presence")
+                            onToggled: on => win.setEffect("presence", on)
+                        }
+
+                        Section { text: "Dinâmica" }
+                        Toggle {
+                            Layout.fillWidth: true
+                            title: "Compressor"
+                            hint: win.activity("compressor")
+                            checked: win.effect("compressor")
+                            onToggled: on => win.setEffect("compressor", on)
+                        }
+                        Slider {
+                            Layout.fillWidth: true
+                            title: "Limiar"
+                            from: -50; to: 0; step: 1; unit: " dB"
+                            value: win.tuning("threshold_db")
+                            enabled: win.effect("compressor")
+                            onMoved: v => backend.send({ c: "tune", name: "threshold_db", value: v })
+                        }
+                        Slider {
+                            Layout.fillWidth: true
+                            title: "Razão"
+                            from: 1; to: 10; step: 0.5; unit: ":1"
+                            value: win.tuning("ratio")
+                            enabled: win.effect("compressor")
+                            onMoved: v => backend.send({ c: "tune", name: "ratio", value: v })
+                        }
+
+                        Section { text: "Volume" }
+                        Toggle {
+                            Layout.fillWidth: true
+                            title: "Volume automático"
+                            hint: win.activity("auto_gain")
+                            checked: win.effect("auto_gain")
+                            onToggled: on => win.setEffect("auto_gain", on)
+                        }
+                        // O ganho manual só vale com o volume automático desligado.
+                        Slider {
+                            Layout.fillWidth: true
+                            title: "Ganho manual"
+                            from: 0; to: 24; step: 1; unit: " dB"
+                            value: win.tuning("makeup_db")
+                            enabled: !win.effect("auto_gain")
+                            onMoved: v => backend.send({ c: "tune", name: "makeup_db", value: v })
                         }
                     }
                 }

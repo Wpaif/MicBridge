@@ -190,20 +190,24 @@ mod tests {
 
 use crate::dsp::Params;
 use adw::prelude::*;
-pub struct Indicators {
-    rows: [glib::WeakRef<adw::SwitchRow>; 3],
+/// Textos de atuação de gate, compressor e volume automático, sem widgets:
+/// a interface GTK e o daemon Quickshell mostram as mesmas leituras.
+pub struct Readout {
     activity: Activity,
 }
-impl Indicators {
-    pub fn new(params: &Params, generation: u64, rows: [&adw::SwitchRow; 3]) -> Self {
-        let mut result = Self {
-            rows: rows.map(|r| r.downgrade()),
+impl Readout {
+    pub fn new(params: &Params, generation: u64) -> Self {
+        Self {
             activity: Activity::new(generation, params.effect_reading().frames),
-        };
-        result.update(params, generation, false, Duration::ZERO);
-        result
+        }
     }
-    pub fn update(&mut self, params: &Params, generation: u64, connected: bool, now: Duration) {
+    pub fn read(
+        &mut self,
+        params: &Params,
+        generation: u64,
+        connected: bool,
+        now: Duration,
+    ) -> [String; 3] {
         use std::sync::atomic::Ordering::Relaxed;
         let reading = params.effect_reading();
         let fresh = self
@@ -211,11 +215,25 @@ impl Indicators {
             .observe_effects(reading, generation, connected, now);
         let flags = [&params.gate, &params.compressor, &params.auto_gain].map(|v| v.load(Relaxed));
         let value = presentation(reading.levels, flags, fresh);
-        for (row, subtitle) in self
-            .rows
-            .iter()
-            .zip([value.gate, value.compressor, value.auto_gain])
-        {
+        [value.gate, value.compressor, value.auto_gain]
+    }
+}
+pub struct Indicators {
+    rows: [glib::WeakRef<adw::SwitchRow>; 3],
+    readout: Readout,
+}
+impl Indicators {
+    pub fn new(params: &Params, generation: u64, rows: [&adw::SwitchRow; 3]) -> Self {
+        let mut result = Self {
+            rows: rows.map(|r| r.downgrade()),
+            readout: Readout::new(params, generation),
+        };
+        result.update(params, generation, false, Duration::ZERO);
+        result
+    }
+    pub fn update(&mut self, params: &Params, generation: u64, connected: bool, now: Duration) {
+        let texts = self.readout.read(params, generation, connected, now);
+        for (row, subtitle) in self.rows.iter().zip(texts) {
             if let Some(row) = row.upgrade() {
                 if row.subtitle().as_deref() != Some(subtitle.as_str()) {
                     row.set_subtitle(&subtitle);

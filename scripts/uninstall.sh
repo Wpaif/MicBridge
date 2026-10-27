@@ -75,6 +75,7 @@ fi
 
 # Binário, atalho do menu e autostart.
 rm -f "$BIN" "$DESKTOP" "$AUTOSTART"
+rm -rf "$DATA_HOME/micbridge/ui"
 
 # Ícones: SVG e PNGs raster instalados pelo install.sh.
 rm -f "$ICON_ROOT/scalable/apps/$APP_ID.svg"

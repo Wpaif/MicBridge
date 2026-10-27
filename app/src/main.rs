@@ -3,6 +3,7 @@ mod audio_test;
 mod connection_sidebar;
 mod dsp;
 mod effect_ui;
+mod ipc;
 mod jitter;
 mod local_audio;
 mod monitor;
@@ -46,6 +47,10 @@ pub fn local_ip() -> String {
 fn main() -> glib::ExitCode {
     tracing_subscriber::fmt::init();
     let hidden = std::env::args().any(|a| a == "--hidden");
+    // Interface Quickshell (tiling WMs): o motor vira daemon e a UI é um processo `qs`.
+    if std::env::args().any(|a| a == "--quickshell") {
+        return run_daemon(!hidden);
+    }
 
     // Instância única: registra no D-Bus antes de subir servidores e bandeja.
     // Se já houver uma instância rodando, apenas pede que ela mostre a janela.
@@ -137,6 +142,70 @@ fn main() -> glib::ExitCode {
     if let Err(e) = rt.block_on(final_shared.local_audio.shutdown_and_wait()) {
         tracing::warn!("restauração pendente: {e}");
     }
+    drop(rt);
+    code
+}
+
+/// Motor sem GTK: servidor web, microfone virtual, bandeja e socket da UI Quickshell.
+fn run_daemon(show: bool) -> glib::ExitCode {
+    // Instância única: se o socket responde, só pede a janela.
+    if ipc::ask_running_instance(if show { "show" } else { "ping" }) {
+        return glib::ExitCode::SUCCESS;
+    }
+    let shared = Arc::new(Shared::new());
+    let daemon = ipc::Daemon::new(shared.clone());
+    let rt = tokio::runtime::Runtime::new().expect("tokio");
+    rt.spawn(output::supervise_virtual_mic(shared.clone()));
+    rt.spawn(output::supervise_mdns());
+    let s = shared.clone();
+    rt.spawn(async move {
+        let ip = local_ip().parse().ok();
+        if let Err(e) = server::serve(s, ip, WEB_PORT).await {
+            tracing::error!("servidor: {e:#}");
+        }
+    });
+    let (tray_tx, tray_rx) = async_channel::unbounded();
+    rt.spawn(tray::spawn(tray_tx, shared.clone()));
+    let d = daemon.clone();
+    rt.spawn(async move {
+        while let Ok(ev) = tray_rx.recv().await {
+            match ev {
+                tray::TrayEvent::Show => d.show_ui(),
+                tray::TrayEvent::Quit => d.request_quit(),
+            }
+        }
+    });
+    let d = daemon.clone();
+    rt.spawn(async move {
+        use tokio::signal::unix::{SignalKind, signal};
+        let (Ok(mut term), Ok(mut int)) = (
+            signal(SignalKind::terminate()),
+            signal(SignalKind::interrupt()),
+        ) else {
+            return;
+        };
+        tokio::select! { _ = term.recv() => {}, _ = int.recv() => {} }
+        d.request_quit();
+    });
+    let d = daemon.clone();
+    let code = rt.block_on(async move {
+        let serving = tokio::spawn(d.clone().serve());
+        if show {
+            d.show_ui();
+        }
+        tokio::select! {
+            _ = d.quit.notified() => glib::ExitCode::SUCCESS,
+            r = serving => {
+                tracing::error!("socket da interface: {r:?}");
+                glib::ExitCode::FAILURE
+            }
+        }
+    });
+    shared.stop_audio_tools();
+    if let Err(e) = rt.block_on(shared.local_audio.shutdown_and_wait()) {
+        tracing::warn!("restauração pendente: {e}");
+    }
+    let _ = std::fs::remove_file(ipc::socket_path());
     drop(rt);
     code
 }

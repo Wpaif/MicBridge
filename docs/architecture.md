@@ -43,11 +43,21 @@ preserva os pontos de captura, sem compensar o atraso interno do denoiser.
 | Perfis personalizados e preferências | [profiles.rs](../app/src/profiles.rs), [settings.rs](../app/src/settings.rs) |
 | Tema, paletas e diálogo de aparência | [theme.rs](../app/src/theme.rs), [theme_ui.rs](../app/src/theme_ui.rs) |
 | Colunas, lateral fixa e widgets compartilhados | [studio_layout.rs](../app/src/studio_layout.rs), [connection_sidebar.rs](../app/src/connection_sidebar.rs), [widgets.rs](../app/src/widgets.rs) |
+| Daemon e protocolo da interface Quickshell | [ipc.rs](../app/src/ipc.rs), [app/ui](../app/ui/) |
 | Bandeja e ícone | [tray.rs](../app/src/tray.rs), [tray_icon.rs](../app/src/tray_icon.rs) |
 
 Os arquivos `*_ui.rs` apresentam os modelos e coordenadores na interface. Estado
 de transição de áudio não é confirmado apenas pelo clique: a interface aguarda
 a conclusão das operações correspondentes.
+
+### Interface Quickshell
+
+`micbridge --quickshell` sobe o mesmo motor sem GTK e abre um socket Unix em
+`$XDG_RUNTIME_DIR/micbridge.sock` (0600). A janela é um processo `qs -p app/ui`
+que conversa com ele por JSON, uma mensagem por linha: o daemon envia `qr` e
+`state` quando mudam (no máximo 10 vezes por segundo) e a UI envia comandos como
+`{"c":"mute","on":true}` ou `{"c":"profile","id":"chamada"}`. Uma segunda execução
+encontra o socket e só pede `show`.
 
 ## Concorrência e recuperação
 

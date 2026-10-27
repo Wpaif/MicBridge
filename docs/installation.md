@@ -38,6 +38,26 @@ O script compila em release, encerra a instância instalada em execução e inst
 | Atalho | `$XDG_DATA_HOME/applications/dev.wilian.MicBridge.desktop` |
 | Ícones SVG e PNG | `$XDG_DATA_HOME/icons/hicolor/` |
 
+| Interface QML (só Quickshell) | `$XDG_DATA_HOME/micbridge/ui/` |
+
+### Interface: GTK ou Quickshell
+
+O instalador escolhe a interface pelo ambiente. Em tiling WMs (Hyprland, Sway,
+niri, river...) usa a interface [Quickshell](https://quickshell.org), inspirada no
+[Flea](https://github.com/thisisgm/flea), que segue as cores do tema Omarchy. Em
+GNOME, KDE e outros desktops completos usa GTK4/libadwaita. Sem o `qs` instalado,
+cai para GTK. Para forçar uma delas:
+
+```sh
+./scripts/install.sh --ui=quickshell   # ou --ui=gtk
+```
+
+No modo Quickshell o atalho executa `micbridge --quickshell`: o motor roda como
+daemon com a bandeja e a janela é um processo `qs` à parte. Fechar a janela não
+desliga o microfone; use **Sair** na bandeja. A interface Quickshell ainda cobre
+só conexão, pareamento, mute, perfis e efeitos; retorno, teste de voz e edição de
+perfis continuam apenas na interface GTK.
+
 Quando `XDG_DATA_HOME` não está definido, o padrão é `~/.local/share`.
 Abra **MicBridge** pelo menu de aplicativos. A atualização comum preserva os
 dados locais, incluindo perfis, pareamento e certificados.

@@ -55,6 +55,48 @@ pub fn ui_dir() -> PathBuf {
     installed
 }
 
+/// Traz a janela já aberta para frente. No Wayland só o compositor pode fazer
+/// isso, então vale para os que aceitam o pedido por linha de comando.
+fn focus_window() {
+    let window = format!("class:^({})$", crate::APP_ID);
+    let attempts: Vec<(&str, Vec<String>)> =
+        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
+            // Hyprland com config em Lua (0.55+) só aceita a forma hl.dsp; as versões
+            // anteriores, só a antiga. Tenta as duas, como o omarchy-launch-or-focus.
+            vec![
+                (
+                    "hyprctl",
+                    vec![
+                        "dispatch".into(),
+                        format!("hl.dsp.focus({{ window = \"{window}\" }})"),
+                    ],
+                ),
+                (
+                    "hyprctl",
+                    vec!["dispatch".into(), "focuswindow".into(), window],
+                ),
+            ]
+        } else if std::env::var_os("SWAYSOCK").is_some() {
+            vec![(
+                "swaymsg",
+                vec![format!("[app_id=\"^{}$\"] focus", crate::APP_ID)],
+            )]
+        } else {
+            return;
+        };
+    for (program, args) in attempts {
+        let ok = std::process::Command::new(program)
+            .args(args)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        if ok {
+            return;
+        }
+    }
+}
+
 /// Perfis e efeitos ficam aqui no daemon (no GTK eles vivem em `profiles_ui`).
 pub struct Daemon {
     shared: Arc<Shared>,
@@ -136,6 +178,7 @@ impl Daemon {
         if let Some(child) = ui.as_mut()
             && matches!(child.try_wait(), Ok(None))
         {
+            focus_window();
             return;
         }
         let dir = ui_dir();

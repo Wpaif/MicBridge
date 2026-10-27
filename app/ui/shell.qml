@@ -1,4 +1,5 @@
 //@ pragma UseQApplication
+//@ pragma AppId dev.wilian.MicBridge
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Dialogs

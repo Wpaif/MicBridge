@@ -38,21 +38,54 @@ ShellRoot {
 
         readonly property var mon: st.monitor || ({})
         readonly property var rec: st.recording || ({})
+        readonly property var editor: st.editor || ({})
+        // "", "new", "rename" ou "delete": qual edição de perfil está aberta.
+        property string profileEdit: ""
+        // Perfil escolhido com alterações não salvas, aguardando confirmação.
+        property string pendingProfile: ""
+
+        function chooseProfile(id) {
+            if (id === st.profile || !editor.can_select) return
+            if (editor.dirty) pendingProfile = id
+            else backend.send({ c: "profile", id: id })
+        }
+        function editProfile(mode) {
+            var name = ""
+            if (mode === "rename") {
+                var list = st.profiles || []
+                for (var i = 0; i < list.length; i++) if (list[i].id === st.profile) name = list[i].name
+            }
+            nameField.text = name
+            profileEdit = mode
+            nameField.focusInput()
+        }
         function effect(key) { return st.effects ? st.effects[key] === true : false }
         function setEffect(key, on) { backend.send({ c: "effect", name: key, on: on }) }
         function tuning(key) { return st.tuning ? st.tuning[key] : 0 }
         function activity(key) { return st.activity ? st.activity[key] : "" }
 
+        // Fechar o campo de nome devolve o teclado aos atalhos.
+        onProfileEditChanged: if (profileEdit === "") shortcuts.forceActiveFocus()
+
         Item {
+            id: shortcuts
             anchors.fill: parent
             focus: true
             Keys.onPressed: function(e) {
                 var profiles = win.st.profiles || []
-                if (e.key === Qt.Key_Escape || (e.key === Qt.Key_Q && e.modifiers & Qt.ControlModifier)) Qt.quit()
+                // Esc fecha primeiro o que estiver aberto; só depois a janela.
+                if (e.key === Qt.Key_Escape && win.pendingProfile !== "") win.pendingProfile = ""
+                else if (e.key === Qt.Key_Escape && win.profileEdit !== "") win.profileEdit = ""
+                else if (e.key === Qt.Key_Escape && win.rec.confirm) backend.send({ c: "export_confirm", on: false })
+                else if (e.key === Qt.Key_Escape || (e.key === Qt.Key_Q && e.modifiers & Qt.ControlModifier)) Qt.quit()
                 else if (e.key === Qt.Key_M) backend.send({ c: "mute", on: !win.st.muted })
+                else if (e.key === Qt.Key_N && win.editor.can_new) win.editProfile("new")
+                else if (e.key === Qt.Key_S && win.editor.can_save) backend.send({ c: "profile_save" })
+                else if (e.key === Qt.Key_R && win.editor.can_rename) win.editProfile("rename")
+                else if (e.key === Qt.Key_Delete && win.editor.can_delete) win.profileEdit = "delete"
                 else if (e.key === Qt.Key_P) backend.send({ c: "pairing", on: !(win.st.pairing > 0) })
                 else if (e.key >= Qt.Key_1 && e.key <= Qt.Key_9 && profiles[e.key - Qt.Key_1])
-                    backend.send({ c: "profile", id: profiles[e.key - Qt.Key_1].id })
+                    win.chooseProfile(profiles[e.key - Qt.Key_1].id)
                 else return
                 e.accepted = true
             }
@@ -283,39 +316,14 @@ ShellRoot {
                             font.pixelSize: 11
                             wrapMode: Text.Wrap
                         }
-                        // Confirmação de substituição, no lugar do diálogo do GTK.
-                        Rectangle {
+                        Confirm {
                             Layout.fillWidth: true
                             visible: !!win.rec.confirm
-                            implicitHeight: confirmBox.implicitHeight + 20
-                            radius: Theme.radius
-                            color: "transparent"
-                            border.color: Theme.urgent
-                            ColumnLayout {
-                                id: confirmBox
-                                anchors { fill: parent; margins: 10 }
-                                spacing: 6
-                                Text {
-                                    text: "Substituir arquivos do teste?"
-                                    color: Theme.foreground
-                                    font.family: Theme.font
-                                    font.pixelSize: 13
-                                    font.bold: true
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: win.rec.confirm ? win.rec.confirm.original + "\n" + win.rec.confirm.treated : ""
-                                    color: Theme.muted
-                                    font.family: Theme.font
-                                    font.pixelSize: 11
-                                    elide: Text.ElideMiddle
-                                }
-                                Row {
-                                    spacing: 6
-                                    Button { text: "Cancelar"; onClicked: backend.send({ c: "export_confirm", on: false }) }
-                                    Button { text: "Substituir"; accent: true; onClicked: backend.send({ c: "export_confirm", on: true }) }
-                                }
-                            }
+                            title: "Substituir arquivos do teste?"
+                            body: win.rec.confirm ? "Os que já existem serão substituídos.\n" + win.rec.confirm.original + "\n" + win.rec.confirm.treated : ""
+                            action: "Substituir"
+                            onAccepted: backend.send({ c: "export_confirm", on: true })
+                            onRejected: backend.send({ c: "export_confirm", on: false })
                         }
 
                         Section { text: "Perfil de voz" }
@@ -329,7 +337,8 @@ ShellRoot {
                                     required property int index
                                     text: (index < 9 ? (index + 1) + "  " : "") + modelData.name
                                     active: modelData.id === win.st.profile
-                                    onClicked: backend.send({ c: "profile", id: modelData.id })
+                                    enabled: win.editor.can_select || false
+                                    onClicked: win.chooseProfile(modelData.id)
                                 }
                             }
                         }
@@ -343,6 +352,69 @@ ShellRoot {
                             color: Theme.muted
                             font.family: Theme.font
                             font.pixelSize: 11
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: 6
+                            visible: win.profileEdit === ""
+                            Button {
+                                text: "Salvar alterações  ·  S"
+                                accent: true
+                                enabled: win.editor.can_save || false
+                                onClicked: backend.send({ c: "profile_save" })
+                            }
+                            Button {
+                                text: "Salvar como novo…  ·  N"
+                                enabled: win.editor.can_new || false
+                                onClicked: win.editProfile("new")
+                            }
+                            Button {
+                                text: "Renomear…  ·  R"
+                                enabled: win.editor.can_rename || false
+                                onClicked: win.editProfile("rename")
+                            }
+                            Button {
+                                text: "Excluir"
+                                enabled: win.editor.can_delete || false
+                                onClicked: win.profileEdit = "delete"
+                            }
+                        }
+                        NameField {
+                            id: nameField
+                            Layout.fillWidth: true
+                            visible: win.profileEdit === "new" || win.profileEdit === "rename"
+                            action: win.profileEdit === "rename" ? "Renomear" : "Criar perfil"
+                            onAccepted: name => {
+                                backend.send({ c: win.profileEdit === "rename" ? "profile_rename" : "profile_new", name: name })
+                                win.profileEdit = ""
+                            }
+                            onRejected: win.profileEdit = ""
+                        }
+                        Confirm {
+                            Layout.fillWidth: true
+                            visible: win.profileEdit === "delete"
+                            title: "Excluir perfil personalizado?"
+                            body: "O perfil e seus ajustes não salvos serão removidos. O perfil Chamada será ativado."
+                            action: "Excluir"
+                            onAccepted: { backend.send({ c: "profile_delete" }); win.profileEdit = "" }
+                            onRejected: win.profileEdit = ""
+                        }
+                        Confirm {
+                            Layout.fillWidth: true
+                            visible: win.pendingProfile !== ""
+                            title: "Descartar alterações não salvas?"
+                            body: "O perfil salvo será preservado. Os ajustes atuais serão descartados ao trocar de perfil."
+                            action: "Descartar"
+                            onAccepted: { backend.send({ c: "profile", id: win.pendingProfile }); win.pendingProfile = "" }
+                            onRejected: win.pendingProfile = ""
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: win.editor.message || ""
+                            color: win.editor.dirty ? Theme.warn : Theme.muted
+                            font.family: Theme.font
+                            font.pixelSize: 11
+                            wrapMode: Text.Wrap
                         }
 
                         Section { text: "Limpeza" }

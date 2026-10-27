@@ -7,19 +7,21 @@ Rectangle {
     property bool accent: false
     property bool enabled: true
     signal clicked()
+    // Desabilitado, o destaque some: fica igual aos outros botões.
+    readonly property bool _accent: accent && enabled
 
     implicitWidth: label.implicitWidth + 24
     implicitHeight: 30
     radius: Theme.radius
     opacity: enabled ? 1 : 0.4
-    color: accent ? Theme.accent : (area.containsMouse && enabled ? Theme.surface : "transparent")
-    border.color: accent ? Theme.accent : Theme.surface
+    color: _accent ? Theme.accent : (area.containsMouse && enabled ? Theme.surface : "transparent")
+    border.color: _accent ? Theme.accent : Theme.surface
 
     Text {
         id: label
         anchors.centerIn: parent
         text: root.text
-        color: root.accent ? Theme.background : Theme.foreground
+        color: root._accent ? Theme.background : Theme.foreground
         font.family: Theme.font
         font.pixelSize: 12
     }

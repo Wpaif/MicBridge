@@ -69,6 +69,7 @@ pub struct Daemon {
     started: std::time::Instant,
     monitor: Arc<Mutex<MonitorControl>>,
     recording: Arc<Mutex<RecordingControl>>,
+    profile_error: Mutex<Option<String>>,
 }
 
 /// Exportação do teste de voz: a confirmação de substituição fica pendente aqui
@@ -124,6 +125,7 @@ impl Daemon {
             started: std::time::Instant::now(),
             monitor: Arc::default(),
             recording: Arc::default(),
+            profile_error: Mutex::default(),
             shared,
         })
     }
@@ -274,21 +276,90 @@ impl Daemon {
                 }
                 set(p, value.clamp(min, max));
             }
-            "profile" => {
-                let id = msg["id"].as_str().unwrap_or_default();
-                let mut library = self.library.lock().unwrap();
-                let mut candidate = library.clone();
-                candidate.select(id)?;
-                if !self.read_only {
-                    settings::save_profiles_to(&self.settings_path, &candidate)?;
-                }
-                // Trocar de perfil preserva o mute, como na interface GTK.
-                candidate.config()?.apply(&self.shared.params);
-                *library = candidate;
+            name if name.starts_with("profile") => {
+                // Erros de perfil aparecem na janela, não só no log.
+                let result = self.profile_command(name, &msg);
+                *self.profile_error.lock().unwrap() = result.clone().err();
+                return result;
             }
             other => return Err(format!("comando desconhecido: {other}")),
         }
         Ok(())
+    }
+
+    fn profile_command(&self, command: &str, msg: &Value) -> Result<(), String> {
+        let name = msg["name"].as_str().unwrap_or_default();
+        let mut library = self.library.lock().unwrap();
+        if self.read_only {
+            return Err(
+                "Perfis somente leitura: corrija as preferências e reabra o MicBridge".into(),
+            );
+        }
+        let mut candidate = library.clone();
+        let selected = candidate.selected.clone();
+        let current = crate::profiles::Config::capture(&self.shared.params);
+        // Selecionar e criar aplicam o perfil; salvar, renomear e excluir mantêm os ajustes.
+        let apply = match command {
+            "profile" => {
+                candidate.select(msg["id"].as_str().unwrap_or_default())?;
+                true
+            }
+            "profile_new" => {
+                candidate.create(name, current)?;
+                true
+            }
+            "profile_save" => {
+                candidate.update(&selected, current)?;
+                false
+            }
+            "profile_rename" => {
+                candidate.rename(&selected, name)?;
+                false
+            }
+            "profile_delete" => {
+                candidate.delete(&selected)?;
+                true
+            }
+            other => return Err(format!("comando desconhecido: {other}")),
+        };
+        settings::save_profiles_to(&self.settings_path, &candidate)
+            .map_err(|e| format!("Não foi possível salvar: {e}"))?;
+        // Aplicar preserva o mute, como na interface GTK.
+        if apply {
+            candidate.config()?.apply(&self.shared.params);
+        }
+        *library = candidate;
+        Ok(())
+    }
+
+    /// Mesmas regras do painel GTK: perfis de fábrica são protegidos e só um
+    /// perfil personalizado com alterações pode ser salvo por cima.
+    fn profile_state(&self, library: &Library) -> Value {
+        let factory = Preset::from_key(&library.selected).is_some();
+        let dirty = library
+            .config()
+            .is_ok_and(|c| c != crate::profiles::Config::capture(&self.shared.params));
+        let editable = !self.read_only;
+        let message = self.profile_error.lock().unwrap().clone().unwrap_or_else(|| {
+            if self.read_only {
+                "Não foi possível carregar os perfis. O arquivo foi preservado. Corrija as preferências e reabra o aplicativo para salvar perfis.".into()
+            } else if dirty {
+                "Alterações não salvas".into()
+            } else if factory {
+                "Perfil de fábrica · salve uma cópia para personalizar".into()
+            } else {
+                "Perfil salvo".into()
+            }
+        });
+        json!({
+            "dirty": dirty,
+            "can_select": editable,
+            "can_new": editable && library.custom.len() < 32,
+            "can_save": editable && !factory && dirty,
+            "can_rename": editable && !factory,
+            "can_delete": editable && !factory,
+            "message": message,
+        })
     }
 
     fn current_take(&self) -> Option<Arc<crate::recording::Take>> {
@@ -529,6 +600,7 @@ impl Daemon {
             "devices": self.shared.device_count(),
             "muted": p.muted.load(Relaxed),
             "profile": library.selected,
+            "editor": self.profile_state(&library),
             "profiles": profiles,
             "effects": {
                 "denoise": p.denoise.load(Relaxed),
@@ -584,7 +656,9 @@ impl Daemon {
                 if current != *last {
                     let line = format!("{current}\n");
                     if write.write_all(line.as_bytes()).await.is_err() {
-                        reader.abort();
+                        // Quem só manda um comando (`show`) fecha antes de ler:
+                        // os comandos já recebidos ainda são executados.
+                        let _ = reader.await;
                         return;
                     }
                     *last = current;
@@ -622,6 +696,20 @@ mod tests {
 
     fn daemon(f: &Fixture) -> Arc<Daemon> {
         Daemon::with_settings(Arc::new(Shared::new()), f.dir.join("settings.json"))
+    }
+
+    #[tokio::test]
+    async fn command_from_client_that_closes_at_once_is_not_lost() {
+        let f = Fixture::new("exit 0");
+        let d = daemon(&f);
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client
+            .write_all(b"{\"c\":\"mute\",\"on\":true}\n")
+            .await
+            .unwrap();
+        drop(client);
+        d.clone().client(server).await;
+        assert!(d.shared.params.muted.load(Relaxed));
     }
 
     #[test]
@@ -803,15 +891,68 @@ mod tests {
     }
 
     #[test]
+    fn custom_profiles_are_created_saved_renamed_and_deleted() {
+        let f = Fixture::new("exit 0");
+        let d = daemon(&f);
+        let editor = |d: &Daemon| d.state()["editor"].clone();
+        assert_eq!(editor(&d)["can_save"], false, "fábrica é protegida");
+        assert_eq!(editor(&d)["can_rename"], false);
+
+        d.handle(r#"{"c":"tune","name":"ratio","value":9}"#)
+            .unwrap();
+        assert_eq!(editor(&d)["dirty"], true);
+        assert_eq!(editor(&d)["message"], "Alterações não salvas");
+        d.handle(r#"{"c":"profile_new","name":"  Meu perfil "}"#)
+            .unwrap();
+        let state = d.state();
+        let id = state["profile"].as_str().unwrap().to_string();
+        assert!(id.starts_with("custom-"));
+        assert_eq!(state["profiles"][5]["name"], "Meu perfil");
+        assert_eq!(state["editor"]["message"], "Perfil salvo");
+
+        // Nome repetido: o erro aparece na janela e nada muda.
+        assert!(
+            d.handle(r#"{"c":"profile_new","name":"meu PERFIL"}"#)
+                .is_err()
+        );
+        assert_eq!(editor(&d)["message"], "Já existe um perfil com esse nome");
+
+        d.handle(r#"{"c":"tune","name":"ratio","value":3}"#)
+            .unwrap();
+        assert_eq!(editor(&d)["can_save"], true);
+        d.handle(r#"{"c":"profile_save"}"#).unwrap();
+        assert_eq!(editor(&d)["dirty"], false);
+        d.handle(r#"{"c":"profile_rename","name":"Voz baixa"}"#)
+            .unwrap();
+
+        let saved = settings::load_profiles_from(&f.dir.join("settings.json")).unwrap();
+        assert_eq!(saved.custom[0].name, "Voz baixa");
+        assert_eq!(saved.custom[0].config.ratio, 3.0);
+        assert_eq!(saved.selected, id);
+
+        d.handle(r#"{"c":"profile_delete"}"#).unwrap();
+        let saved = settings::load_profiles_from(&f.dir.join("settings.json")).unwrap();
+        assert!(saved.custom.is_empty());
+        assert_eq!(saved.selected, "chamada");
+        assert!(
+            d.handle(r#"{"c":"profile_delete"}"#).is_err(),
+            "fábrica não é excluída"
+        );
+    }
+
+    #[test]
     fn damaged_profiles_file_is_preserved() {
         let f = Fixture::new("exit 0");
         let path = f.dir.join("settings.json");
         let damaged = r#"{"voice_profiles":{"version":99}}"#;
         std::fs::write(&path, damaged).unwrap();
         let d = daemon(&f);
-        assert_eq!(d.state()["read_only"], true);
-        d.handle(r#"{"c":"profile","id":"podcast"}"#).unwrap();
-        assert_eq!(d.state()["profile"], "podcast");
+        let state = d.state();
+        assert_eq!(state["read_only"], true);
+        assert_eq!(state["editor"]["can_select"], false);
+        assert!(d.handle(r#"{"c":"profile","id":"podcast"}"#).is_err());
+        assert!(d.handle(r#"{"c":"profile_new","name":"Meu"}"#).is_err());
+        assert_eq!(d.state()["profile"], "chamada");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), damaged);
     }
 }

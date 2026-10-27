@@ -102,6 +102,7 @@ pub struct Daemon {
     shared: Arc<Shared>,
     library: Mutex<Library>,
     settings_path: PathBuf,
+    autostart_path: PathBuf,
     /// Um arquivo de perfis inválido é preservado: nada é gravado por cima.
     read_only: bool,
     ui: Mutex<Option<std::process::Child>>,
@@ -135,10 +136,14 @@ struct MonitorControl {
 
 impl Daemon {
     pub fn new(shared: Arc<Shared>) -> Arc<Self> {
-        Self::with_settings(shared, settings::path())
+        Self::with_paths(shared, settings::path(), crate::autostart_path())
     }
 
-    fn with_settings(shared: Arc<Shared>, settings_path: PathBuf) -> Arc<Self> {
+    fn with_paths(
+        shared: Arc<Shared>,
+        settings_path: PathBuf,
+        autostart_path: PathBuf,
+    ) -> Arc<Self> {
         let (library, read_only) = match settings::load_profiles_from(&settings_path) {
             Ok(library) => (library, false),
             Err(e) => {
@@ -156,6 +161,7 @@ impl Daemon {
         Arc::new(Self {
             library: Mutex::new(library),
             settings_path,
+            autostart_path,
             read_only,
             ui: Mutex::new(None),
             quit: tokio::sync::Notify::new(),
@@ -213,7 +219,13 @@ impl Daemon {
             "mute" => self.shared.params.muted.store(on, Relaxed),
             "pairing" if on => self.shared.open_pairing(),
             "pairing" => self.shared.close_pairing(),
-            "forget" => self.shared.forget_all(),
+            "forget" => {
+                self.shared.forget_all();
+                // Sem celulares, volta a mostrar o QR, como na interface GTK.
+                self.shared.open_pairing();
+            }
+            "autostart" => crate::write_autostart(&self.autostart_path, on, "--quickshell")
+                .map_err(|e| format!("Não foi possível alterar a inicialização: {e}"))?,
             "effect" => {
                 let p = &self.shared.params;
                 let flag = match msg["name"].as_str().unwrap_or_default() {
@@ -641,6 +653,8 @@ impl Daemon {
             "detail": st.detail,
             "pairing": self.shared.pairing_remaining(),
             "devices": self.shared.device_count(),
+            "autostart": self.autostart_path.exists(),
+            "fingerprint": crate::tls::fingerprint(),
             "muted": p.muted.load(Relaxed),
             "profile": library.selected,
             "editor": self.profile_state(&library),
@@ -738,7 +752,11 @@ mod tests {
     use crate::audio_test::Fixture;
 
     fn daemon(f: &Fixture) -> Arc<Daemon> {
-        Daemon::with_settings(Arc::new(Shared::new()), f.dir.join("settings.json"))
+        Daemon::with_paths(
+            Arc::new(Shared::new()),
+            f.dir.join("settings.json"),
+            f.dir.join("autostart/micbridge.desktop"),
+        )
     }
 
     #[tokio::test]
@@ -822,7 +840,11 @@ mod tests {
         );
         shared.devices.refresh();
         crate::audio_test::wait(|| !shared.devices.snapshot().busy);
-        Daemon::with_settings(Arc::new(shared), f.dir.join("settings.json"))
+        Daemon::with_paths(
+            Arc::new(shared),
+            f.dir.join("settings.json"),
+            f.dir.join("autostart/micbridge.desktop"),
+        )
     }
 
     #[test]
@@ -981,6 +1003,20 @@ mod tests {
             d.handle(r#"{"c":"profile_delete"}"#).is_err(),
             "fábrica não é excluída"
         );
+    }
+
+    #[test]
+    fn autostart_entry_starts_the_daemon_hidden() {
+        let f = Fixture::new("exit 0");
+        let d = daemon(&f);
+        assert_eq!(d.state()["autostart"], false);
+        d.handle(r#"{"c":"autostart","on":true}"#).unwrap();
+        let entry = std::fs::read_to_string(&d.autostart_path).unwrap();
+        assert!(entry.contains(" --quickshell --hidden\n"), "{entry}");
+        assert_eq!(d.state()["autostart"], true);
+        d.handle(r#"{"c":"autostart","on":false}"#).unwrap();
+        d.handle(r#"{"c":"autostart","on":false}"#).unwrap();
+        assert_eq!(d.state()["autostart"], false);
     }
 
     #[test]

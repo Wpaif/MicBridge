@@ -44,6 +44,8 @@ ShellRoot {
         property string profileEdit: ""
         // Perfil escolhido com alterações não salvas, aguardando confirmação.
         property string pendingProfile: ""
+        property bool forgetting: false
+        property bool copied: false
 
         function chooseProfile(id) {
             if (id === st.profile || !editor.can_select) return
@@ -75,7 +77,8 @@ ShellRoot {
             Keys.onPressed: function(e) {
                 var profiles = win.st.profiles || []
                 // Esc fecha primeiro o que estiver aberto; só depois a janela.
-                if (e.key === Qt.Key_Escape && win.pendingProfile !== "") win.pendingProfile = ""
+                if (e.key === Qt.Key_Escape && win.forgetting) win.forgetting = false
+                else if (e.key === Qt.Key_Escape && win.pendingProfile !== "") win.pendingProfile = ""
                 else if (e.key === Qt.Key_Escape && win.profileEdit !== "") win.profileEdit = ""
                 else if (e.key === Qt.Key_Escape && win.rec.confirm) backend.send({ c: "export_confirm", on: false })
                 else if (e.key === Qt.Key_Escape || (e.key === Qt.Key_Q && e.modifiers & Qt.ControlModifier)) Qt.quit()
@@ -171,11 +174,62 @@ ShellRoot {
                         Toggle {
                             Layout.fillWidth: true
                             title: "Aceitar novo celular"
-                            hint: (win.st.devices || 0) + " pareado(s)  ·  P"
+                            hint: "Abre o QR por 5 minutos  ·  P"
                             checked: win.st.pairing > 0
                             onToggled: on => backend.send({ c: "pairing", on: on })
                         }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 10
+                            visible: (win.st.devices || 0) > 0 && !win.forgetting
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                text: win.st.devices === 1 ? "1 celular pareado" : win.st.devices + " celulares pareados"
+                                color: Theme.foreground
+                                font.family: Theme.font
+                                font.pixelSize: 13
+                                elide: Text.ElideRight
+                            }
+                            Button { text: "Esquecer"; onClicked: win.forgetting = true }
+                        }
+                        Confirm {
+                            Layout.fillWidth: true
+                            visible: win.forgetting
+                            title: "Esquecer todos os celulares?"
+                            body: "Eles precisarão ler o QR e parear de novo."
+                            action: "Esquecer"
+                            onAccepted: { backend.send({ c: "forget" }); win.forgetting = false }
+                            onRejected: win.forgetting = false
+                        }
+                        Toggle {
+                            Layout.fillWidth: true
+                            title: "Iniciar com o sistema"
+                            hint: "Abre escondido na bandeja"
+                            checked: win.st.autostart || false
+                            onToggled: on => backend.send({ c: "autostart", on: on })
+                        }
                         Item { Layout.fillHeight: true }
+                        // Confira no celular ao aceitar o aviso do certificado.
+                        Section { text: "Certificado · SHA-256" }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 6
+                            Text {
+                                Layout.fillWidth: true
+                                text: win.st.fingerprint || "aguardando o servidor…"
+                                color: Theme.muted
+                                font.family: Theme.font
+                                font.pixelSize: 10
+                                wrapMode: Text.WrapAnywhere
+                            }
+                            Button {
+                                text: win.copied ? "Copiado" : "Copiar"
+                                enabled: !!win.st.fingerprint
+                                onClicked: { Quickshell.clipboardText = win.st.fingerprint; win.copied = true; copiedTimer.restart() }
+                                Timer { id: copiedTimer; interval: 1500; onTriggered: win.copied = false }
+                            }
+                        }
                     }
                 }
 

@@ -342,27 +342,44 @@ fn show_qr(parent: &adw::ApplicationWindow, url: &str) {
     dialog.present(Some(parent));
 }
 
+/// Mesmo local que o instalador e o desinstalador usam.
 fn autostart_path() -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_default();
-    std::path::PathBuf::from(home).join(".config/autostart/dev.wilian.MicBridge.desktop")
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))
+        .unwrap_or_default()
+        .join("autostart/dev.wilian.MicBridge.desktop")
 }
 
 /// Liga/desliga a inicialização com a sessão (já abre escondido na bandeja).
-fn set_autostart(on: bool) {
-    let path = autostart_path();
-    if on {
-        let exe = std::env::current_exe()
-            .map(|p| p.display().to_string())
-            .unwrap_or("micbridge".into());
-        let entry = format!(
-            "[Desktop Entry]\nType=Application\nName=MicBridge\nExec={exe} --hidden\nIcon={APP_ID}\nX-GNOME-Autostart-enabled=true\n"
-        );
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let _ = std::fs::write(&path, entry);
+/// `args` escolhe a interface: vazio para GTK, `--quickshell` para o daemon.
+fn write_autostart(path: &std::path::Path, on: bool, args: &str) -> std::io::Result<()> {
+    if !on {
+        return match std::fs::remove_file(path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            other => other,
+        };
+    }
+    let exe = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or("micbridge".into());
+    let args = if args.is_empty() {
+        String::new()
     } else {
-        let _ = std::fs::remove_file(&path);
+        format!(" {args}")
+    };
+    let entry = format!(
+        "[Desktop Entry]\nType=Application\nName=MicBridge\nExec={exe}{args} --hidden\nIcon={APP_ID}\nX-GNOME-Autostart-enabled=true\n"
+    );
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, entry)
+}
+
+fn set_autostart(on: bool) {
+    if let Err(e) = write_autostart(&autostart_path(), on, "") {
+        tracing::warn!("inicialização com o sistema: {e}");
     }
 }
 

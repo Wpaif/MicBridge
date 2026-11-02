@@ -56,6 +56,10 @@ impl Sink {
                 "--raw",
                 "--target",
                 SINK,
+                // Sem fallback: se o sink virtual não existir, falha (o ResilientSink
+                // tenta de novo) em vez de cair na saída padrão e tocar a voz no fone.
+                "-P",
+                "{ node.dont-fallback = true node.dont-reconnect = true }",
                 "--rate",
                 "48000",
                 "--channels",

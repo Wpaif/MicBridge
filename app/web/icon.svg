@@ -1,3 +1,19 @@
-<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
-  <rect width="100%" height="100%" fill="red"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Marca abstrata: barras de áudio cujos topos desenham um arco — uma onda sonora que também é uma ponte. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e1b4b"/>
+      <stop offset="1" stop-color="#0b0a1f"/>
+    </linearGradient>
+    <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="20" y1="30" x2="108" y2="100">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset=".5" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#f472b6"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="116" height="116" rx="28" fill="url(#bg)"/>
+  <g fill="url(#ink)">
+    <rect x="24" y="70.0" width="8" height="22.0" rx="4"/><rect x="36" y="40.2" width="8" height="51.8" rx="4"/><rect x="48" y="32.3" width="8" height="59.7" rx="4"/><rect x="60" y="30.0" width="8" height="62.0" rx="4"/><rect x="72" y="32.3" width="8" height="59.7" rx="4"/><rect x="84" y="40.2" width="8" height="51.8" rx="4"/><rect x="96" y="70.0" width="8" height="22.0" rx="4"/>
+  </g>
+  <rect x="20" y="98" width="88" height="6" rx="3" fill="url(#ink)" opacity=".55"/>
 </svg>

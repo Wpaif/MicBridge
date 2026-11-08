@@ -246,333 +246,364 @@ ShellRoot {
 
                 // ── Painel principal: voz ──
                 Flickable {
+                    id: mainView
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     contentHeight: main.implicitHeight + 36
                     clip: true
 
-                    ColumnLayout {
-                        id: main
-                        x: 18; y: 18
-                        width: Math.min(parent.width - 36, 640)
-                        spacing: 6
+                        // Em tela larga as seções viram duas colunas; estreita, empilham.
+                        GridLayout {
+                            id: main
+                            width: Math.min(parent.width - 36, 1400)
+                            x: Math.max(18, (parent.width - width) / 2); y: 18
+                            columns: width >= 900 ? 2 : 1
+                            columnSpacing: 36
+                            rowSpacing: 6
+                            uniformCellWidths: true
 
-                        Section { text: "Saída" }
-                        Meter { Layout.fillWidth: true; label: "entrada"; level: win.st.in || 0 }
-                        Meter { Layout.fillWidth: true; label: "saída"; level: win.st.out || 0 }
-                        Toggle {
-                            Layout.fillWidth: true
-                            title: "Silenciar microfone virtual"
-                            hint: "Retorno e gravação seguem ativos  ·  M"
-                            checked: win.st.muted || false
-                            onToggled: on => backend.send({ c: "mute", on: on })
-                        }
-
-                        Section { text: "Retorno no fone" }
-                        Toggle {
-                            Layout.fillWidth: true
-                            title: "Ouvir a voz tratada"
-                            hint: win.mon.message || ""
-                            checked: win.mon.active || false
-                            enabled: win.mon.can_toggle || false
-                            onToggled: on => backend.send({ c: "monitor", on: on })
-                        }
-                        Flow {
-                            Layout.fillWidth: true
-                            Layout.leftMargin: 10
-                            spacing: 6
-                            Repeater {
-                                model: win.mon.outputs || []
-                                delegate: Chip {
-                                    required property var modelData
-                                    text: modelData.label
-                                    active: modelData.id === win.mon.selected
-                                    enabled: win.mon.can_choose || false
-                                    onClicked: backend.send({ c: "monitor_output", id: active ? null : modelData.id })
-                                }
-                            }
-                            Button {
-                                text: "Atualizar saídas"
-                                enabled: win.mon.can_refresh || false
-                                onClicked: backend.send({ c: "monitor_refresh" })
-                            }
-                            Button {
-                                text: "Restaurar conexões"
-                                accent: true
-                                visible: win.mon.can_retry || false
-                                onClicked: backend.send({ c: "monitor_retry" })
-                            }
-                        }
-                        Slider {
-                            Layout.fillWidth: true
-                            title: "Volume do retorno"
-                            from: 0; to: 100; step: 1; unit: "%"
-                            value: win.mon.volume || 0
-                            onMoved: v => backend.send({ c: "monitor_volume", value: v })
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            Layout.leftMargin: 10
-                            text: "Exclusivo: desconecta outros apps da saída escolhida e os restaura ao parar."
-                            color: Theme.muted
-                            font.family: Theme.font
-                            font.pixelSize: 11
-                            wrapMode: Text.Wrap
-                        }
-
-                        Section { text: "Teste de voz" }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Layout.leftMargin: 10
-                            Layout.rightMargin: 10
-                            spacing: 10
-                            Text {
-                                text: win.rec.caption || ""
-                                color: Theme.foreground
-                                font.family: Theme.font
-                                font.pixelSize: 12
-                            }
-                            Rectangle {
+                            ColumnLayout {
+                                id: voiceColumn
                                 Layout.fillWidth: true
-                                height: 4
-                                radius: 2
-                                color: Theme.surface
-                                Rectangle {
-                                    width: parent.width * (win.rec.progress || 0)
-                                    height: parent.height
-                                    radius: 2
-                                    color: win.rec.can_stop ? Theme.urgent : Theme.accent
+                                Layout.alignment: Qt.AlignTop
+                                spacing: 6
+
+                                Section { text: "Saída" }
+                                Meter { Layout.fillWidth: true; label: "entrada"; level: win.st.in || 0 }
+                                Meter { Layout.fillWidth: true; label: "saída"; level: win.st.out || 0 }
+                                Toggle {
+                                    Layout.fillWidth: true
+                                    title: "Silenciar microfone virtual"
+                                    hint: "Retorno e gravação seguem ativos  ·  M"
+                                    checked: win.st.muted || false
+                                    onToggled: on => backend.send({ c: "mute", on: on })
+                                }
+
+                                Section { text: "Retorno no fone" }
+                                Toggle {
+                                    Layout.fillWidth: true
+                                    title: "Ouvir a voz tratada"
+                                    hint: win.mon.message || ""
+                                    checked: win.mon.active || false
+                                    enabled: win.mon.can_toggle || false
+                                    onToggled: on => backend.send({ c: "monitor", on: on })
+                                }
+                                Flow {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 10
+                                    spacing: 6
+                                    Repeater {
+                                        model: win.mon.outputs || []
+                                        delegate: Chip {
+                                            required property var modelData
+                                            text: modelData.label
+                                            active: modelData.id === win.mon.selected
+                                            enabled: win.mon.can_choose || false
+                                            onClicked: backend.send({ c: "monitor_output", id: active ? null : modelData.id })
+                                        }
+                                    }
+                                    Button {
+                                        text: "Atualizar saídas"
+                                        enabled: win.mon.can_refresh || false
+                                        onClicked: backend.send({ c: "monitor_refresh" })
+                                    }
+                                    Button {
+                                        text: "Restaurar conexões"
+                                        accent: true
+                                        visible: win.mon.can_retry || false
+                                        onClicked: backend.send({ c: "monitor_retry" })
+                                    }
+                                }
+                                Slider {
+                                    Layout.fillWidth: true
+                                    title: "Volume do retorno"
+                                    from: 0; to: 100; step: 1; unit: "%"
+                                    value: win.mon.volume || 0
+                                    onMoved: v => backend.send({ c: "monitor_volume", value: v })
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 10
+                                    text: "Exclusivo: desconecta outros apps da saída escolhida e os restaura ao parar."
+                                    color: Theme.muted
+                                    font.family: Theme.font
+                                    font.pixelSize: 11
+                                    wrapMode: Text.Wrap
+                                }
+
+                                Section { text: "Teste de voz" }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 10
+                                    Layout.rightMargin: 10
+                                    spacing: 10
+                                    Text {
+                                        text: win.rec.caption || ""
+                                        color: Theme.foreground
+                                        font.family: Theme.font
+                                        font.pixelSize: 12
+                                    }
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        height: 4
+                                        radius: 2
+                                        color: Theme.surface
+                                        Rectangle {
+                                            width: parent.width * (win.rec.progress || 0)
+                                            height: parent.height
+                                            radius: 2
+                                            color: win.rec.can_stop ? Theme.urgent : Theme.accent
+                                        }
+                                    }
+                                }
+                                Flow {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 10
+                                    spacing: 6
+                                    Button {
+                                        text: win.rec.can_stop ? "Parar gravação" : "Gravar teste"
+                                        accent: win.rec.can_stop || false
+                                        enabled: win.rec.can_start || win.rec.can_stop || false
+                                        onClicked: backend.send({ c: "record", on: !win.rec.can_stop })
+                                    }
+                                    Chip {
+                                        text: "Ouvir original"
+                                        active: win.rec.playing === "original"
+                                        enabled: win.rec.can_listen || false
+                                        onClicked: backend.send(active ? { c: "stop_play" } : { c: "play", version: "original" })
+                                    }
+                                    Chip {
+                                        text: "Ouvir tratado"
+                                        active: win.rec.playing === "treated"
+                                        enabled: win.rec.can_listen || false
+                                        onClicked: backend.send(active ? { c: "stop_play" } : { c: "play", version: "treated" })
+                                    }
+                                    Button {
+                                        text: "Exportar WAVs"
+                                        enabled: (win.rec.can_export || false) && !win.rec.confirm
+                                        onClicked: exportDialog.open()
+                                    }
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 10
+                                    text: win.rec.message || ""
+                                    color: Theme.muted
+                                    font.family: Theme.font
+                                    font.pixelSize: 11
+                                    wrapMode: Text.Wrap
+                                }
+                                Confirm {
+                                    Layout.fillWidth: true
+                                    visible: !!win.rec.confirm
+                                    title: "Substituir arquivos do teste?"
+                                    body: win.rec.confirm ? "Os que já existem serão substituídos.\n" + win.rec.confirm.original + "\n" + win.rec.confirm.treated : ""
+                                    action: "Substituir"
+                                    onAccepted: backend.send({ c: "export_confirm", on: true })
+                                    onRejected: backend.send({ c: "export_confirm", on: false })
+                                }
+
+                                Section { text: "Perfil de voz" }
+                                Flow {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+                                    Repeater {
+                                        model: win.st.profiles || []
+                                        delegate: Chip {
+                                            required property var modelData
+                                            required property int index
+                                            text: (index < 9 ? (index + 1) + "  " : "") + modelData.name
+                                            active: modelData.id === win.st.profile
+                                            enabled: win.editor.can_select || false
+                                            onClicked: win.chooseProfile(modelData.id)
+                                        }
+                                    }
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: {
+                                        var list = win.st.profiles || []
+                                        for (var i = 0; i < list.length; i++) if (list[i].id === win.st.profile) return list[i].description
+                                        return ""
+                                    }
+                                    color: Theme.muted
+                                    font.family: Theme.font
+                                    font.pixelSize: 11
+                                }
+                                Flow {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+                                    visible: win.profileEdit === ""
+                                    Button {
+                                        text: "Salvar alterações  ·  S"
+                                        accent: true
+                                        enabled: win.editor.can_save || false
+                                        onClicked: backend.send({ c: "profile_save" })
+                                    }
+                                    Button {
+                                        text: "Salvar como novo…  ·  N"
+                                        enabled: win.editor.can_new || false
+                                        onClicked: win.editProfile("new")
+                                    }
+                                    Button {
+                                        text: "Renomear…  ·  R"
+                                        enabled: win.editor.can_rename || false
+                                        onClicked: win.editProfile("rename")
+                                    }
+                                    Button {
+                                        text: "Excluir"
+                                        enabled: win.editor.can_delete || false
+                                        onClicked: win.profileEdit = "delete"
+                                    }
+                                }
+                                NameField {
+                                    id: nameField
+                                    Layout.fillWidth: true
+                                    visible: win.profileEdit === "new" || win.profileEdit === "rename"
+                                    action: win.profileEdit === "rename" ? "Renomear" : "Criar perfil"
+                                    onAccepted: name => {
+                                        backend.send({ c: win.profileEdit === "rename" ? "profile_rename" : "profile_new", name: name })
+                                        win.profileEdit = ""
+                                    }
+                                    onRejected: win.profileEdit = ""
+                                }
+                                Confirm {
+                                    Layout.fillWidth: true
+                                    visible: win.profileEdit === "delete"
+                                    title: "Excluir perfil personalizado?"
+                                    body: "O perfil e seus ajustes não salvos serão removidos. O perfil Chamada será ativado."
+                                    action: "Excluir"
+                                    onAccepted: { backend.send({ c: "profile_delete" }); win.profileEdit = "" }
+                                    onRejected: win.profileEdit = ""
+                                }
+                                Confirm {
+                                    Layout.fillWidth: true
+                                    visible: win.pendingProfile !== ""
+                                    title: "Descartar alterações não salvas?"
+                                    body: "O perfil salvo será preservado. Os ajustes atuais serão descartados ao trocar de perfil."
+                                    action: "Descartar"
+                                    onAccepted: { backend.send({ c: "profile", id: win.pendingProfile }); win.pendingProfile = "" }
+                                    onRejected: win.pendingProfile = ""
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: win.editor.message || ""
+                                    color: win.editor.dirty ? Theme.warn : Theme.muted
+                                    font.family: Theme.font
+                                    font.pixelSize: 11
+                                    wrapMode: Text.Wrap
                                 }
                             }
-                        }
-                        Flow {
-                            Layout.fillWidth: true
-                            Layout.leftMargin: 10
-                            spacing: 6
-                            Button {
-                                text: win.rec.can_stop ? "Parar gravação" : "Gravar teste"
-                                accent: win.rec.can_stop || false
-                                enabled: win.rec.can_start || win.rec.can_stop || false
-                                onClicked: backend.send({ c: "record", on: !win.rec.can_stop })
-                            }
-                            Chip {
-                                text: "Ouvir original"
-                                active: win.rec.playing === "original"
-                                enabled: win.rec.can_listen || false
-                                onClicked: backend.send(active ? { c: "stop_play" } : { c: "play", version: "original" })
-                            }
-                            Chip {
-                                text: "Ouvir tratado"
-                                active: win.rec.playing === "treated"
-                                enabled: win.rec.can_listen || false
-                                onClicked: backend.send(active ? { c: "stop_play" } : { c: "play", version: "treated" })
-                            }
-                            Button {
-                                text: "Exportar WAVs"
-                                enabled: (win.rec.can_export || false) && !win.rec.confirm
-                                onClicked: exportDialog.open()
-                            }
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            Layout.leftMargin: 10
-                            text: win.rec.message || ""
-                            color: Theme.muted
-                            font.family: Theme.font
-                            font.pixelSize: 11
-                            wrapMode: Text.Wrap
-                        }
-                        Confirm {
-                            Layout.fillWidth: true
-                            visible: !!win.rec.confirm
-                            title: "Substituir arquivos do teste?"
-                            body: win.rec.confirm ? "Os que já existem serão substituídos.\n" + win.rec.confirm.original + "\n" + win.rec.confirm.treated : ""
-                            action: "Substituir"
-                            onAccepted: backend.send({ c: "export_confirm", on: true })
-                            onRejected: backend.send({ c: "export_confirm", on: false })
-                        }
 
-                        Section { text: "Perfil de voz" }
-                        Flow {
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Repeater {
-                                model: win.st.profiles || []
-                                delegate: Chip {
-                                    required property var modelData
-                                    required property int index
-                                    text: (index < 9 ? (index + 1) + "  " : "") + modelData.name
-                                    active: modelData.id === win.st.profile
-                                    enabled: win.editor.can_select || false
-                                    onClicked: win.chooseProfile(modelData.id)
+                            ColumnLayout {
+                                id: effectsColumn
+                                Layout.fillWidth: true
+                                Layout.alignment: Qt.AlignTop
+                                spacing: 6
+
+                                Section { text: "Limpeza" }
+                                Toggle {
+                                    Layout.fillWidth: true
+                                    title: "Redução de ruído"
+                                    hint: "RNNoise"
+                                    checked: win.effect("denoise")
+                                    onToggled: on => win.setEffect("denoise", on)
+                                }
+                                Toggle {
+                                    Layout.fillWidth: true
+                                    title: "Filtro de graves"
+                                    hint: "Corta rumble abaixo de ~80 Hz"
+                                    checked: win.effect("highpass")
+                                    onToggled: on => win.setEffect("highpass", on)
+                                }
+                                Toggle {
+                                    Layout.fillWidth: true
+                                    title: "Noise gate"
+                                    hint: win.activity("gate")
+                                    checked: win.effect("gate")
+                                    onToggled: on => win.setEffect("gate", on)
+                                }
+                                Slider {
+                                    Layout.fillWidth: true
+                                    title: "Limiar do gate"
+                                    from: -80; to: -20; step: 1; unit: " dB"
+                                    value: win.tuning("gate_db")
+                                    enabled: win.effect("gate")
+                                    onMoved: v => backend.send({ c: "tune", name: "gate_db", value: v })
+                                }
+
+                                Section { text: "Tom" }
+                                Toggle {
+                                    Layout.fillWidth: true
+                                    title: "Suavizar chiados (\"s\")"
+                                    hint: "De-esser"
+                                    checked: win.effect("deesser")
+                                    onToggled: on => win.setEffect("deesser", on)
+                                }
+                                Toggle {
+                                    Layout.fillWidth: true
+                                    title: "Realçar clareza da voz"
+                                    hint: "Presença (~3 kHz)"
+                                    checked: win.effect("presence")
+                                    onToggled: on => win.setEffect("presence", on)
+                                }
+
+                                Section { text: "Dinâmica" }
+                                Toggle {
+                                    Layout.fillWidth: true
+                                    title: "Compressor"
+                                    hint: win.activity("compressor")
+                                    checked: win.effect("compressor")
+                                    onToggled: on => win.setEffect("compressor", on)
+                                }
+                                Slider {
+                                    Layout.fillWidth: true
+                                    title: "Limiar"
+                                    from: -50; to: 0; step: 1; unit: " dB"
+                                    value: win.tuning("threshold_db")
+                                    enabled: win.effect("compressor")
+                                    onMoved: v => backend.send({ c: "tune", name: "threshold_db", value: v })
+                                }
+                                Slider {
+                                    Layout.fillWidth: true
+                                    title: "Razão"
+                                    from: 1; to: 10; step: 0.5; unit: ":1"
+                                    value: win.tuning("ratio")
+                                    enabled: win.effect("compressor")
+                                    onMoved: v => backend.send({ c: "tune", name: "ratio", value: v })
+                                }
+
+                                Section { text: "Volume" }
+                                Toggle {
+                                    Layout.fillWidth: true
+                                    title: "Volume automático"
+                                    hint: win.activity("auto_gain")
+                                    checked: win.effect("auto_gain")
+                                    onToggled: on => win.setEffect("auto_gain", on)
+                                }
+                                // O ganho manual só vale com o volume automático desligado.
+                                Slider {
+                                    Layout.fillWidth: true
+                                    title: "Ganho manual"
+                                    from: 0; to: 24; step: 1; unit: " dB"
+                                    value: win.tuning("makeup_db")
+                                    enabled: !win.effect("auto_gain")
+                                    onMoved: v => backend.send({ c: "tune", name: "makeup_db", value: v })
                                 }
                             }
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            text: {
-                                var list = win.st.profiles || []
-                                for (var i = 0; i < list.length; i++) if (list[i].id === win.st.profile) return list[i].description
-                                return ""
-                            }
-                            color: Theme.muted
-                            font.family: Theme.font
-                            font.pixelSize: 11
-                        }
-                        Flow {
-                            Layout.fillWidth: true
-                            spacing: 6
-                            visible: win.profileEdit === ""
-                            Button {
-                                text: "Salvar alterações  ·  S"
-                                accent: true
-                                enabled: win.editor.can_save || false
-                                onClicked: backend.send({ c: "profile_save" })
-                            }
-                            Button {
-                                text: "Salvar como novo…  ·  N"
-                                enabled: win.editor.can_new || false
-                                onClicked: win.editProfile("new")
-                            }
-                            Button {
-                                text: "Renomear…  ·  R"
-                                enabled: win.editor.can_rename || false
-                                onClicked: win.editProfile("rename")
-                            }
-                            Button {
-                                text: "Excluir"
-                                enabled: win.editor.can_delete || false
-                                onClicked: win.profileEdit = "delete"
-                            }
-                        }
-                        NameField {
-                            id: nameField
-                            Layout.fillWidth: true
-                            visible: win.profileEdit === "new" || win.profileEdit === "rename"
-                            action: win.profileEdit === "rename" ? "Renomear" : "Criar perfil"
-                            onAccepted: name => {
-                                backend.send({ c: win.profileEdit === "rename" ? "profile_rename" : "profile_new", name: name })
-                                win.profileEdit = ""
-                            }
-                            onRejected: win.profileEdit = ""
-                        }
-                        Confirm {
-                            Layout.fillWidth: true
-                            visible: win.profileEdit === "delete"
-                            title: "Excluir perfil personalizado?"
-                            body: "O perfil e seus ajustes não salvos serão removidos. O perfil Chamada será ativado."
-                            action: "Excluir"
-                            onAccepted: { backend.send({ c: "profile_delete" }); win.profileEdit = "" }
-                            onRejected: win.profileEdit = ""
-                        }
-                        Confirm {
-                            Layout.fillWidth: true
-                            visible: win.pendingProfile !== ""
-                            title: "Descartar alterações não salvas?"
-                            body: "O perfil salvo será preservado. Os ajustes atuais serão descartados ao trocar de perfil."
-                            action: "Descartar"
-                            onAccepted: { backend.send({ c: "profile", id: win.pendingProfile }); win.pendingProfile = "" }
-                            onRejected: win.pendingProfile = ""
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            text: win.editor.message || ""
-                            color: win.editor.dirty ? Theme.warn : Theme.muted
-                            font.family: Theme.font
-                            font.pixelSize: 11
-                            wrapMode: Text.Wrap
-                        }
 
-                        Section { text: "Limpeza" }
-                        Toggle {
-                            Layout.fillWidth: true
-                            title: "Redução de ruído"
-                            hint: "RNNoise"
-                            checked: win.effect("denoise")
-                            onToggled: on => win.setEffect("denoise", on)
+                            // Ocupa a altura que sobra abaixo das colunas, com um mínimo legível.
+                            History {
+                                Layout.columnSpan: main.columns
+                                Layout.fillWidth: true
+                                Layout.topMargin: 12
+                                Layout.preferredHeight: Math.max(160, mainView.height - 36 - 12 - main.rowSpacing
+                                    - (main.columns > 1 ? Math.max(voiceColumn.implicitHeight, effectsColumn.implicitHeight)
+                                       : voiceColumn.implicitHeight + main.rowSpacing + effectsColumn.implicitHeight))
+                                input: win.st.in || 0
+                                output: win.st.out || 0
+                            }
                         }
-                        Toggle {
-                            Layout.fillWidth: true
-                            title: "Filtro de graves"
-                            hint: "Corta rumble abaixo de ~80 Hz"
-                            checked: win.effect("highpass")
-                            onToggled: on => win.setEffect("highpass", on)
-                        }
-                        Toggle {
-                            Layout.fillWidth: true
-                            title: "Noise gate"
-                            hint: win.activity("gate")
-                            checked: win.effect("gate")
-                            onToggled: on => win.setEffect("gate", on)
-                        }
-                        Slider {
-                            Layout.fillWidth: true
-                            title: "Limiar do gate"
-                            from: -80; to: -20; step: 1; unit: " dB"
-                            value: win.tuning("gate_db")
-                            enabled: win.effect("gate")
-                            onMoved: v => backend.send({ c: "tune", name: "gate_db", value: v })
-                        }
-
-                        Section { text: "Tom" }
-                        Toggle {
-                            Layout.fillWidth: true
-                            title: "Suavizar chiados (\"s\")"
-                            hint: "De-esser"
-                            checked: win.effect("deesser")
-                            onToggled: on => win.setEffect("deesser", on)
-                        }
-                        Toggle {
-                            Layout.fillWidth: true
-                            title: "Realçar clareza da voz"
-                            hint: "Presença (~3 kHz)"
-                            checked: win.effect("presence")
-                            onToggled: on => win.setEffect("presence", on)
-                        }
-
-                        Section { text: "Dinâmica" }
-                        Toggle {
-                            Layout.fillWidth: true
-                            title: "Compressor"
-                            hint: win.activity("compressor")
-                            checked: win.effect("compressor")
-                            onToggled: on => win.setEffect("compressor", on)
-                        }
-                        Slider {
-                            Layout.fillWidth: true
-                            title: "Limiar"
-                            from: -50; to: 0; step: 1; unit: " dB"
-                            value: win.tuning("threshold_db")
-                            enabled: win.effect("compressor")
-                            onMoved: v => backend.send({ c: "tune", name: "threshold_db", value: v })
-                        }
-                        Slider {
-                            Layout.fillWidth: true
-                            title: "Razão"
-                            from: 1; to: 10; step: 0.5; unit: ":1"
-                            value: win.tuning("ratio")
-                            enabled: win.effect("compressor")
-                            onMoved: v => backend.send({ c: "tune", name: "ratio", value: v })
-                        }
-
-                        Section { text: "Volume" }
-                        Toggle {
-                            Layout.fillWidth: true
-                            title: "Volume automático"
-                            hint: win.activity("auto_gain")
-                            checked: win.effect("auto_gain")
-                            onToggled: on => win.setEffect("auto_gain", on)
-                        }
-                        // O ganho manual só vale com o volume automático desligado.
-                        Slider {
-                            Layout.fillWidth: true
-                            title: "Ganho manual"
-                            from: 0; to: 24; step: 1; unit: " dB"
-                            value: win.tuning("makeup_db")
-                            enabled: !win.effect("auto_gain")
-                            onMoved: v => backend.send({ c: "tune", name: "makeup_db", value: v })
-                        }
-                    }
                 }
             }
         }

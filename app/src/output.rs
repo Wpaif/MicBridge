@@ -194,6 +194,47 @@ pub async fn supervise_virtual_mic(shared: std::sync::Arc<crate::state::Shared>)
     }
 }
 
+async fn pactl(args: &[&str]) -> Option<String> {
+    let out = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        Command::new("pactl").args(args).kill_on_drop(true).output(),
+    )
+    .await;
+    let Ok(Ok(out)) = out else { return None };
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+}
+
+/// Torna o MicBridge o microfone padrão do sistema enquanto o celular está em uso
+/// (e move para ele os apps que já estavam gravando). Ao desconectar, devolve o anterior.
+pub async fn supervise_default_source(shared: std::sync::Arc<crate::state::Shared>) {
+    let mut previous: Option<String> = None;
+    loop {
+        let current = pactl(&["get-default-source"]).await;
+        if shared.busy() {
+            if let Some(cur) = current.filter(|c| c != SOURCE) {
+                previous.get_or_insert(cur);
+                if pactl(&["set-default-source", SOURCE]).await.is_some() {
+                    tracing::info!("microfone padrão -> {SOURCE}");
+                    let outputs = pactl(&["list", "short", "source-outputs"]).await;
+                    for id in outputs.iter().flat_map(|o| o.lines()) {
+                        let Some(id) = id.split_whitespace().next() else { continue };
+                        pactl(&["move-source-output", id, SOURCE]).await;
+                    }
+                }
+            }
+        } else if let Some(prev) = previous.take() {
+            // Só restaura se ninguém trocou o padrão nesse meio tempo.
+            if current.as_deref() == Some(SOURCE) {
+                pactl(&["set-default-source", &prev]).await;
+                tracing::info!("microfone padrão restaurado -> {prev}");
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+}
+
 /// `avahi-daemon` está rodando? (necessário para anunciar o nome `micbridge.local`)
 pub fn avahi_active() -> bool {
     std::process::Command::new("systemctl")

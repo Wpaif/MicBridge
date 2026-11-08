@@ -77,6 +77,7 @@ fn main() -> glib::ExitCode {
     let s = shared.clone();
     // Supervisor: cria o microfone virtual e o recria se o node do PipeWire sumir.
     rt.spawn(output::supervise_virtual_mic(shared.clone()));
+    rt.spawn(output::supervise_default_source(shared.clone()));
     rt.spawn(output::supervise_mdns());
     rt.spawn(async move {
         let ip = local_ip().parse().ok();
@@ -156,6 +157,7 @@ fn run_daemon(show: bool) -> glib::ExitCode {
     let daemon = ipc::Daemon::new(shared.clone());
     let rt = tokio::runtime::Runtime::new().expect("tokio");
     rt.spawn(output::supervise_virtual_mic(shared.clone()));
+    rt.spawn(output::supervise_default_source(shared.clone()));
     rt.spawn(output::supervise_mdns());
     let s = shared.clone();
     rt.spawn(async move {

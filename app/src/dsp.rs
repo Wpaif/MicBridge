@@ -40,6 +40,16 @@ pub const EQ_PRESETS: [(&str, &str, [f32; 3]); 4] = [
 ];
 const COMP_ATTACK_MS: f32 = 5.0;
 const COMP_RELEASE_MS: f32 = 120.0;
+/// O RNNoise apaga sílabas fracas (numa voz real, 23% do quarto mais baixo da
+/// fala na Chamada). Parte do sinal original volta quando ele acha que há voz:
+/// `DENOISE_DRY_VOICE` × a probabilidade de voz acima de `DENOISE_DRY_KNEE`.
+/// Medido: corte cai para 19%. Sem o limiar caía para 16%, mas o RNNoise dá
+/// alguma probabilidade de voz até a ruído puro e a separação despencava
+/// (zumbido 60 Hz de +45 para +17 dB). Critérios por energia acima do piso de
+/// ruído e voz mais alta na entrada não ajudaram.
+const DENOISE_DRY_VOICE: f32 = 0.5;
+const DENOISE_DRY_KNEE: f32 = 0.3;
+const DENOISE_DB_PER_PERCENT: f32 = 0.6;
 const LIMITER_RELEASE_MS: f32 = 50.0;
 const LIMITER_CEILING_DB: f32 = -1.0;
 /// Amostra de entrada a partir da qual o áudio do celular conta como saturado.
@@ -88,6 +98,9 @@ pub struct Params {
     makeup_db: AtomicU32,
     /// Ganho de cada banda do equalizador em dB: [graves, médios, agudos].
     eq_db: [AtomicU32; 3],
+    /// Força da redução de ruído, 0-100 %: abaixo de 100, parte do original
+    /// sempre volta (como o "wet" do EasyEffects, mas alinhado ao atraso).
+    denoise_strength: AtomicU32,
 
     /// RMS linear da entrada e da saída.
     pub in_level: AtomicU32,
@@ -141,6 +154,7 @@ impl Default for Params {
             comp_ratio: atomic_f32(6.0),
             makeup_db: atomic_f32(10.0),
             eq_db: [atomic_f32(0.0), atomic_f32(0.0), atomic_f32(0.0)],
+            denoise_strength: atomic_f32(100.0),
 
             in_level: atomic_f32(0.0),
             gate_in_level: atomic_f32(0.0),
@@ -241,6 +255,7 @@ impl Params {
         self.set_comp_threshold_db(thr);
         self.set_comp_ratio(ratio);
         self.set_makeup_db(if ag { 0.0 } else { 6.0 });
+        self.set_denoise_strength(100.0);
         // Presets não usam o equalizador: voltam com ele desligado e plano.
         self.eq.store(false, Relaxed);
         for band in 0..3 {
@@ -266,6 +281,15 @@ impl Params {
     pub fn set_makeup_db(&self, v: f32) {
         self.makeup_db
             .store(finite_clamp(v, 0.0, 24.0, 10.0).to_bits(), Relaxed);
+    }
+
+    pub fn set_denoise_strength(&self, v: f32) {
+        self.denoise_strength
+            .store(finite_clamp(v, 0.0, 100.0, 100.0).to_bits(), Relaxed);
+    }
+
+    pub fn denoise_strength(&self) -> f32 {
+        finite_clamp(load_f32(&self.denoise_strength), 0.0, 100.0, 100.0)
     }
 
     /// Ganho de uma banda do equalizador (0 graves, 1 médios, 2 agudos).
@@ -504,6 +528,11 @@ impl Biquad {
 
 pub struct Processor {
     denoiser: Box<DenoiseState<'static>>,
+    /// Entrada do RNNoise no quadro anterior: a saída dele sai um quadro atrasada,
+    /// e o sinal original só pode voltar alinhado com ela.
+    dry_prev: [f32; FRAME],
+    /// Probabilidade de voz do RNNoise, suavizada.
+    vad: f32,
 
     gate_gain: f32,
     gate_open: bool,
@@ -548,6 +577,8 @@ impl Processor {
     pub fn new() -> Self {
         Self {
             denoiser: DenoiseState::new(),
+            dry_prev: [0.0; FRAME],
+            vad: 0.0,
 
             gate_gain: 0.0,
             gate_open: false,
@@ -611,15 +642,36 @@ impl Processor {
                 *dst = *src * 32768.0;
             }
 
-            self.denoiser.process_frame(&mut output, &input);
+            let vad = self.denoiser.process_frame(&mut output, &input);
+            // Sobe rápido para não atrasar o começo da sílaba; desce devagar para
+            // segurar o fim das palavras.
+            let k = if vad > self.vad { 0.6 } else { 0.08 };
+            self.vad += k * (vad.clamp(0.0, 1.0) - self.vad);
+            let by_voice = DENOISE_DRY_VOICE
+                * ((self.vad - DENOISE_DRY_KNEE) / (1.0 - DENOISE_DRY_KNEE)).clamp(0.0, 1.0);
+            // Força em limite de atenuação (como o atten_lim_db do DeepFilterNet):
+            // 100 % sem limite; cada ponto abaixo libera 0,6 dB (50 % = 30 dB).
+            let strength = p.denoise_strength();
+            let floor = if strength >= 100.0 {
+                0.0
+            } else {
+                db_to_lin(-DENOISE_DB_PER_PERCENT * strength)
+            };
+            let dry = by_voice.max(floor);
 
-            for (dst, src) in frame.iter_mut().zip(output.iter()) {
-                *dst = if src.is_finite() {
+            let prev = std::mem::replace(&mut self.dry_prev, [0.0; FRAME]);
+            self.dry_prev.copy_from_slice(frame);
+            for ((dst, src), d) in frame.iter_mut().zip(output.iter()).zip(prev) {
+                let wet = if src.is_finite() {
                     (*src / 32768.0).clamp(-4.0, 4.0)
                 } else {
                     0.0
                 };
+                *dst = wet + dry * (d - wet);
             }
+        } else {
+            self.dry_prev = [0.0; FRAME];
+            self.vad = 0.0;
         }
 
         // 2. Noise gate.
@@ -924,6 +976,31 @@ mod tests {
         }
     }
 
+    #[test]
+    fn rnnoise_output_lags_input_by_exactly_one_frame() {
+        // O original volta com um quadro de atraso; se o RNNoise mudar de atraso,
+        // a mistura vira filtro pente e este teste avisa.
+        let mut d = DenoiseState::new();
+        let mut x = vec![0.0_f32; FRAME * 6];
+        for (i, s) in x.iter_mut().enumerate().skip(FRAME * 2) {
+            *s = 8000.0 * (i as f32 * 0.07).sin() * (i as f32 * 0.0013).sin();
+        }
+        let mut y = vec![0.0_f32; x.len()];
+        for (o, i) in y
+            .as_chunks_mut::<FRAME>()
+            .0
+            .iter_mut()
+            .zip(x.as_chunks::<FRAME>().0)
+        {
+            d.process_frame(o, i);
+        }
+        let corr = |lag: usize| -> f32 { (0..x.len() - lag).map(|i| x[i] * y[i + lag]).sum() };
+        let best = (0..2 * FRAME)
+            .max_by(|&a, &b| corr(a).total_cmp(&corr(b)))
+            .unwrap();
+        assert_eq!(best, FRAME);
+    }
+
     fn gate_only() -> Params {
         let p = Params::default();
         p.apply_preset(Preset::Bruto);
@@ -1038,7 +1115,7 @@ mod tests {
                 .iter()
                 .map(|b| format!("{b:02x}"))
                 .collect::<String>(),
-            "619cc6c77ef5c1406c7f5840f1a86dab333ba0f1ad9c51138dabd2ab91bae40e"
+            "39d945639009e6f5038805ce7a312221fa8f92177370530c246204fc50d6a849"
         );
     }
     #[test]

@@ -56,7 +56,7 @@ acende com o efeito ligado:
 | Canal | Efeito e controles |
 |---|---|
 | Graves | Passa-altas: atenua rumble e vibrações abaixo de ~80 Hz. |
-| Ruído | RNNoise para atenuar ruído de fundo. |
+| Ruído | RNNoise para atenuar ruído de fundo. Quando ele detecta voz, devolve parte do som original, para não apagar sílabas fracas e finais de palavra. Não separa vozes ao fundo: para ele, outra pessoa falando também é fala. O fader **força** (100% por padrão) limita quanto ele atenua: abaixo de 100% passa um pouco de ruído e corta menos a fala fraca. Duplo clique volta a 100%. |
 | Gate | Atenua o sinal abaixo do limiar (fader), com sustentação para pausas curtas. O LED fica verde aberto, amarelo em espera e vermelho fechado. |
 | De-esser | Suaviza sibilantes. |
 | Presença | Realce de clareza em ~3 kHz. |

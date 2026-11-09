@@ -22,6 +22,12 @@ pub struct Config {
     /// Ganho das bandas em dB: [graves, médios, agudos].
     #[serde(default)]
     pub eq_db: [f32; 3],
+    /// Força da redução de ruído (%); perfis antigos carregam com 100.
+    #[serde(default = "full_strength")]
+    pub denoise_strength: f32,
+}
+fn full_strength() -> f32 {
+    100.0
 }
 impl Config {
     pub fn capture(p: &Params) -> Self {
@@ -39,6 +45,7 @@ impl Config {
             makeup_db: p.makeup_db(),
             eq: p.eq.load(Relaxed),
             eq_db: p.eq_db(),
+            denoise_strength: p.denoise_strength(),
         }
     }
     pub fn apply(&self, p: &Params) {
@@ -53,6 +60,7 @@ impl Config {
         p.set_comp_threshold_db(self.threshold_db);
         p.set_comp_ratio(self.ratio);
         p.set_makeup_db(self.makeup_db);
+        p.set_denoise_strength(self.denoise_strength);
         p.eq.store(self.eq, Relaxed);
         for (band, db) in self.eq_db.into_iter().enumerate() {
             p.set_eq_db(band, db);
@@ -67,6 +75,7 @@ impl Config {
             (self.eq_db[0], -crate::dsp::EQ_MAX_DB, crate::dsp::EQ_MAX_DB),
             (self.eq_db[1], -crate::dsp::EQ_MAX_DB, crate::dsp::EQ_MAX_DB),
             (self.eq_db[2], -crate::dsp::EQ_MAX_DB, crate::dsp::EQ_MAX_DB),
+            (self.denoise_strength, 0.0, 100.0),
         ] {
             if !value.is_finite() || !(min..=max).contains(&value) {
                 return Err("Configuração de áudio fora dos limites permitidos".into());
@@ -193,6 +202,19 @@ impl Library {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profiles_saved_before_new_fields_load_with_safe_defaults() {
+        // Perfil gravado antes do EQ e da força da redução de ruído.
+        let old = r#"{"denoise":true,"highpass":true,"gate":true,"deesser":true,
+            "presence":true,"compressor":true,"auto_gain":true,"gate_db":-50.0,
+            "threshold_db":-20.0,"ratio":4.0,"makeup_db":0.0}"#;
+        let c: Config = serde_json::from_str(old).unwrap();
+        assert!(!c.eq);
+        assert_eq!(c.eq_db, [0.0; 3]);
+        assert_eq!(c.denoise_strength, 100.0);
+        assert!(c.validate().is_ok());
+    }
     use crate::dsp::{Params, Preset};
     use std::sync::atomic::Ordering::Relaxed;
 
@@ -204,6 +226,7 @@ mod tests {
             params.set_gate_db(-63.0);
             params.set_comp_threshold_db(-31.0);
             params.set_comp_ratio(3.5);
+            params.set_denoise_strength(55.0);
             params.set_makeup_db(13.0);
             let snapshot = Config::capture(&params);
             params.apply_preset(Preset::Natural);

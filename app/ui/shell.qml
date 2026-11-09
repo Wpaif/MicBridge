@@ -834,6 +834,16 @@ ShellRoot {
                                         hint: "RNNoise\nremove o ruído de fundo"
                                         on: win.effect("denoise")
                                         onToggled: on => win.setEffect("denoise", on)
+                                        // Abaixo de 100 % deixa passar um pouco de ruído em troca de
+                                        // preservar sílabas fracas; duplo clique volta a 100 %.
+                                        Fader {
+                                            Layout.fillHeight: true
+                                            label: "força"
+                                            from: 0; to: 100; step: 5; unit: "%"; home: 100
+                                            value: win.tuning("denoise_strength")
+                                            enabled: win.effect("denoise")
+                                            onMoved: v => backend.send({ c: "tune", name: "denoise_strength", value: v })
+                                        }
                                     }
                                     Strip {
                                         Layout.fillWidth: true

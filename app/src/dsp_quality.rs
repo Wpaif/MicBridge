@@ -438,8 +438,9 @@ fn treatment_separates_voice_from_each_kind_of_noise() {
     // impede que isso piore.
     let min = |kind| match kind {
         Noise::White | Noise::Pink => 15.0,
-        Noise::Brown | Noise::Blue | Noise::Hum => 30.0,
-        Noise::Violet => 55.0,
+        Noise::Brown | Noise::Hum => 30.0,
+        Noise::Blue => 25.0,
+        Noise::Violet => 50.0,
         Noise::Keyboard => 6.0,
         Noise::Babble => -10.0,
     };
@@ -531,6 +532,58 @@ fn real_voice_report() {
         println!("  {kind:?}: {}", row.join(" | "));
     }
 
+    println!("\nfala preservada (sua voz sem ruído somado):");
+    // Original é o controle (deve dar ~0%); as variações da Chamada mostram quem corta.
+    let mut rows: Vec<(String, Params)> = std::iter::once(Preset::Bruto)
+        .chain(SPEAKING)
+        .map(|pr| (format!("{pr:?}"), preset(pr)))
+        .collect();
+    for (name, off) in [
+        ("Chamada sem gate", "gate"),
+        ("Chamada sem RNNoise", "denoise"),
+    ] {
+        let p = preset(Preset::Chamada);
+        match off {
+            "gate" => p.gate.store(false, Relaxed),
+            _ => p.denoise.store(false, Relaxed),
+        }
+        rows.push((name.into(), p));
+    }
+    // Cada efeito sozinho, sobre o Original: separa quem corta de quem só nivela.
+    for (name, flag) in [
+        ("só passa-altas", "highpass"),
+        ("só RNNoise", "denoise"),
+        ("só gate", "gate"),
+        ("só ganho automático", "auto_gain"),
+        ("só compressor", "compressor"),
+    ] {
+        let p = preset(Preset::Bruto);
+        p.set_makeup_db(0.0);
+        let chamada = preset(Preset::Chamada);
+        p.set_gate_db(chamada.gate_threshold());
+        match flag {
+            "highpass" => p.highpass.store(true, Relaxed),
+            "denoise" => p.denoise.store(true, Relaxed),
+            "gate" => p.gate.store(true, Relaxed),
+            "auto_gain" => p.auto_gain.store(true, Relaxed),
+            _ => p.compressor.store(true, Relaxed),
+        }
+        rows.push((name.into(), p));
+    }
+    for (name, p) in &rows {
+        let (all, weak, cut) = speech_kept(&v, &process(p, &v), &mask);
+        // Para ouvir o que a Chamada corta: só os trechos cortados, com 150 ms entre eles.
+        if let (Ok(out), "Chamada") = (std::env::var("MICBRIDGE_CUTS"), name.as_str()) {
+            write_cuts(&out, &v, &cut);
+            println!("  (trechos cortados pela Chamada gravados em {out})");
+        }
+        println!(
+            "  {name}: {:.0}% cortada no geral, {:.0}% no quarto mais baixo da fala",
+            all * 100.0,
+            weak * 100.0
+        );
+    }
+
     println!("\natalhos do EQ na sua voz (graves / agudos, em relação ao Plano):");
     let run = |id: &str| {
         let p = preset(Preset::Bruto);
@@ -543,4 +596,94 @@ fn real_voice_report() {
         let (lo, hi) = run(id);
         println!("  {label}: {:+.1} / {:+.1} dB", lo - lo0, hi - hi0);
     }
+}
+
+/// Fração dos frames de fala que o tratamento cortou: ganho (saída - entrada) mais
+/// de 10 dB abaixo da mediana do ganho na fala dos 250 ms em volta. Comparar com a
+/// vizinhança, e não com a gravação toda, separa corte (súbito) de nivelamento do
+/// ganho automático (lento), que baixa de propósito os trechos mais altos. Devolve (toda a fala, quarto mais
+/// baixo dela), porque o gate costuma comer primeiro as sílabas fracas. O RNNoise
+/// atrasa o sinal; a comparação usa o atraso, em frames, que melhor alinha os dois.
+fn speech_kept(input: &[f32], output: &[f32], mask: &[bool]) -> (f32, f32, Vec<usize>) {
+    let frame_db = |x: &[f32]| -> Vec<f32> {
+        x.as_chunks::<FRAME>()
+            .0
+            .iter()
+            .map(|f| db(rms(f)))
+            .collect()
+    };
+    let (a, b) = (frame_db(input), frame_db(output));
+    let speech: Vec<usize> = (0..a.len()).filter(|&i| mask[i]).collect();
+    let lag = (0..4)
+        .max_by_key(|&l| {
+            let c: f32 = speech
+                .iter()
+                .filter(|&&i| i + l < b.len())
+                .map(|&i| a[i] * b[i + l])
+                .sum();
+            // Correlação dos níveis em dB (negativos): menor soma = mais parecidos.
+            (-c * 1000.0) as i64
+        })
+        .unwrap_or(0);
+    let frames: Vec<usize> = speech
+        .iter()
+        .copied()
+        .filter(|&i| i + lag < b.len())
+        .collect();
+    let gains: Vec<(f32, f32)> = frames.iter().map(|&i| (a[i], b[i + lag] - a[i])).collect();
+    // Índices em `gains` seguem a ordem do tempo; vizinhos = ±25 frames de fala.
+    let flags: Vec<(f32, bool)> = (0..gains.len())
+        .map(|k| {
+            let mut near: Vec<f32> = gains[k.saturating_sub(25)..(k + 26).min(gains.len())]
+                .iter()
+                .map(|g| g.1)
+                .collect();
+            near.sort_by(f32::total_cmp);
+            (gains[k].0, gains[k].1 < near[near.len() / 2] - 10.0)
+        })
+        .collect();
+    let frac = |g: &[(f32, bool)]| g.iter().filter(|x| x.1).count() as f32 / g.len().max(1) as f32;
+    let mut by_level = flags.clone();
+    by_level.sort_by(|x, y| x.0.total_cmp(&y.0));
+    let cut = frames
+        .iter()
+        .zip(&flags)
+        .filter(|(_, f)| f.1)
+        .map(|(&i, _)| i)
+        .collect();
+    (frac(&flags), frac(&by_level[..by_level.len() / 4]), cut)
+}
+
+/// Grava os frames `cut` da entrada, juntando vizinhos e separando grupos com silêncio.
+fn write_cuts(path: &str, x: &[f32], cut: &[usize]) {
+    let frames = x.as_chunks::<FRAME>().0;
+    let gap = vec![0.0_f32; (0.15 * SAMPLE_RATE) as usize];
+    let mut pcm: Vec<f32> = Vec::new();
+    for (k, &i) in cut.iter().enumerate() {
+        if k > 0 && cut[k - 1] + 1 != i {
+            pcm.extend_from_slice(&gap);
+        }
+        pcm.extend_from_slice(&frames[i]);
+    }
+    let wav = crate::recording::wav::encode(&pcm).unwrap();
+    std::fs::write(path, wav).unwrap_or_else(|e| panic!("{path}: {e}"));
+}
+
+#[test]
+fn lower_denoise_strength_lets_more_noise_through_gradually() {
+    // Medido com zumbido 60 Hz na Chamada: 100 % +37, 75 % +35, 50 % +27, 25 % +13 dB.
+    let (_, mask, mix) = voice_with(Noise::Hum);
+    let (s0, p0) = levels(&mix, &mask);
+    let sep = |strength| {
+        let p = preset(Preset::Chamada);
+        p.set_denoise_strength(strength);
+        let (s, pp) = levels(&process(&p, &mix), &mask);
+        (s - pp) - (s0 - p0)
+    };
+    let [full, half, low] = [100.0, 50.0, 25.0].map(sep);
+    assert!(
+        full > half + 3.0 && half > low + 3.0,
+        "{full:.1} {half:.1} {low:.1}"
+    );
+    assert!(low > 5.0, "mesmo em 25 % ainda reduz: {low:.1}");
 }

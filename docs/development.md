@@ -76,7 +76,9 @@ e que os perfis soem diferentes entre si.
 
 Para medir com a sua voz, grave um **Teste de voz** num lugar silencioso, use
 **Exportar WAVs** e aponte para o original. O relatório mistura cada ruído à
-gravação e mostra a separação por perfil e o efeito dos atalhos do EQ. A gravação
+gravação e mostra a separação por perfil, quanto da fala cada perfil e cada efeito
+cortam e o efeito dos atalhos do EQ. Com `MICBRIDGE_CUTS=cortes.wav`, grava os
+trechos que a Chamada cortou, para ouvir se eram fala ou só respiração. A gravação
 fica fora do repositório (que é público):
 
 ```sh

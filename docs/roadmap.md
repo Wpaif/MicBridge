@@ -45,7 +45,7 @@ branches são etapas próprias; consulte o histórico Git e os procedimentos em
 |---|---|---|
 | 1 | Validação de ouvido | Ouvir com o celular os perfis após a mudança do compressor, o EQ durante a fala, a fonte extra numa chamada real e o gate depois da calibração em ambientes diferentes. A bancada mediu, mas não substitui a escuta. |
 | 2 | Analisador de espectro | Mostrar no canal EQ o que cada banda está fazendo. |
-| — | Redução de ruído com ruídos reais | Medida com ruído rosa: +20 a +31 dB de separação. Falta avaliar com teclado, rua e ventilador. |
+| — | Redução de ruído | Medida com oito ruídos e com voz real. Ela apagava sílabas fracas; o ajuste reduziu de 23% para 19% do quarto mais baixo da fala, e o resto é limite do RNNoise. Um fader de força troca ruído por fala preservada (em 25%, 15% de corte). Teclado (+12 dB) e vozes ao fundo (sem separação) são os pontos fracos. Faltam ruídos gravados de verdade. |
 
 Novos itens devem ser descritos com comportamento, validação e limites claros
 antes de aparecer como recursos disponíveis no README.

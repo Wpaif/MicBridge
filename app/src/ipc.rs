@@ -352,30 +352,33 @@ impl Daemon {
                 let p = &self.shared.params;
                 let value = msg["value"].as_f64().ok_or("valor ausente")? as f32;
                 // Mesmos limites dos sliders GTK e da validação de perfis.
-                let (set, min, max): (fn(&crate::dsp::Params, f32), f32, f32) =
-                    match msg["name"].as_str().unwrap_or_default() {
-                        "gate_db" => (crate::dsp::Params::set_gate_db, -80.0, -20.0),
-                        "threshold_db" => (crate::dsp::Params::set_comp_threshold_db, -50.0, 0.0),
-                        "ratio" => (crate::dsp::Params::set_comp_ratio, 1.0, 10.0),
-                        "makeup_db" => (crate::dsp::Params::set_makeup_db, 0.0, 24.0),
-                        // Closures sem captura viram `fn` comum, como os setters acima.
-                        "eq_low" => (
-                            |p, v| p.set_eq_db(0, v),
-                            -crate::dsp::EQ_MAX_DB,
-                            crate::dsp::EQ_MAX_DB,
-                        ),
-                        "eq_mid" => (
-                            |p, v| p.set_eq_db(1, v),
-                            -crate::dsp::EQ_MAX_DB,
-                            crate::dsp::EQ_MAX_DB,
-                        ),
-                        "eq_high" => (
-                            |p, v| p.set_eq_db(2, v),
-                            -crate::dsp::EQ_MAX_DB,
-                            crate::dsp::EQ_MAX_DB,
-                        ),
-                        other => return Err(format!("ajuste desconhecido: {other}")),
-                    };
+                let (set, min, max): (fn(&crate::dsp::Params, f32), f32, f32) = match msg["name"]
+                    .as_str()
+                    .unwrap_or_default()
+                {
+                    "gate_db" => (crate::dsp::Params::set_gate_db, -80.0, -20.0),
+                    "threshold_db" => (crate::dsp::Params::set_comp_threshold_db, -50.0, 0.0),
+                    "ratio" => (crate::dsp::Params::set_comp_ratio, 1.0, 10.0),
+                    "makeup_db" => (crate::dsp::Params::set_makeup_db, 0.0, 24.0),
+                    "denoise_strength" => (crate::dsp::Params::set_denoise_strength, 0.0, 100.0),
+                    // Closures sem captura viram `fn` comum, como os setters acima.
+                    "eq_low" => (
+                        |p, v| p.set_eq_db(0, v),
+                        -crate::dsp::EQ_MAX_DB,
+                        crate::dsp::EQ_MAX_DB,
+                    ),
+                    "eq_mid" => (
+                        |p, v| p.set_eq_db(1, v),
+                        -crate::dsp::EQ_MAX_DB,
+                        crate::dsp::EQ_MAX_DB,
+                    ),
+                    "eq_high" => (
+                        |p, v| p.set_eq_db(2, v),
+                        -crate::dsp::EQ_MAX_DB,
+                        crate::dsp::EQ_MAX_DB,
+                    ),
+                    other => return Err(format!("ajuste desconhecido: {other}")),
+                };
                 if !value.is_finite() {
                     return Err("valor inválido".into());
                 }
@@ -757,6 +760,7 @@ impl Daemon {
                 "threshold_db": p.comp_threshold(),
                 "ratio": p.comp_ratio(),
                 "makeup_db": p.makeup_db(),
+                "denoise_strength": p.denoise_strength(),
                 "eq_low": p.eq_db()[0],
                 "eq_mid": p.eq_db()[1],
                 "eq_high": p.eq_db()[2],

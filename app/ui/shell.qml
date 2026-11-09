@@ -89,7 +89,7 @@ ShellRoot {
         }
         // Bolinha no trilho: o que está ligado sem precisar abrir a seção.
         function badge(id) {
-            if (id === "voz") return rec.can_stop ? Theme.urgent : mon.active ? Theme.accent : "transparent"
+            if (id === "voz") return rec.can_stop ? Theme.urgent : (mon.active || (st.extra || {}).linked) ? Theme.accent : "transparent"
             if (id === "perfil") return editor.dirty ? Theme.warn : "transparent"
             if (id === "conexao") return st.pairing > 0 ? Theme.warn : "transparent"
             return "transparent"
@@ -490,6 +490,51 @@ ShellRoot {
                                             onRejected: backend.send({ c: "export_confirm", on: false })
                                         }
 
+                                }
+                                Card {
+                                    Layout.fillWidth: true
+                                    Layout.alignment: Qt.AlignTop
+                                    title: "Fonte extra"
+                                    dot: (win.st.extra || {}).linked ? Theme.accent : "transparent"
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: {
+                                            const x = win.st.extra || {}
+                                            const sel = (x.streams || []).find(s => s.id === x.selected)
+                                            if (x.error) return x.error
+                                            if (sel && sel.call) return "Cuidado: isso devolve o som da call para ela mesma (eco)"
+                                            if (x.linked) return "No microfone virtual  ·  você continua ouvindo no fone"
+                                            if (!(x.streams || []).length) return "Nenhum app tocando som agora"
+                                            return "Escolha um app para mandar o som dele junto com a voz"
+                                        }
+                                        color: Theme.muted
+                                        font.family: Theme.font
+                                        font.pixelSize: 11
+                                        wrapMode: Text.Wrap
+                                    }
+                                    Flow {
+                                        Layout.fillWidth: true
+                                        spacing: 6
+                                        Repeater {
+                                            model: (win.st.extra || {}).streams || []
+                                            delegate: Chip {
+                                                required property var modelData
+                                                text: (modelData.call ? "⚠ " : "")
+                                                    + (modelData.label.length > 48 ? modelData.label.slice(0, 47) + "…" : modelData.label)
+                                                active: modelData.id === (win.st.extra || {}).selected
+                                                onClicked: backend.send({ c: "extra_source", id: active ? null : modelData.id })
+                                            }
+                                        }
+                                    }
+                                    Slider {
+                                        Layout.fillWidth: true
+                                        title: "Volume da fonte extra"
+                                        from: 0; to: 100; step: 1; unit: "%"
+                                        value: (win.st.extra || {}).volume || 0
+                                        enabled: (win.st.extra || {}).selected != null
+                                        onMoved: v => backend.send({ c: "extra_volume", value: v })
+                                    }
                                 }
                             }
                         }

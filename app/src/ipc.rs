@@ -265,6 +265,14 @@ impl Daemon {
                 self.monitor.lock().unwrap().error = None;
             }
             "monitor" => self.toggle_monitor(on),
+            "extra_source" => {
+                let id = msg["id"].as_u64().map(|i| i as u32);
+                self.shared.extra.select(id)?;
+            }
+            "extra_volume" => {
+                let value = msg["value"].as_f64().ok_or("valor ausente")?;
+                self.shared.extra.set_volume(value as f32);
+            }
             "monitor_volume" => {
                 let value = msg["value"].as_f64().ok_or("valor ausente")?;
                 self.shared.monitor.set_volume(value as f32);
@@ -602,6 +610,22 @@ impl Daemon {
         })
     }
 
+    fn extra_state(&self) -> Value {
+        let e = self.shared.extra.snapshot();
+        let streams: Vec<Value> = e
+            .streams
+            .iter()
+            .map(|s| json!({ "id": s.id, "label": s.label(), "call": s.call }))
+            .collect();
+        json!({
+            "streams": streams,
+            "selected": e.selected,
+            "linked": e.linked,
+            "volume": e.volume.round(),
+            "error": e.error,
+        })
+    }
+
     fn qr(&self) -> Value {
         let host = if crate::output::avahi_active() {
             crate::MDNS_HOST.to_string()
@@ -684,6 +708,7 @@ impl Daemon {
             "activity": activity,
             "monitor": self.monitor_state(st.link == Link::Connected),
             "recording": self.recording_state(st.link == Link::Connected),
+            "extra": self.extra_state(),
             // Níveis arredondados para não reenviar o estado por ruído de ponto flutuante.
             "in": (p.in_level() * 1000.0).round() / 1000.0,
             "out": (p.out_level() * 1000.0).round() / 1000.0,

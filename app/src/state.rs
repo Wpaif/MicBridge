@@ -137,6 +137,8 @@ pub struct Shared {
     pub monitor: crate::monitor::Monitor,
     pub devices: crate::monitor::devices::DeviceCatalog,
     pub local_audio: crate::local_audio::LocalAudio,
+    /// Som de outro app (aba do navegador) somado ao microfone virtual.
+    pub extra: crate::app_source::AppSource,
     monitor_output: Mutex<Option<crate::monitor::devices::OutputDevice>>,
     /// Token do QR code (válido só com a janela de pareamento aberta).
     pub pair_token: String,
@@ -174,6 +176,7 @@ impl Shared {
             monitor,
             devices,
             local_audio,
+            extra: crate::app_source::AppSource::new(),
             monitor_output: Mutex::new(None),
             pair_token: random_hex(16),
             link: AtomicU8::new(Link::Disconnected as u8),

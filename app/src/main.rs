@@ -1,3 +1,5 @@
+mod app_source;
+mod app_source_ui;
 #[cfg(test)]
 mod audio_test;
 mod connection_sidebar;
@@ -78,6 +80,7 @@ fn main() -> glib::ExitCode {
     // Supervisor: cria o microfone virtual e o recria se o node do PipeWire sumir.
     rt.spawn(output::supervise_virtual_mic(shared.clone()));
     rt.spawn(output::supervise_default_source(shared.clone()));
+    rt.spawn(app_source::supervise(shared.extra.clone()));
     rt.spawn(output::supervise_mdns());
     rt.spawn(async move {
         let ip = local_ip().parse().ok();
@@ -158,6 +161,7 @@ fn run_daemon(show: bool) -> glib::ExitCode {
     let rt = tokio::runtime::Runtime::new().expect("tokio");
     rt.spawn(output::supervise_virtual_mic(shared.clone()));
     rt.spawn(output::supervise_default_source(shared.clone()));
+    rt.spawn(app_source::supervise(shared.extra.clone()));
     rt.spawn(output::supervise_mdns());
     let s = shared.clone();
     rt.spawn(async move {
@@ -674,6 +678,9 @@ fn build_ui(app: &adw::Application, shared: Arc<Shared>, show: bool) {
         .width_request(340)
         .build();
     sidebar.append(&conn);
+    let extra_group = app_source_ui::group(shared.clone());
+    extra_group.set_margin_top(18);
+    sidebar.append(&extra_group);
     let sidebar_clamp = adw::Clamp::builder()
         .name("connection-rail")
         .maximum_size(340)

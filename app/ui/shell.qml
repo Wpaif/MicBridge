@@ -878,6 +878,23 @@ ShellRoot {
                                         title: "EQ"
                                         on: win.effect("eq")
                                         onToggled: on => win.setEffect("eq", on)
+                                        // Atalhos: um toque liga o EQ e posiciona as três bandas.
+                                        ColumnLayout {
+                                            Layout.alignment: Qt.AlignVCenter
+                                            spacing: 4
+                                            Repeater {
+                                                model: win.st.eq_presets || []
+                                                Chip {
+                                                    required property var modelData
+                                                    // O Chip só define width/height; o layout precisa do tamanho preferido.
+                                                    Layout.preferredWidth: 78
+                                                    Layout.preferredHeight: 26
+                                                    text: modelData.label
+                                                    active: win.st.eq_preset === modelData.id
+                                                    onClicked: backend.send({ c: "eq_preset", name: modelData.id })
+                                                }
+                                            }
+                                        }
                                         Fader {
                                             Layout.fillHeight: true
                                             label: "grave"

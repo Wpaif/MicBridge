@@ -60,10 +60,22 @@ acende com o efeito ligado:
 | Gate | Atenua o sinal abaixo do limiar (fader), com sustentação para pausas curtas. O LED fica verde aberto, amarelo em espera e vermelho fechado. |
 | De-esser | Suaviza sibilantes. |
 | Presença | Realce de clareza em ~3 kHz. |
-| EQ | Equalizador de 3 bandas: graves (120 Hz), médios (1 kHz) e agudos (6 kHz), de −12 a +12 dB. Começa desligado e plano; duplo clique num fader volta a banda a 0 dB. |
+| EQ | Equalizador de 3 bandas: graves (120 Hz), médios (1 kHz) e agudos (6 kHz), de −12 a +12 dB. Começa desligado e plano; duplo clique num fader volta a banda a 0 dB. Os atalhos ao lado dos faders ligam o EQ e posicionam as bandas (veja abaixo). |
 | Ganho | **AUTO** ajusta o volume e congela nas pausas; o medidor mostra o ajuste. Em **MANUAL** vale o fader de ganho. |
 | Compressor | Reduz diferenças de dinâmica (faders de limiar e razão). O medidor GR mostra quanto está reduzindo; um makeup automático devolve o volume médio, para a voz não ficar mais baixa. |
 | Saída | Níveis de entrada e saída e o silenciar (**AO VIVO** / **MUDO**). |
+
+Atalhos do EQ, um ponto de partida para ajustar depois nos faders:
+
+| Atalho | Para | Graves / médios / agudos |
+|---|---|---|
+| Plano | Voltar ao som sem equalização. | 0 / 0 / 0 dB |
+| Clarear | Voz abafada: celular no bolso, máscara, tecido na frente. | −3 / +1 / +6 dB |
+| Encorpar | Voz fina: celular longe ou microfone pequeno. | +5 / 0 / −2 dB |
+| Secar | Sala com eco, voz embolada. | −5 / −3 / +2 dB |
+
+O atalho fica destacado enquanto as bandas baterem com ele; mexer num fader o
+desmarca. Como o resto do EQ, o resultado entra no perfil ao salvar.
 
 Os medidores mostram **—** sem áudio recente, o que indica ausência de frames, não
 necessariamente uma falha na conexão. Eles não equivalem a um diagnóstico geral.

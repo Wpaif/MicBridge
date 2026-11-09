@@ -32,6 +32,8 @@ branches são etapas próprias; consulte o histórico Git e os procedimentos em
 - Fonte extra: o som de um app (como uma aba do navegador) junto com a voz.
 - Testes de qualidade do DSP no CI: separação entre voz e ruído, nível final,
   teto do limitador, atuação do compressor e diferença entre perfis.
+- Atalhos do equalizador (Plano, Clarear, Encorpar, Secar), com teste que confere
+  para onde cada um leva o timbre.
 - Código sem avisos do clippy, com o CI recusando avisos novos.
 - Cores que acompanham o tema do Omarchy.
 - Proteção dos faders contra alterações acidentais ao rolar.
@@ -42,8 +44,7 @@ branches são etapas próprias; consulte o histórico Git e os procedimentos em
 | Prioridade | Item | Observação |
 |---|---|---|
 | 1 | Validação de ouvido | Ouvir com o celular os perfis após a mudança do compressor, o EQ durante a fala, a fonte extra numa chamada real e o gate depois da calibração em ambientes diferentes. A bancada mediu, mas não substitui a escuta. |
-| 2 | Presets de equalização | Atalhos como "voz fina" e "voz abafada", calibrados na bancada. |
-| 3 | Analisador de espectro | Mostrar no canal EQ o que cada banda está fazendo. |
+| 2 | Analisador de espectro | Mostrar no canal EQ o que cada banda está fazendo. |
 | — | Redução de ruído com ruídos reais | Medida com ruído rosa: +20 a +31 dB de separação. Falta avaliar com teclado, rua e ventilador. |
 
 Novos itens devem ser descritos com comportamento, validação e limites claros

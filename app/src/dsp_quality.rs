@@ -256,3 +256,64 @@ fn normal_voice_never_lights_the_clipping_warning() {
         assert_eq!((i, o), (0, 0), "{pr:?}: entrada {i}, saída {o} frames");
     }
 }
+
+/// Energia abaixo de ~250 Hz e acima de ~3 kHz em relação ao total, em dB, por
+/// filtros de um polo: grosseiro, mas suficiente para ver para onde o timbre foi.
+fn tilt(x: &[f32]) -> (f32, f32) {
+    let (mut lp, mut hp_prev_in, mut hp) = (0.0_f32, 0.0_f32, 0.0_f32);
+    let a_lo = 1.0 - (-2.0 * PI * 250.0 / SAMPLE_RATE).exp();
+    let a_hi = (-2.0 * PI * 3000.0 / SAMPLE_RATE).exp();
+    let (mut lo_e, mut hi_e, mut all) = (0.0_f64, 0.0_f64, 0.0_f64);
+    for &s in x {
+        lp += a_lo * (s - lp);
+        hp = a_hi * (hp + s - hp_prev_in);
+        hp_prev_in = s;
+        lo_e += (lp * lp) as f64;
+        hi_e += (hp * hp) as f64;
+        all += (s * s) as f64;
+    }
+    (
+        10.0 * (lo_e / all).log10() as f32,
+        10.0 * (hi_e / all).log10() as f32,
+    )
+}
+
+#[test]
+fn eq_presets_move_the_voice_the_way_their_names_say() {
+    // Ruído rosa cobre o espectro todo; a voz sintética quase não tem energia
+    // acima de 4 kHz e esconderia a banda de agudos (6 kHz).
+    let mut v = pink(6 * SAMPLE_RATE as usize);
+    let g = 10f32.powf(-30.0 / 20.0) / rms(&v);
+    v.iter_mut().for_each(|s| *s *= g);
+    // Só o EQ, para medir o atalho e não o resto da cadeia.
+    let run = |id: &str| {
+        let p = preset(Preset::Bruto);
+        p.set_makeup_db(0.0);
+        p.apply_eq_preset(id).unwrap();
+        tilt(&process(&p, &v))
+    };
+    let (lo0, hi0) = run("flat");
+    for id in ["clear", "warm", "dry"] {
+        let (lo, hi) = run(id);
+        println!(
+            "{id}: graves {:+.1} dB, agudos {:+.1} dB",
+            lo - lo0,
+            hi - hi0
+        );
+    }
+    let (lo, hi) = run("clear");
+    assert!(
+        hi - hi0 > 2.0 && lo < lo0,
+        "Clarear: agudos {hi0:.1}→{hi:.1}, graves {lo0:.1}→{lo:.1}"
+    );
+    let (lo, hi) = run("warm");
+    assert!(
+        lo - lo0 > 1.0 && hi < hi0,
+        "Encorpar: graves {lo0:.1}→{lo:.1}, agudos {hi0:.1}→{hi:.1}"
+    );
+    let (lo, hi) = run("dry");
+    assert!(
+        lo < lo0 - 1.5 && hi > hi0,
+        "Secar: graves {lo0:.1}→{lo:.1}, agudos {hi0:.1}→{hi:.1}"
+    );
+}

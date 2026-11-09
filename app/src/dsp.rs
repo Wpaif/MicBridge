@@ -25,6 +25,19 @@ pub const EQ_MID_HZ: f32 = 1_000.0;
 pub const EQ_HIGH_HZ: f32 = 6_000.0;
 /// Limite de cada banda, para mais e para menos.
 pub const EQ_MAX_DB: f32 = 12.0;
+
+/// Atalhos do equalizador: (id, nome na tela, [graves, médios, agudos] em dB).
+/// Os ganhos são moderados de propósito: o limitador e o compressor vêm depois,
+/// e reforços grandes viram bombeamento. `dsp_quality` confere o efeito de cada um.
+pub const EQ_PRESETS: [(&str, &str, [f32; 3]); 4] = [
+    ("flat", "Plano", [0.0, 0.0, 0.0]),
+    // Voz abafada (celular no bolso, máscara, tecido): tira graves e abre agudos.
+    ("clear", "Clarear", [-3.0, 1.0, 6.0]),
+    // Voz fina (celular longe, microfone pequeno): devolve corpo nos graves.
+    ("warm", "Encorpar", [5.0, 0.0, -2.0]),
+    // Ambiente reverberante: menos graves e médios embolados, um pouco mais de agudo.
+    ("dry", "Secar", [-5.0, -3.0, 2.0]),
+];
 const COMP_ATTACK_MS: f32 = 5.0;
 const COMP_RELEASE_MS: f32 = 120.0;
 const LIMITER_RELEASE_MS: f32 = 50.0;
@@ -263,6 +276,29 @@ impl Params {
                 Relaxed,
             );
         }
+    }
+
+    /// Aplica um atalho do equalizador e liga o EQ. Falha com id desconhecido.
+    pub fn apply_eq_preset(&self, id: &str) -> Result<(), String> {
+        let (_, _, db) = EQ_PRESETS
+            .iter()
+            .find(|(i, _, _)| *i == id)
+            .ok_or_else(|| format!("atalho de EQ desconhecido: {id}"))?;
+        for (band, v) in db.iter().enumerate() {
+            self.set_eq_db(band, *v);
+        }
+        self.eq.store(true, Relaxed);
+        Ok(())
+    }
+
+    /// Atalho que corresponde às bandas atuais, se o EQ estiver ligado.
+    pub fn eq_preset(&self) -> Option<&'static str> {
+        let now = self.eq_db();
+        self.eq.load(Relaxed).then_some(())?;
+        EQ_PRESETS
+            .iter()
+            .find(|(_, _, db)| *db == now)
+            .map(|(id, _, _)| *id)
     }
 
     pub fn eq_db(&self) -> [f32; 3] {
@@ -868,6 +904,23 @@ mod tests {
         let mut proc = Processor::new();
         for frame in input.as_chunks_mut::<FRAME>().0.iter_mut() {
             proc.process(frame, p);
+        }
+    }
+
+    #[test]
+    fn eq_presets_apply_turn_eq_on_and_are_recognized() {
+        let p = Params::default();
+        assert_eq!(p.eq_preset(), None, "EQ desligado não conta como atalho");
+        p.apply_eq_preset("clear").unwrap();
+        assert!(p.eq.load(Relaxed));
+        assert_eq!(p.eq_db(), [-3.0, 1.0, 6.0]);
+        assert_eq!(p.eq_preset(), Some("clear"));
+        p.set_eq_db(2, 5.5);
+        assert_eq!(p.eq_preset(), None, "mexer numa banda sai do atalho");
+        assert!(p.apply_eq_preset("nope").is_err());
+        assert_eq!(p.eq_db()[2], 5.5, "id desconhecido não muda nada");
+        for (_, _, db) in EQ_PRESETS {
+            assert!(db.iter().all(|v| v.abs() <= EQ_MAX_DB));
         }
     }
 

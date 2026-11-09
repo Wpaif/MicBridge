@@ -3,7 +3,7 @@
 //!
 //! UI → daemon, um objeto com o comando em `c`:
 //! - janela e conexão: `show`, `ping`, `quit`, `pairing`/`mute`/`autostart` (`on`), `forget`;
-//! - tratamento: `effect` (`name`, `on`), `tune` (`name`, `value`);
+//! - tratamento: `effect` (`name`, `on`), `tune` (`name`, `value`), `eq_preset` (`name`);
 //! - perfis: `profile` (`id`), `profile_new`/`profile_rename` (`name`), `profile_save`,
 //!   `profile_delete`;
 //! - retorno: `monitor` (`on`), `monitor_output` (`id` do node ou null),
@@ -344,6 +344,10 @@ impl Daemon {
                     self.notify_export("Exportação cancelada.".into());
                 }
             }
+            "eq_preset" => self
+                .shared
+                .params
+                .apply_eq_preset(msg["name"].as_str().unwrap_or_default())?,
             "tune" => {
                 let p = &self.shared.params;
                 let value = msg["value"].as_f64().ok_or("valor ausente")? as f32;
@@ -757,6 +761,12 @@ impl Daemon {
                 "eq_mid": p.eq_db()[1],
                 "eq_high": p.eq_db()[2],
             },
+            // Atalhos do EQ e qual deles bate com as bandas atuais (nulo se nenhum).
+            "eq_presets": crate::dsp::EQ_PRESETS
+                .iter()
+                .map(|(id, label, _)| json!({ "id": id, "label": label }))
+                .collect::<Vec<_>>(),
+            "eq_preset": p.eq_preset(),
             "activity": activity,
             "fx": fx,
             "monitor": self.monitor_state(st.link == Link::Connected),

@@ -60,7 +60,7 @@ Vozes ao fundo são o ponto mais fraco: o tratamento não as separa (-1,7 a
 
 | Opção | Resultado |
 |---|---|
-| Isolamento de Voz do iPhone (página em modo de chamada) | Testado e descartado: o som ficou pior que o microfone cru tratado no PC. |
+| Isolamento de Voz do iPhone (página em modo de chamada) | Testado e descartado: não ficou tão bom quanto o microfone cru tratado no PC. |
 | DeepFilterNet (Rust, MIT/Apache) | Candidato mais forte para ruído e sílabas fracas. Sem release desde 2023, fora do crates.io atualizado, latência e binário maiores. Deve manter vozes ao fundo como o RNNoise. |
 | WebRTC Audio Processing, SpeexDSP, libspecbleach (C/C++) | Consolidadas, mas clássicas: boas com ruído constante, fracas com teclado e vozes. A WebRTC 2.0 removeu a supressão de transientes (teclado). |
 | Isolamento da voz cadastrada (como Apple e Krisp) | Única abordagem que separa a sua voz de outras. Sem biblioteca aberta pronta conhecida; seria um projeto à parte. |

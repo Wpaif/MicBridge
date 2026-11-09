@@ -15,7 +15,14 @@ Rectangle {
     radius: Theme.radius
     opacity: enabled ? 1 : 0.4
     color: _accent ? Theme.accent : (area.containsMouse && enabled ? Theme.surface : "transparent")
-    border.color: _accent ? Theme.accent : Theme.surface
+    border.color: activeFocus ? Theme.foreground : _accent ? Theme.accent : Theme.surface
+    border.width: activeFocus ? 2 : 1
+    // Teclado: Tab/setas chegam aqui; Espaço e Enter acionam.
+    activeFocusOnTab: root.enabled && root.visible
+    Keys.onSpacePressed: root.clicked()
+    Keys.onReturnPressed: root.clicked()
+    Keys.onEnterPressed: root.clicked()
+
 
     Text {
         id: label

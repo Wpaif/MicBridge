@@ -57,11 +57,12 @@ daemon com a bandeja e a janela é um processo `qs` à parte. Fechar a janela n�
 desliga o microfone; use **Sair** na bandeja. Abrir o MicBridge com a janela já
 aberta a traz para frente (Hyprland e Sway).
 
-No Omarchy, o instalador acrescenta um bloco marcado a
-`~/.config/hypr/bindings.lua` que dá à janela a tag `floating-window` do próprio
-Omarchy, que a deixa flutuando e centralizada em 875×600. Se o Hyprland acusar
-erro depois de recarregar, o arquivo anterior volta. Reinstalar com `--ui=gtk` ou
-desinstalar remove o bloco inteiro; o resto do arquivo não é tocado.
+No Omarchy, a janela segue o layout da área de trabalho, como os outros apps:
+fica lado a lado em `dwindle` e `scrolling` e flutua em `floating`
+(`omarchy hyprland workspace layout`). Versões antigas punham um bloco em
+`~/.config/hypr/bindings.lua` que forçava a janela a flutuar; o instalador e o
+desinstalador removem esse bloco, sem tocar no resto do arquivo. Se o Hyprland
+acusar erro depois de recarregar, o arquivo anterior volta.
 
 A interface Quickshell tem os mesmos recursos da GTK, exceto o diálogo de
 aparência: as cores seguem o tema atual do Omarchy e mudam junto com ele. Fora do

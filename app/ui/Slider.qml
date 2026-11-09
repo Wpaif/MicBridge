@@ -22,6 +22,35 @@ Item {
     implicitHeight: 40
     opacity: enabled ? 1 : 0.4
 
+    // Teclado: ←/→ um passo, PgUp/PgDn dez, Home/End nos extremos.
+    activeFocusOnTab: root.enabled && root.visible
+    function nudge(to) {
+        var v = Math.max(from, Math.min(to, root.to))
+        v = Math.round(v / step) * step
+        if (v === root.shown) return
+        root._local = v
+        root.moved(v)
+        settle.restart()
+    }
+    Keys.onPressed: e => {
+        var base = root.shown
+        if (e.key === Qt.Key_Left) nudge(base - step)
+        else if (e.key === Qt.Key_Right) nudge(base + step)
+        else if (e.key === Qt.Key_PageDown) nudge(base - 10 * step)
+        else if (e.key === Qt.Key_PageUp) nudge(base + 10 * step)
+        else if (e.key === Qt.Key_Home) nudge(from)
+        else if (e.key === Qt.Key_End) nudge(to)
+        else return
+        e.accepted = true
+    }
+    Rectangle {
+        anchors.fill: parent
+        radius: Theme.radius
+        color: "transparent"
+        border.color: Theme.accent
+        visible: root.activeFocus
+    }
+
     function snap(x) {
         var raw = from + Math.max(0, Math.min(1, x / track.width)) * (to - from)
         return Math.round(raw / step) * step
@@ -67,7 +96,7 @@ Item {
             width: 14; height: 14; radius: 7
             x: parent.width * root.fraction - width / 2
             anchors.verticalCenter: parent.verticalCenter
-            color: drag.pressed || drag.containsMouse ? Theme.accent : Theme.foreground
+            color: drag.pressed || drag.containsMouse || root.activeFocus ? Theme.accent : Theme.foreground
         }
         MouseArea {
             id: drag

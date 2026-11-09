@@ -10,6 +10,13 @@ Rectangle {
     signal toggled(bool on)
 
     implicitHeight: 40
+    // Teclado: Tab/setas chegam aqui; Espaço e Enter acionam.
+    activeFocusOnTab: root.enabled && root.visible
+    Keys.onSpacePressed: root.toggled(!root.checked)
+    Keys.onReturnPressed: root.toggled(!root.checked)
+    Keys.onEnterPressed: root.toggled(!root.checked)
+    border.width: activeFocus ? 1 : 0
+    border.color: Theme.accent
     radius: Theme.radius
     color: area.containsMouse ? Theme.surface : "transparent"
     opacity: enabled ? 1 : 0.5

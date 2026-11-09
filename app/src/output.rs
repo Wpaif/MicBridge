@@ -219,7 +219,9 @@ pub async fn supervise_default_source(shared: std::sync::Arc<crate::state::Share
                     tracing::info!("microfone padrão -> {SOURCE}");
                     let outputs = pactl(&["list", "short", "source-outputs"]).await;
                     for id in outputs.iter().flat_map(|o| o.lines()) {
-                        let Some(id) = id.split_whitespace().next() else { continue };
+                        let Some(id) = id.split_whitespace().next() else {
+                            continue;
+                        };
                         pactl(&["move-source-output", id, SOURCE]).await;
                     }
                 }

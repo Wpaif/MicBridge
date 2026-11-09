@@ -45,6 +45,58 @@ ShellRoot {
         // Perfil escolhido com alterações não salvas, aguardando confirmação.
         property string pendingProfile: ""
         property bool forgetting: false
+        // Painel largo (tela cheia): seções com mais conteúdo se abrem em duas colunas.
+        readonly property bool wide: pane.width >= 1000
+        readonly property bool widePage: page === "voz" || page === "efeitos" || page === "conexao"
+        // Seção aberta no painel (o trilho lateral troca).
+        property string page: "voz"
+        readonly property var pages: [
+            { id: "voz", label: "Voz", glyph: "\u{f036c}" },
+            { id: "retorno", label: "Retorno", glyph: "\u{f02cb}" },
+            { id: "teste", label: "Teste de voz", glyph: "\u{f044a}" },
+            { id: "perfil", label: "Perfil", glyph: "\u{f0004}" },
+            { id: "efeitos", label: "Efeitos", glyph: "\u{f062e}" },
+            { id: "conexao", label: "Conexão", glyph: "\u{f011c}" }
+        ]
+        function pageLabel() {
+            for (var i = 0; i < pages.length; i++) if (pages[i].id === page) return pages[i].label
+            return ""
+        }
+        property bool helpOpen: false
+        function goPage(id) {
+            page = id
+            pane.contentY = 0
+            // O controle focado pode ter sumido com a seção: o foco volta para os atalhos.
+            shortcuts.forceActiveFocus()
+        }
+        function moveFocus(forward) {
+            var next = (focused || shortcuts).nextItemInFocusChain(forward)
+            // Sem controle focado, ↑ vai para o último e ↓ para o primeiro.
+            if (next && next !== shortcuts) next.forceActiveFocus()
+        }
+        // Rola o painel até o controle focado pelo teclado.
+        readonly property Item focused: shortcuts.Window.activeFocusItem
+        onFocusedChanged: {
+            var it = focused
+            if (!it || it === shortcuts || !pane) return
+            var p = it.mapToItem(pane.contentItem, 0, 0)
+            if (p.y < pane.contentY + 8) pane.contentY = Math.max(0, p.y - 24)
+            else if (p.y + it.height > pane.contentY + pane.height - 8)
+                pane.contentY = Math.min(pane.contentHeight - pane.height, p.y + it.height - pane.height + 24)
+        }
+        function stepPage(d) {
+            var i = 0
+            for (; i < pages.length; i++) if (pages[i].id === page) break
+            goPage(pages[(i + d + pages.length) % pages.length].id)
+        }
+        // Bolinha no trilho: o que está ligado sem precisar abrir a seção.
+        function badge(id) {
+            if (id === "retorno") return mon.active ? Theme.accent : "transparent"
+            if (id === "teste") return rec.can_stop ? Theme.urgent : "transparent"
+            if (id === "perfil") return editor.dirty ? Theme.warn : "transparent"
+            if (id === "conexao") return st.pairing > 0 ? Theme.warn : "transparent"
+            return "transparent"
+        }
         property bool copied: false
 
         function chooseProfile(id) {
@@ -81,7 +133,23 @@ ShellRoot {
                 else if (e.key === Qt.Key_Escape && win.pendingProfile !== "") win.pendingProfile = ""
                 else if (e.key === Qt.Key_Escape && win.profileEdit !== "") win.profileEdit = ""
                 else if (e.key === Qt.Key_Escape && win.rec.confirm) backend.send({ c: "export_confirm", on: false })
+                else if (e.key === Qt.Key_Escape && win.helpOpen) win.helpOpen = false
+                // Com um controle focado, o Esc primeiro só solta o foco.
+                else if (e.key === Qt.Key_Escape && win.focused !== shortcuts) shortcuts.forceActiveFocus()
                 else if (e.key === Qt.Key_Escape || (e.key === Qt.Key_Q && e.modifiers & Qt.ControlModifier)) Qt.quit()
+                else if (e.key === Qt.Key_Question || (e.key === Qt.Key_Slash && e.modifiers & Qt.ShiftModifier) || e.key === Qt.Key_F1) win.helpOpen = !win.helpOpen
+                // Seções: Ctrl+Tab, Ctrl+PgUp/PgDn, Alt+↑/↓ e Alt+1…6.
+                else if (e.key === Qt.Key_Tab && e.modifiers & Qt.ControlModifier) win.stepPage(1)
+                else if (e.key === Qt.Key_Backtab && e.modifiers & Qt.ControlModifier) win.stepPage(-1)
+                else if (e.key === Qt.Key_PageDown && e.modifiers & Qt.ControlModifier) win.stepPage(1)
+                else if (e.key === Qt.Key_PageUp && e.modifiers & Qt.ControlModifier) win.stepPage(-1)
+                else if (e.key === Qt.Key_Down && e.modifiers & Qt.AltModifier) win.stepPage(1)
+                else if (e.key === Qt.Key_Up && e.modifiers & Qt.AltModifier) win.stepPage(-1)
+                else if (e.modifiers & Qt.AltModifier && e.key >= Qt.Key_1 && e.key < Qt.Key_1 + win.pages.length)
+                    win.goPage(win.pages[e.key - Qt.Key_1].id)
+                // Setas andam entre os controles da seção (o slider fica com ←/→ para si).
+                else if (e.key === Qt.Key_Down || e.key === Qt.Key_Right) win.moveFocus(true)
+                else if (e.key === Qt.Key_Up || e.key === Qt.Key_Left) win.moveFocus(false)
                 else if (e.key === Qt.Key_M) backend.send({ c: "mute", on: !win.st.muted })
                 else if (e.key === Qt.Key_N && win.editor.can_new) win.editProfile("new")
                 else if (e.key === Qt.Key_S && win.editor.can_save) backend.send({ c: "profile_save" })
@@ -92,6 +160,54 @@ ShellRoot {
                     win.chooseProfile(profiles[e.key - Qt.Key_1].id)
                 else return
                 e.accepted = true
+            }
+
+
+            // Folha de atalhos (? ou F1), como a do flea.
+            Rectangle {
+                anchors.fill: parent
+                z: 10
+                visible: win.helpOpen
+                color: Qt.rgba(0, 0, 0, 0.6)
+                MouseArea { anchors.fill: parent; onClicked: win.helpOpen = false }
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: Math.min(parent.width - 48, 520)
+                    height: helpList.implicitHeight + 40
+                    radius: Theme.radius
+                    color: Theme.background
+                    border.color: Theme.surface
+                    MouseArea { anchors.fill: parent }
+                    Column {
+                        id: helpList
+                        x: 20; y: 20
+                        width: parent.width - 40
+                        spacing: 4
+                        Text { text: "Atalhos"; color: Theme.foreground; font.family: Theme.font; font.pixelSize: 15; font.bold: true; bottomPadding: 6 }
+                        Repeater {
+                            model: [
+                                ["Tab  ·  ↑ ↓", "Próximo / anterior controle"],
+                                ["← →", "Ajustar slider, ou andar na linha"],
+                                ["PgUp PgDn  ·  Home End", "Slider: 10 passos / extremos"],
+                                ["Espaço  ·  Enter", "Ligar, desligar ou clicar"],
+                                ["Ctrl+Tab  ·  Alt+↑ ↓", "Próxima / seção anterior"],
+                                ["Alt+1 … 7", "Ir direto para a seção"],
+                                ["M", "Silenciar microfone"],
+                                ["1 … 9", "Escolher perfil"],
+                                ["N  ·  S  ·  R  ·  Del", "Perfil: novo, salvar, renomear, excluir"],
+                                ["P", "Aceitar novo celular"],
+                                ["Esc", "Soltar o foco; de novo, fechar"],
+                                ["?  ·  F1", "Esta folha"]
+                            ]
+                            delegate: Row {
+                                required property var modelData
+                                spacing: 12
+                                Text { width: 190; text: modelData[0]; color: Theme.accent; font.family: Theme.font; font.pixelSize: 12 }
+                                Text { text: modelData[1]; color: Theme.foreground; font.family: Theme.font; font.pixelSize: 12 }
+                            }
+                        }
+                    }
+                }
             }
 
             // Sem daemon: um aviso só, no lugar da interface inteira.
@@ -109,27 +225,24 @@ ShellRoot {
                 spacing: 0
                 visible: backend.connected
 
-                // ── Barra lateral: estado e conexão ──
+                // ── Trilho lateral, como no Flea: estado no topo e uma seção por vez ──
                 Rectangle {
                     Layout.fillHeight: true
-                    Layout.preferredWidth: 300
+                    Layout.preferredWidth: 210
                     color: Qt.darker(Theme.background, 1.15)
 
-                    // Rola só quando a janela é baixa demais; senão o certificado fica no rodapé.
-                    Flickable {
-                        id: side
-                        anchors.fill: parent
-                        contentHeight: sideColumn.height + 36
-                        clip: true
-                        boundsBehavior: Flickable.StopAtBounds
-
                     ColumnLayout {
-                        id: sideColumn
-                        x: 18; y: 18
-                        width: side.width - 36
-                        height: Math.max(side.height - 36, implicitHeight)
-                        spacing: Theme.gap
+                        anchors.fill: parent
+                        anchors.topMargin: 18
+                        anchors.bottomMargin: 12
+                        spacing: 0
 
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 18
+                            Layout.rightMargin: 14
+                            Layout.bottomMargin: 14
+                            spacing: 6
                         RowLayout {
                             spacing: 10
                             Rectangle {
@@ -142,144 +255,106 @@ ShellRoot {
                                     NumberAnimation { to: 1; duration: 500 }
                                 }
                             }
-                            Text { text: win.st.label || ""; color: Theme.foreground; font.family: Theme.font; font.pixelSize: 16; font.bold: true }
+                            Text { text: win.st.label || ""; color: Theme.foreground; font.family: Theme.font; font.pixelSize: 14; font.bold: true }
                         }
                         Text {
                             Layout.fillWidth: true
                             text: win.st.detail || ""
                             color: Theme.muted
                             font.family: Theme.font
-                            font.pixelSize: 12
+                            font.pixelSize: 11
                             wrapMode: Text.Wrap
                         }
 
-                        Section { text: "Conexão" }
-                        QrCode {
-                            Layout.alignment: Qt.AlignHCenter
-                            Layout.preferredWidth: 200
-                            Layout.preferredHeight: 200
-                            rows: backend.qrRows
-                            opacity: win.st.pairing > 0 ? 1 : 0.25
                         }
+
+                        Repeater {
+                            model: win.pages
+                            delegate: RailRow {
+                                required property var modelData
+                                required property int index
+                                Layout.fillWidth: true
+                                glyph: modelData.glyph
+                                label: modelData.label
+                                current: win.page === modelData.id
+                                badge: win.badge(modelData.id)
+                                onClicked: win.goPage(modelData.id)
+                            }
+                        }
+
+                        Item { Layout.fillHeight: true }
+
                         Text {
-                            Layout.fillWidth: true
-                            horizontalAlignment: Text.AlignHCenter
-                            text: win.st.pairing > 0
-                                ? "Escaneie para parear (" + Math.floor(win.st.pairing / 60) + ":" + String(win.st.pairing % 60).padStart(2, "0") + ")"
-                                : "Celular pareado: leia o QR para abrir"
+                            Layout.leftMargin: 18
+                            Layout.bottomMargin: 6
+                            text: "?  atalhos"
                             color: Theme.muted
                             font.family: Theme.font
                             font.pixelSize: 11
-                            wrapMode: Text.Wrap
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: win.helpOpen = true }
                         }
-                        Text {
+
+                        // Silenciar fica sempre à mão, em qualquer seção.
+                        RailRow {
                             Layout.fillWidth: true
-                            horizontalAlignment: Text.AlignHCenter
-                            text: backend.url
-                            color: Theme.accent
-                            font.family: Theme.font
-                            font.pixelSize: 11
-                            elide: Text.ElideMiddle
+                            glyph: win.st.muted ? "\u{f036d}" : "\u{f036c}"
+                            label: win.st.muted ? "Silenciado" : "Silenciar"
+                            current: win.st.muted || false
+                            alert: true
+                            onClicked: backend.send({ c: "mute", on: !win.st.muted })
                         }
-                        Toggle {
-                            Layout.fillWidth: true
-                            title: "Aceitar novo celular"
-                            hint: "Abre o QR por 5 minutos  ·  P"
-                            checked: win.st.pairing > 0
-                            onToggled: on => backend.send({ c: "pairing", on: on })
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Layout.leftMargin: 10
-                            visible: (win.st.devices || 0) > 0 && !win.forgetting
-                            Text {
-                                Layout.fillWidth: true
-                                Layout.minimumWidth: 0
-                                text: win.st.devices === 1 ? "1 celular pareado" : win.st.devices + " celulares pareados"
-                                color: Theme.foreground
-                                font.family: Theme.font
-                                font.pixelSize: 13
-                                elide: Text.ElideRight
-                            }
-                            Button { text: "Esquecer"; onClicked: win.forgetting = true }
-                        }
-                        Confirm {
-                            Layout.fillWidth: true
-                            visible: win.forgetting
-                            title: "Esquecer todos os celulares?"
-                            body: "Eles precisarão ler o QR e parear de novo."
-                            action: "Esquecer"
-                            onAccepted: { backend.send({ c: "forget" }); win.forgetting = false }
-                            onRejected: win.forgetting = false
-                        }
-                        Toggle {
-                            Layout.fillWidth: true
-                            title: "Iniciar com o sistema"
-                            hint: "Abre escondido na bandeja"
-                            checked: win.st.autostart || false
-                            onToggled: on => backend.send({ c: "autostart", on: on })
-                        }
-                        Item { Layout.fillHeight: true }
-                        // Confira no celular ao aceitar o aviso do certificado.
-                        Section { text: "Certificado · SHA-256" }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Text {
-                                Layout.fillWidth: true
-                                text: win.st.fingerprint || "aguardando o servidor…"
-                                color: Theme.muted
-                                font.family: Theme.font
-                                font.pixelSize: 10
-                                wrapMode: Text.WrapAnywhere
-                            }
-                            Button {
-                                text: win.copied ? "Copiado" : "Copiar"
-                                enabled: !!win.st.fingerprint
-                                onClicked: { Quickshell.clipboardText = win.st.fingerprint; win.copied = true; copiedTimer.restart() }
-                                Timer { id: copiedTimer; interval: 1500; onTriggered: win.copied = false }
-                            }
-                        }
-                    }
                     }
                 }
 
-                // ── Painel principal: voz ──
+                // ── Painel: só a seção escolhida ──
                 Flickable {
-                    id: mainView
+                    id: pane
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    contentHeight: main.implicitHeight + 36
+                    contentHeight: pageStack.implicitHeight + 36
                     clip: true
+                    boundsBehavior: Flickable.StopAtBounds
 
-                        // Em tela larga as seções viram duas colunas; estreita, empilham.
-                        GridLayout {
-                            id: main
-                            width: Math.min(parent.width - 36, 1400)
-                            x: Math.max(18, (parent.width - width) / 2); y: 18
-                            columns: width >= 900 ? 2 : 1
-                            columnSpacing: 36
-                            rowSpacing: 6
-                            uniformCellWidths: true
+                    ColumnLayout {
+                        id: pageStack
+                        // Formulários ficam numa coluna legível; o que tem gráfico ou duas colunas
+                        // usa a largura da tela cheia.
+                        width: Math.min(pane.width - 48, win.widePage ? 1200 : 720)
+                        x: Math.max(24, (pane.width - width) / 2); y: win.wide ? 36 : 18
+                        spacing: 0
 
-                            ColumnLayout {
-                                id: voiceColumn
-                                Layout.fillWidth: true
-                                Layout.alignment: Qt.AlignTop
-                                spacing: 6
+                        Text {
+                            Layout.bottomMargin: 8
+                            text: win.pageLabel()
+                            color: Theme.foreground
+                            font.family: Theme.font
+                            font.pixelSize: 18
+                            font.bold: true
+                        }
 
-                                Section { text: "Saída" }
+                        ColumnLayout {
+                            id: vozPage
+                            Layout.fillWidth: true
+                            visible: win.page === "voz"
+                            spacing: 6
+
                                 Meter { Layout.fillWidth: true; label: "entrada"; level: win.st.in || 0 }
                                 Meter { Layout.fillWidth: true; label: "saída"; level: win.st.out || 0 }
-                                Toggle {
-                                    Layout.fillWidth: true
-                                    title: "Silenciar microfone virtual"
-                                    hint: "Retorno e gravação seguem ativos  ·  M"
-                                    checked: win.st.muted || false
-                                    onToggled: on => backend.send({ c: "mute", on: on })
-                                }
 
-                                Section { text: "Retorno no fone" }
+                            History {
+                                id: historyTop
+                                Layout.fillWidth: true
+                                Layout.topMargin: 12
+                                Layout.preferredHeight: Math.max(160, pane.height - vozPage.y - historyTop.y - 36)
+                                input: win.st.in || 0
+                                output: win.st.out || 0
+                            }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            visible: win.page === "retorno"
+                            spacing: 6
+
                                 Toggle {
                                     Layout.fillWidth: true
                                     title: "Ouvir a voz tratada"
@@ -331,7 +406,12 @@ ShellRoot {
                                     wrapMode: Text.Wrap
                                 }
 
-                                Section { text: "Teste de voz" }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            visible: win.page === "teste"
+                            spacing: 6
+
                                 RowLayout {
                                     Layout.fillWidth: true
                                     Layout.leftMargin: 10
@@ -403,7 +483,12 @@ ShellRoot {
                                     onRejected: backend.send({ c: "export_confirm", on: false })
                                 }
 
-                                Section { text: "Perfil de voz" }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            visible: win.page === "perfil"
+                            spacing: 6
+
                                 Flow {
                                     Layout.fillWidth: true
                                     spacing: 6
@@ -493,14 +578,22 @@ ShellRoot {
                                     font.pixelSize: 11
                                     wrapMode: Text.Wrap
                                 }
-                            }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            visible: win.page === "efeitos"
+                            spacing: 6
 
-                            ColumnLayout {
-                                id: effectsColumn
+                            GridLayout {
                                 Layout.fillWidth: true
-                                Layout.alignment: Qt.AlignTop
-                                spacing: 6
-
+                                columns: win.wide ? 2 : 1
+                                columnSpacing: 48
+                                rowSpacing: 6
+                                uniformCellWidths: true
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Layout.alignment: Qt.AlignTop
+                                    spacing: 6
                                 Section { text: "Limpeza" }
                                 Toggle {
                                     Layout.fillWidth: true
@@ -548,6 +641,11 @@ ShellRoot {
                                     onToggled: on => win.setEffect("presence", on)
                                 }
 
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Layout.alignment: Qt.AlignTop
+                                    spacing: 6
                                 Section { text: "Dinâmica" }
                                 Toggle {
                                     Layout.fillWidth: true
@@ -590,20 +688,118 @@ ShellRoot {
                                     enabled: !win.effect("auto_gain")
                                     onMoved: v => backend.send({ c: "tune", name: "makeup_db", value: v })
                                 }
-                            }
-
-                            // Ocupa a altura que sobra abaixo das colunas, com um mínimo legível.
-                            History {
-                                Layout.columnSpan: main.columns
-                                Layout.fillWidth: true
-                                Layout.topMargin: 12
-                                Layout.preferredHeight: Math.max(160, mainView.height - 36 - 12 - main.rowSpacing
-                                    - (main.columns > 1 ? Math.max(voiceColumn.implicitHeight, effectsColumn.implicitHeight)
-                                       : voiceColumn.implicitHeight + main.rowSpacing + effectsColumn.implicitHeight))
-                                input: win.st.in || 0
-                                output: win.st.out || 0
+                                }
                             }
                         }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            visible: win.page === "conexao"
+                            spacing: 6
+
+                            GridLayout {
+                                Layout.fillWidth: true
+                                columns: win.wide ? 2 : 1
+                                columnSpacing: 48
+                                rowSpacing: 6
+                                uniformCellWidths: true
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Layout.alignment: Qt.AlignTop
+                                    spacing: 6
+                        QrCode {
+                            Layout.alignment: Qt.AlignHCenter
+                            Layout.preferredWidth: win.wide ? 300 : 200
+                            Layout.preferredHeight: win.wide ? 300 : 200
+                            rows: backend.qrRows
+                            opacity: win.st.pairing > 0 ? 1 : 0.25
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            text: win.st.pairing > 0
+                                ? "Escaneie para parear (" + Math.floor(win.st.pairing / 60) + ":" + String(win.st.pairing % 60).padStart(2, "0") + ")"
+                                : "Celular pareado: leia o QR para abrir"
+                            color: Theme.muted
+                            font.family: Theme.font
+                            font.pixelSize: 11
+                            wrapMode: Text.Wrap
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            text: backend.url
+                            color: Theme.accent
+                            font.family: Theme.font
+                            font.pixelSize: 11
+                            elide: Text.ElideMiddle
+                        }
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Layout.alignment: Qt.AlignTop
+                                    spacing: 6
+                        Toggle {
+                            Layout.fillWidth: true
+                            title: "Aceitar novo celular"
+                            hint: "Abre o QR por 5 minutos  ·  P"
+                            checked: win.st.pairing > 0
+                            onToggled: on => backend.send({ c: "pairing", on: on })
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 10
+                            visible: (win.st.devices || 0) > 0 && !win.forgetting
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                text: win.st.devices === 1 ? "1 celular pareado" : win.st.devices + " celulares pareados"
+                                color: Theme.foreground
+                                font.family: Theme.font
+                                font.pixelSize: 13
+                                elide: Text.ElideRight
+                            }
+                            Button { text: "Esquecer"; onClicked: win.forgetting = true }
+                        }
+                        Confirm {
+                            Layout.fillWidth: true
+                            visible: win.forgetting
+                            title: "Esquecer todos os celulares?"
+                            body: "Eles precisarão ler o QR e parear de novo."
+                            action: "Esquecer"
+                            onAccepted: { backend.send({ c: "forget" }); win.forgetting = false }
+                            onRejected: win.forgetting = false
+                        }
+                        Toggle {
+                            Layout.fillWidth: true
+                            title: "Iniciar com o sistema"
+                            hint: "Abre escondido na bandeja"
+                            checked: win.st.autostart || false
+                            onToggled: on => backend.send({ c: "autostart", on: on })
+                        }
+                        // Confira no celular ao aceitar o aviso do certificado.
+                        Section { text: "Certificado · SHA-256" }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 6
+                            Text {
+                                Layout.fillWidth: true
+                                text: win.st.fingerprint || "aguardando o servidor…"
+                                color: Theme.muted
+                                font.family: Theme.font
+                                font.pixelSize: 10
+                                wrapMode: Text.WrapAnywhere
+                            }
+                            Button {
+                                text: win.copied ? "Copiado" : "Copiar"
+                                enabled: !!win.st.fingerprint
+                                onClicked: { Quickshell.clipboardText = win.st.fingerprint; win.copied = true; copiedTimer.restart() }
+                                Timer { id: copiedTimer; interval: 1500; onTriggered: win.copied = false }
+                            }
+                        }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

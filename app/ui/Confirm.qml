@@ -11,6 +11,8 @@ Rectangle {
     signal rejected()
 
     implicitHeight: box.implicitHeight + 20
+    // Aberta pelo teclado, já recebe o foco no Cancelar (o lado seguro).
+    onVisibleChanged: if (visible) cancel.forceActiveFocus()
     radius: Theme.radius
     color: "transparent"
     border.color: Theme.urgent
@@ -37,7 +39,7 @@ Rectangle {
         }
         Row {
             spacing: 6
-            Button { text: "Cancelar"; onClicked: root.rejected() }
+            Button { id: cancel; text: "Cancelar"; onClicked: root.rejected() }
             Button { text: root.action; accent: true; onClicked: root.accepted() }
         }
     }

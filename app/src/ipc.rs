@@ -243,6 +243,7 @@ impl Daemon {
                     "presence" => &p.presence,
                     "compressor" => &p.compressor,
                     "auto_gain" => &p.auto_gain,
+                    "eq" => &p.eq,
                     other => return Err(format!("efeito desconhecido: {other}")),
                 };
                 flag.store(on, Relaxed);
@@ -339,6 +340,10 @@ impl Daemon {
                         "threshold_db" => (crate::dsp::Params::set_comp_threshold_db, -50.0, 0.0),
                         "ratio" => (crate::dsp::Params::set_comp_ratio, 1.0, 10.0),
                         "makeup_db" => (crate::dsp::Params::set_makeup_db, 0.0, 24.0),
+                        // Closures sem captura viram `fn` comum, como os setters acima.
+                        "eq_low" => (|p, v| p.set_eq_db(0, v), -crate::dsp::EQ_MAX_DB, crate::dsp::EQ_MAX_DB),
+                        "eq_mid" => (|p, v| p.set_eq_db(1, v), -crate::dsp::EQ_MAX_DB, crate::dsp::EQ_MAX_DB),
+                        "eq_high" => (|p, v| p.set_eq_db(2, v), -crate::dsp::EQ_MAX_DB, crate::dsp::EQ_MAX_DB),
                         other => return Err(format!("ajuste desconhecido: {other}")),
                     };
                 if !value.is_finite() {
@@ -714,12 +719,16 @@ impl Daemon {
                 "presence": p.presence.load(Relaxed),
                 "compressor": p.compressor.load(Relaxed),
                 "auto_gain": p.auto_gain.load(Relaxed),
+                "eq": p.eq.load(Relaxed),
             },
             "tuning": {
                 "gate_db": p.gate_threshold(),
                 "threshold_db": p.comp_threshold(),
                 "ratio": p.comp_ratio(),
                 "makeup_db": p.makeup_db(),
+                "eq_low": p.eq_db()[0],
+                "eq_mid": p.eq_db()[1],
+                "eq_high": p.eq_db()[2],
             },
             "activity": activity,
             "fx": fx,

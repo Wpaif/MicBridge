@@ -12,6 +12,10 @@ Item {
     property real value: 0
     property string unit: ""
     property bool enabled: true
+    // Valor de repouso: o duplo clique volta para ele (NaN = sem repouso).
+    property real home: NaN
+    // Mostra "+" nos positivos, para ganhos que vão para os dois lados.
+    property bool signed: false
     signal moved(real value)
 
     property real _local: value
@@ -47,7 +51,8 @@ Item {
     Timer { id: settle; interval: 600 }
 
     function text(v) {
-        return (step < 1 ? v.toFixed(1) : v.toFixed(0)).replace(".", ",") + root.unit
+        var t = (step < 1 ? v.toFixed(1) : v.toFixed(0)).replace(".", ",")
+        return (root.signed && v > 0 ? "+" : "") + t + root.unit
     }
 
     Text {
@@ -91,9 +96,12 @@ Item {
             width: 4
             radius: 2
             color: Qt.darker(Theme.surface, 1.3)
+            // Faixas com sinal (EQ) acendem a partir do zero; as outras, de baixo.
+            readonly property real base: root.signed ? (0 - root.from) / (root.to - root.from) : 0
             Rectangle {
-                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-                height: parent.height * root.fraction
+                width: parent.width
+                y: parent.height * (1 - Math.max(root.fraction, track.base))
+                height: parent.height * Math.abs(root.fraction - track.base)
                 radius: 2
                 color: Theme.accent
                 opacity: 0.7
@@ -132,8 +140,11 @@ Item {
             onPressed: mouse => { root._local = root.value; update(mouse.y) }
             onPositionChanged: mouse => { if (pressed) update(mouse.y) }
             onReleased: settle.restart()
-            // Duplo clique foca o fader para ajuste fino pelo teclado.
-            onDoubleClicked: root.forceActiveFocus()
+            // Duplo clique volta ao repouso (se houver) e foca para ajuste fino pelo teclado.
+            onDoubleClicked: {
+                if (!isNaN(root.home)) root.nudge(root.home)
+                root.forceActiveFocus()
+            }
         }
     }
 

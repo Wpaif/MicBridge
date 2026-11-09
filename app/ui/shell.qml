@@ -652,19 +652,36 @@ ShellRoot {
                                 id: desk
                                 Layout.fillWidth: true
                                 // A mesa ocupa a altura que sobra no painel: faders mais longos, ajuste mais fino.
-                                Layout.preferredHeight: Math.max(300, pane.height - 130)
+                                Layout.preferredHeight: Math.max(300, pane.height - 130 - (overflow ? 14 : 0))
                                 contentWidth: deskRow.width
                                 contentHeight: height
                                 flickableDirection: Flickable.HorizontalFlick
                                 boundsBehavior: Flickable.StopAtBounds
                                 clip: true
+                                readonly property bool overflow: contentWidth > width + 1
+                                function scrollBy(dx) {
+                                    contentX = Math.max(0, Math.min(contentWidth - width, contentX + dx))
+                                }
+
+                                // Roda do mouse e touchpad rolam a mesa na horizontal quando ela não cabe.
+                                // Vale a roda vertical comum, o Shift+roda e o deslize lateral do touchpad.
+                                WheelHandler {
+                                    enabled: desk.overflow
+                                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                                    onWheel: event => {
+                                        var d = event.pixelDelta.x !== 0 || event.pixelDelta.y !== 0
+                                            ? (Math.abs(event.pixelDelta.x) > Math.abs(event.pixelDelta.y) ? event.pixelDelta.x : event.pixelDelta.y)
+                                            : (Math.abs(event.angleDelta.x) > Math.abs(event.angleDelta.y) ? event.angleDelta.x : event.angleDelta.y) / 2
+                                        desk.scrollBy(-d)
+                                    }
+                                }
 
                                 RowLayout {
                                     id: deskRow
                                     spacing: 6
                                     // Na janela larga os canais esticam para ocupar a mesa toda.
                                     width: Math.max(implicitWidth, desk.width)
-                                    height: desk.height - (deskRow.implicitWidth > desk.width ? 12 : 0)
+                                    height: desk.height
                                     readonly property var fx: win.st.fx || ({})
 
                                     Strip {
@@ -718,6 +735,38 @@ ShellRoot {
                                         hint: "Realça a clareza da voz (~3 kHz)"
                                         on: win.effect("presence")
                                         onToggled: on => win.setEffect("presence", on)
+                                    }
+                                    // Equalizador de 3 bandas em dB; duplo clique zera a banda.
+                                    Strip {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        title: "EQ"
+                                        on: win.effect("eq")
+                                        onToggled: on => win.setEffect("eq", on)
+                                        Fader {
+                                            Layout.fillHeight: true
+                                            label: "grave"
+                                            from: -12; to: 12; step: 0.5; unit: ""; signed: true; home: 0
+                                            value: win.tuning("eq_low")
+                                            enabled: win.effect("eq")
+                                            onMoved: v => backend.send({ c: "tune", name: "eq_low", value: v })
+                                        }
+                                        Fader {
+                                            Layout.fillHeight: true
+                                            label: "médio"
+                                            from: -12; to: 12; step: 0.5; unit: ""; signed: true; home: 0
+                                            value: win.tuning("eq_mid")
+                                            enabled: win.effect("eq")
+                                            onMoved: v => backend.send({ c: "tune", name: "eq_mid", value: v })
+                                        }
+                                        Fader {
+                                            Layout.fillHeight: true
+                                            label: "agudo"
+                                            from: -12; to: 12; step: 0.5; unit: ""; signed: true; home: 0
+                                            value: win.tuning("eq_high")
+                                            enabled: win.effect("eq")
+                                            onMoved: v => backend.send({ c: "tune", name: "eq_high", value: v })
+                                        }
                                     }
                                     Strip {
                                         Layout.fillWidth: true
@@ -816,6 +865,45 @@ ShellRoot {
                                             readout: db > -60 ? db.toFixed(0) : "-∞"
                                         }
                                     }
+                                }
+                            }
+
+                            // Barra de rolagem da mesa: arrastável, e um clique no trilho pula até ali.
+                            Rectangle {
+                                id: deskBar
+                                Layout.fillWidth: true
+                                implicitHeight: 8
+                                radius: 4
+                                visible: desk.overflow
+                                color: Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0.5)
+                                readonly property real ratio: desk.width / Math.max(1, desk.contentWidth)
+                                Rectangle {
+                                    id: deskThumb
+                                    height: parent.height
+                                    radius: 4
+                                    width: Math.max(40, parent.width * deskBar.ratio)
+                                    x: (parent.width - width) * (desk.contentX / Math.max(1, desk.contentWidth - desk.width))
+                                    color: thumbArea.pressed || thumbArea.containsMouse ? Theme.accent : Theme.muted
+                                }
+                                MouseArea {
+                                    id: thumbArea
+                                    anchors.fill: parent
+                                    anchors.margins: -6
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    preventStealing: true
+                                    property real grab: 0
+                                    function seek(mx) {
+                                        var f = (mx - 6 - grab) / Math.max(1, deskBar.width - deskThumb.width)
+                                        desk.contentX = Math.max(0, Math.min(1, f)) * (desk.contentWidth - desk.width)
+                                    }
+                                    onPressed: mouse => {
+                                        var tx = mouse.x - 6
+                                        // No polegar, segura pelo ponto clicado; fora dele, centraliza.
+                                        grab = tx >= deskThumb.x && tx <= deskThumb.x + deskThumb.width ? tx - deskThumb.x : deskThumb.width / 2
+                                        seek(mouse.x)
+                                    }
+                                    onPositionChanged: mouse => { if (pressed) seek(mouse.x) }
                                 }
                             }
                         }

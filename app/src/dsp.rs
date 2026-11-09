@@ -1,6 +1,6 @@
 //! Cadeia de tratamento:
 //! passa-altas -> RNNoise -> noise gate -> de-esser -> EQ de presença
-//! -> compressor -> ganho automático -> ganho manual -> limitador de pico.
+//! -> equalizador de 3 bandas -> compressor -> ganho automático -> ganho manual -> limitador de pico.
 //!
 //! Para leigos, basta escolher um `Preset`; os controles individuais
 //! continuam disponíveis para quem quiser ajustar.
@@ -18,6 +18,13 @@ pub const FRAME: usize = DenoiseState::FRAME_SIZE;
 const GATE_HOLD_FRAMES: u32 = 20; // 200 ms
 const GATE_HYSTERESIS_DB: f32 = 4.0;
 const GATE_FLOOR_DB: f32 = -30.0;
+
+/// Equalizador de 3 bandas: prateleira de graves, sino nos médios e prateleira de agudos.
+pub const EQ_LOW_HZ: f32 = 120.0;
+pub const EQ_MID_HZ: f32 = 1_000.0;
+pub const EQ_HIGH_HZ: f32 = 6_000.0;
+/// Limite de cada banda, para mais e para menos.
+pub const EQ_MAX_DB: f32 = 12.0;
 const COMP_ATTACK_MS: f32 = 5.0;
 const COMP_RELEASE_MS: f32 = 120.0;
 const LIMITER_RELEASE_MS: f32 = 50.0;
@@ -52,11 +59,15 @@ pub struct Params {
     pub deesser: AtomicBool,
     /// Mantém o volume constante sem ajuste manual (substitui o makeup).
     pub auto_gain: AtomicBool,
+    /// Equalizador de 3 bandas (graves, médios, agudos).
+    pub eq: AtomicBool,
 
     gate_db: AtomicU32,
     comp_threshold_db: AtomicU32,
     comp_ratio: AtomicU32,
     makeup_db: AtomicU32,
+    /// Ganho de cada banda do equalizador em dB: [graves, médios, agudos].
+    eq_db: [AtomicU32; 3],
 
     /// RMS linear da entrada e da saída.
     pub in_level: AtomicU32,
@@ -95,11 +106,14 @@ impl Default for Params {
             presence: AtomicBool::new(true),
             deesser: AtomicBool::new(true),
             auto_gain: AtomicBool::new(true),
+            // Desligado e plano por padrão: o som não muda até a pessoa mexer.
+            eq: AtomicBool::new(false),
 
             gate_db: atomic_f32(-55.0),
             comp_threshold_db: atomic_f32(-20.0),
             comp_ratio: atomic_f32(6.0),
             makeup_db: atomic_f32(10.0),
+            eq_db: [atomic_f32(0.0), atomic_f32(0.0), atomic_f32(0.0)],
 
             in_level: atomic_f32(0.0),
             out_level: atomic_f32(0.0),
@@ -197,6 +211,11 @@ impl Params {
         self.set_comp_threshold_db(thr);
         self.set_comp_ratio(ratio);
         self.set_makeup_db(if ag { 0.0 } else { 6.0 });
+        // Presets não usam o equalizador: voltam com ele desligado e plano.
+        self.eq.store(false, Relaxed);
+        for band in 0..3 {
+            self.set_eq_db(band, 0.0);
+        }
     }
 
     pub fn set_gate_db(&self, v: f32) {
@@ -217,6 +236,17 @@ impl Params {
     pub fn set_makeup_db(&self, v: f32) {
         self.makeup_db
             .store(finite_clamp(v, 0.0, 24.0, 10.0).to_bits(), Relaxed);
+    }
+
+    /// Ganho de uma banda do equalizador (0 graves, 1 médios, 2 agudos).
+    pub fn set_eq_db(&self, band: usize, v: f32) {
+        if let Some(slot) = self.eq_db.get(band) {
+            slot.store(finite_clamp(v, -EQ_MAX_DB, EQ_MAX_DB, 0.0).to_bits(), Relaxed);
+        }
+    }
+
+    pub fn eq_db(&self) -> [f32; 3] {
+        self.eq_db.each_ref().map(|a| finite_clamp(load_f32(a), -EQ_MAX_DB, EQ_MAX_DB, 0.0))
     }
 
     pub(crate) fn begin_effects(&self, generation: u64) {
@@ -347,6 +377,56 @@ impl Biquad {
         )
     }
 
+    /// Prateleira de graves (RBJ, inclinação S = 1).
+    fn low_shelf(freq: f32, gain_db: f32) -> Self {
+        let a = 10.0_f32.powf(gain_db / 40.0);
+        let w0 = 2.0 * std::f32::consts::PI * freq / SAMPLE_RATE;
+        let (sin, cos) = w0.sin_cos();
+        let alpha = sin / 2.0 * std::f32::consts::SQRT_2;
+        let k = 2.0 * a.sqrt() * alpha;
+        Self::normalized(
+            a * ((a + 1.0) - (a - 1.0) * cos + k),
+            2.0 * a * ((a - 1.0) - (a + 1.0) * cos),
+            a * ((a + 1.0) - (a - 1.0) * cos - k),
+            (a + 1.0) + (a - 1.0) * cos + k,
+            -2.0 * ((a - 1.0) + (a + 1.0) * cos),
+            (a + 1.0) + (a - 1.0) * cos - k,
+        )
+    }
+
+    /// Prateleira de agudos (RBJ, inclinação S = 1).
+    fn high_shelf(freq: f32, gain_db: f32) -> Self {
+        let a = 10.0_f32.powf(gain_db / 40.0);
+        let w0 = 2.0 * std::f32::consts::PI * freq / SAMPLE_RATE;
+        let (sin, cos) = w0.sin_cos();
+        let alpha = sin / 2.0 * std::f32::consts::SQRT_2;
+        let k = 2.0 * a.sqrt() * alpha;
+        Self::normalized(
+            a * ((a + 1.0) + (a - 1.0) * cos + k),
+            -2.0 * a * ((a - 1.0) + (a + 1.0) * cos),
+            a * ((a + 1.0) + (a - 1.0) * cos - k),
+            (a + 1.0) - (a - 1.0) * cos + k,
+            2.0 * ((a - 1.0) - (a + 1.0) * cos),
+            (a + 1.0) - (a - 1.0) * cos - k,
+        )
+    }
+
+    /// Filtro de uma banda do equalizador com o ganho dado.
+    fn eq_band(band: usize, gain_db: f32) -> Self {
+        match band {
+            0 => Self::low_shelf(EQ_LOW_HZ, gain_db),
+            1 => Self::peaking(EQ_MID_HZ, 0.8, gain_db),
+            _ => Self::high_shelf(EQ_HIGH_HZ, gain_db),
+        }
+    }
+
+    /// Troca os coeficientes mantendo a memória do filtro, para mudar o ganho
+    /// durante a fala sem estalo.
+    fn retune(&mut self, other: Self) {
+        let (z1, z2) = (self.z1, self.z2);
+        *self = Self { z1, z2, ..other };
+    }
+
     fn tick(&mut self, x: f32) -> f32 {
         let y = self.b0 * x + self.z1;
         self.z1 = self.b1 * x - self.a1 * y + self.z2;
@@ -375,6 +455,10 @@ pub struct Processor {
 
     hpf: Biquad,
     presence: Biquad,
+
+    // Equalizador: um filtro por banda e o ganho com que cada um foi calculado.
+    eq: [Biquad; 3],
+    eq_applied_db: [f32; 3],
 
     // De-esser: filtro da banda sibilante e seu detector.
     deess_band: Biquad,
@@ -410,6 +494,8 @@ impl Processor {
 
             hpf: Biquad::highpass(HPF_HZ, 0.707),
             presence: Biquad::peaking(PRESENCE_HZ, 0.9, PRESENCE_DB),
+            eq: [0, 1, 2].map(|b| Biquad::eq_band(b, 0.0)),
+            eq_applied_db: [0.0; 3],
 
             deess_band: Biquad::highpass(DEESS_HZ, 0.707),
             deess_env: 0.0,
@@ -493,6 +579,24 @@ impl Processor {
             }
         } else {
             self.presence.reset();
+        }
+
+        // 3b. Equalizador de 3 bandas. Só recalcula um filtro quando o ganho muda.
+        if p.eq.load(Relaxed) {
+            let wanted = p.eq_db();
+            for band in 0..3 {
+                if wanted[band] != self.eq_applied_db[band] {
+                    self.eq[band].retune(Biquad::eq_band(band, wanted[band]));
+                    self.eq_applied_db[band] = wanted[band];
+                }
+                // Em 0 dB o filtro devolve o mesmo som; roda assim mesmo para a memória
+                // dele seguir a voz e não estalar quando o ganho mudar.
+                for sample in frame.iter_mut() {
+                    *sample = self.eq[band].tick(*sample);
+                }
+            }
+        } else {
+            self.eq.iter_mut().for_each(Biquad::reset);
         }
 
         // 4. Compressor.
@@ -904,5 +1008,39 @@ mod tests {
             run(&p, &mut x);
             assert!(x.iter().all(|s| s.is_finite()), "{preset:?}");
         }
+    }
+
+    /// Ganho em dB que a cadeia aplica a um seno de `freq`, medido no fim (regime).
+    fn eq_gain_db(p: &Params, freq: f32) -> f32 {
+        let mut x = sine(freq, 0.1, 40);
+        run(p, &mut x);
+        let tail = &x[x.len() - 10 * FRAME..];
+        let peak = tail.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
+        20.0 * (peak / 0.1).log10()
+    }
+
+    #[test]
+    fn equalizer_moves_each_band_and_is_flat_at_zero() {
+        let p = Params::default();
+        p.apply_preset(Preset::Bruto);
+        p.set_makeup_db(0.0);
+        p.eq.store(true, Relaxed);
+        // Plano: nada muda.
+        for f in [60.0, 1_000.0, 12_000.0] {
+            assert!(eq_gain_db(&p, f).abs() < 0.3, "{f} Hz plano");
+        }
+        p.set_eq_db(0, 6.0);
+        p.set_eq_db(1, -6.0);
+        p.set_eq_db(2, 6.0);
+        let (low, mid, high) = (eq_gain_db(&p, 50.0), eq_gain_db(&p, 1_000.0), eq_gain_db(&p, 14_000.0));
+        assert!((low - 6.0).abs() < 1.0, "graves {low:.2} dB");
+        assert!((mid + 6.0).abs() < 1.0, "médios {mid:.2} dB");
+        assert!((high - 6.0).abs() < 1.0, "agudos {high:.2} dB");
+        // Desligado, volta a ser transparente mesmo com as bandas mexidas.
+        p.eq.store(false, Relaxed);
+        assert!(eq_gain_db(&p, 1_000.0).abs() < 0.3);
+        // Fora dos limites é cortado em ±12 dB.
+        p.set_eq_db(0, 40.0);
+        assert_eq!(p.eq_db()[0], EQ_MAX_DB);
     }
 }

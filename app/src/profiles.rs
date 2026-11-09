@@ -16,6 +16,12 @@ pub struct Config {
     pub threshold_db: f32,
     pub ratio: f32,
     pub makeup_db: f32,
+    /// Perfis salvos antes do equalizador não têm estes campos: carregam desligado e plano.
+    #[serde(default)]
+    pub eq: bool,
+    /// Ganho das bandas em dB: [graves, médios, agudos].
+    #[serde(default)]
+    pub eq_db: [f32; 3],
 }
 impl Config {
     pub fn capture(p: &Params) -> Self {
@@ -31,6 +37,8 @@ impl Config {
             threshold_db: p.comp_threshold(),
             ratio: p.comp_ratio(),
             makeup_db: p.makeup_db(),
+            eq: p.eq.load(Relaxed),
+            eq_db: p.eq_db(),
         }
     }
     pub fn apply(&self, p: &Params) {
@@ -45,6 +53,10 @@ impl Config {
         p.set_comp_threshold_db(self.threshold_db);
         p.set_comp_ratio(self.ratio);
         p.set_makeup_db(self.makeup_db);
+        p.eq.store(self.eq, Relaxed);
+        for (band, db) in self.eq_db.into_iter().enumerate() {
+            p.set_eq_db(band, db);
+        }
     }
     pub fn validate(&self) -> Result<(), String> {
         for (value, min, max) in [
@@ -52,6 +64,9 @@ impl Config {
             (self.threshold_db, -50.0, 0.0),
             (self.ratio, 1.0, 10.0),
             (self.makeup_db, 0.0, 24.0),
+            (self.eq_db[0], -crate::dsp::EQ_MAX_DB, crate::dsp::EQ_MAX_DB),
+            (self.eq_db[1], -crate::dsp::EQ_MAX_DB, crate::dsp::EQ_MAX_DB),
+            (self.eq_db[2], -crate::dsp::EQ_MAX_DB, crate::dsp::EQ_MAX_DB),
         ] {
             if !value.is_finite() || !(min..=max).contains(&value) {
                 return Err("Configuração de áudio fora dos limites permitidos".into());

@@ -65,10 +65,24 @@ git diff --check
 ```
 
 A suíte comum cobre DSP, perfis, persistência, captura, WAV, filas e coordenação de
-processos/roteamento com fixtures. Os testes de qualidade do DSP (`app/src/dsp_quality.rs`) passam
-uma voz sintética com ruído rosa pela cadeia e exigem que o tratamento separe voz de
+processos/roteamento com fixtures.
+
+Os testes de qualidade do DSP (`app/src/dsp_quality.rs`) passam uma voz sintética
+pela cadeia misturada a oito ruídos: as cores branco, rosa, marrom, azul e violeta
+(que diferem pela inclinação do espectro), zumbido de 60 Hz, cliques de
+teclado e vozes ao fundo. Eles exigem que o tratamento separe voz de
 ruído, leve a voz ao nível-alvo, respeite o teto do limitador, que o compressor atue
 e que os perfis soem diferentes entre si.
+
+Para medir com a sua voz, grave um **Teste de voz** num lugar silencioso, use
+**Exportar WAVs** e aponte para o original. O relatório mistura cada ruído à
+gravação e mostra a separação por perfil e o efeito dos atalhos do EQ. A gravação
+fica fora do repositório (que é público):
+
+```sh
+MICBRIDGE_VOICE=voz-original.wav cargo test --release --manifest-path app/Cargo.toml \
+  dsp_quality::real_voice -- --ignored --nocapture
+```
 
 Para medir a cadeia com áudio real, a bancada `dsp_bench` processa uma gravação
 (f32 mono 48 kHz, cru) com vários perfis e grava as saídas para comparar:

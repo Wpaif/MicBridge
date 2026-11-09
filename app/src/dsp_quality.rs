@@ -20,9 +20,14 @@ impl Lcg {
 /// "Voz": vogais harmônicas (f0 ~120-180 Hz, formantes simples) em sílabas de
 /// 150-300 ms, com pausas entre frases. Devolve o sinal e a máscara de fala por frame.
 fn voice(seconds: f32) -> (Vec<f32>, Vec<bool>) {
+    voice_seeded(seconds, 7)
+}
+
+/// Mesma voz com outra semente: outra entonação e outro ritmo (vozes ao fundo).
+fn voice_seeded(seconds: f32, seed: u64) -> (Vec<f32>, Vec<bool>) {
     let n = (seconds * SAMPLE_RATE) as usize / FRAME * FRAME;
     let mut out = vec![0.0; n];
-    let mut rng = Lcg(7);
+    let mut rng = Lcg(seed);
     let mut t = 0usize;
     let mut phase = 0.0_f32;
     while t < n {
@@ -71,6 +76,107 @@ fn pink(len: usize) -> Vec<f32> {
             b1 = 0.96300 * b1 + w * 0.2965164;
             b2 = 0.57000 * b2 + w * 1.0526913;
             b0 + b1 + b2 + w * 0.1848
+        })
+        .collect()
+}
+
+/// Ruídos de teste: as "cores" (inclinação do espectro, de grave a agudo) e três
+/// ruídos comuns em chamadas que dá para sintetizar.
+#[derive(Debug, Clone, Copy)]
+enum Noise {
+    /// Espectro plano.
+    White,
+    /// -3 dB/oitava: o mais parecido com ruído de ambiente em geral.
+    Pink,
+    /// -6 dB/oitava: ronco grave (ar-condicionado, trânsito distante).
+    Brown,
+    /// +3 dB/oitava.
+    Blue,
+    /// +6 dB/oitava: chiado agudo (sibilância de ventilador, hiss).
+    Violet,
+    /// Zumbido elétrico de 60 Hz (rede no Brasil) com harmônicos.
+    Hum,
+    /// Cliques de teclado: rajadas curtas e irregulares.
+    Keyboard,
+    /// Vozes ao fundo: quatro "vozes" sobrepostas.
+    Babble,
+}
+
+const NOISES: [Noise; 8] = [
+    Noise::White,
+    Noise::Pink,
+    Noise::Brown,
+    Noise::Blue,
+    Noise::Violet,
+    Noise::Hum,
+    Noise::Keyboard,
+    Noise::Babble,
+];
+
+/// Gera `len` amostras do ruído, com RMS 1 (quem usa ajusta o nível).
+fn noise(kind: Noise, len: usize) -> Vec<f32> {
+    let mut rng = Lcg(42);
+    let mut x: Vec<f32> = match kind {
+        Noise::White => (0..len).map(|_| rng.next()).collect(),
+        Noise::Pink => pink(len),
+        Noise::Brown => {
+            // Integral do branco, com vazamento para não derivar sem limite.
+            let mut y = 0.0_f32;
+            (0..len)
+                .map(|_| {
+                    y = 0.998 * y + rng.next();
+                    y
+                })
+                .collect()
+        }
+        // Derivar sobe +6 dB/oitava: rosa vira azul, branco vira violeta.
+        Noise::Blue => diff(&pink(len)),
+        Noise::Violet => diff(&(0..len).map(|_| rng.next()).collect::<Vec<_>>()),
+        Noise::Hum => (0..len)
+            .map(|i| {
+                let t = i as f32 / SAMPLE_RATE;
+                (1..=6)
+                    .map(|h| (2.0 * PI * 60.0 * h as f32 * t).sin() / h as f32)
+                    .sum()
+            })
+            .collect(),
+        Noise::Keyboard => {
+            let mut out = vec![0.0; len];
+            let mut i = 0usize;
+            while i < len {
+                // ~7 teclas por segundo, com intervalo irregular.
+                i += ((0.08 + 0.10 * (rng.next() * 0.5 + 0.5)) * SAMPLE_RATE) as usize;
+                let click = (0.006 * SAMPLE_RATE) as usize;
+                for (k, o) in out.iter_mut().skip(i).take(click).enumerate() {
+                    *o = rng.next() * (-(k as f32) / (0.0012 * SAMPLE_RATE)).exp();
+                }
+            }
+            out
+        }
+        Noise::Babble => {
+            let mut out = vec![0.0; len];
+            // As pausas da voz sintética caem sempre no mesmo lugar; desloca
+            // cada uma para o fundo não silenciar junto com a voz principal.
+            for (seed, shift) in [(11, 0.3), (23, 0.8), (37, 1.2), (51, 1.7)] {
+                let (v, _) = voice_seeded(len as f32 / SAMPLE_RATE + 2.0, seed);
+                let skip = (shift * SAMPLE_RATE) as usize;
+                out.iter_mut().zip(&v[skip..]).for_each(|(o, s)| *o += s);
+            }
+            out
+        }
+    };
+    let r = rms(&x);
+    x.iter_mut().for_each(|s| *s /= r);
+    x
+}
+
+fn diff(x: &[f32]) -> Vec<f32> {
+    let mut prev = 0.0;
+    x.iter()
+        .map(|&s| {
+            let d = s - prev;
+            prev = s;
+            d
         })
         .collect()
 }
@@ -138,31 +244,20 @@ const SPEAKING: [Preset; 4] = [
 
 /// Voz no nível em que o celular costuma mandar (~-30 dBFS) com ruído rosa 10 dB abaixo.
 fn phone_voice_with_noise() -> (Vec<f32>, Vec<bool>, Vec<f32>) {
-    let (mut v, mask) = voice(12.0);
-    scale_to(&mut v, &mask, -30.0);
-    let mut noise = pink(v.len());
-    let n = rms(&noise);
-    noise
-        .iter_mut()
-        .for_each(|s| *s *= 10f32.powf(-40.0 / 20.0) / n);
-    let mix = v.iter().zip(&noise).map(|(a, b)| a + b).collect();
-    (v, mask, mix)
+    voice_with(Noise::Pink)
 }
 
-#[test]
-fn treatment_opens_at_least_15_db_between_voice_and_noise() {
-    // Medido: +20 a +31 dB conforme o perfil.
-    let (_, mask, mix) = phone_voice_with_noise();
-    let (s, p) = levels(&mix, &mask);
-    let before = s - p;
-    for pr in SPEAKING {
-        let (s, p) = levels(&process(&preset(pr), &mix), &mask);
-        assert!(
-            s - p >= before + 15.0,
-            "{pr:?}: {before:.1} -> {:.1} dB",
-            s - p
-        );
-    }
+/// Voz a ~-30 dBFS com o ruído escolhido 10 dB abaixo.
+fn voice_with(kind: Noise) -> (Vec<f32>, Vec<bool>, Vec<f32>) {
+    let (mut v, mask) = voice(12.0);
+    scale_to(&mut v, &mask, -30.0);
+    let g = 10f32.powf(-40.0 / 20.0);
+    let mix = v
+        .iter()
+        .zip(noise(kind, v.len()))
+        .map(|(a, b)| a + b * g)
+        .collect();
+    (v, mask, mix)
 }
 
 #[test]
@@ -316,4 +411,136 @@ fn eq_presets_move_the_voice_the_way_their_names_say() {
         lo < lo0 - 1.5 && hi > hi0,
         "Secar: graves {lo0:.1}→{lo:.1}, agudos {hi0:.1}→{hi:.1}"
     );
+}
+
+#[test]
+#[ignore = "exploração: imprime a separação por ruído e perfil"]
+fn explore_noise_separation() {
+    for kind in NOISES {
+        let (_, mask, mix) = voice_with(kind);
+        let (s0, p0) = levels(&mix, &mask);
+        let row: Vec<String> = SPEAKING
+            .iter()
+            .map(|&pr| {
+                let (s, p) = levels(&process(&preset(pr), &mix), &mask);
+                format!("{pr:?} {:+.1}", (s - p) - (s0 - p0))
+            })
+            .collect();
+        println!("{kind:?}: antes {:.1} dB | {}", s0 - p0, row.join(" | "));
+    }
+}
+
+#[test]
+fn treatment_separates_voice_from_each_kind_of_noise() {
+    // Ganho mínimo de separação (dB) por ruído, ~5 dB abaixo do pior perfil medido.
+    // Vozes ao fundo são fala para o RNNoise e o gate: o tratamento não as separa
+    // (medido -0,4 a -4,6 dB, o ganho automático levanta o fundo). O limite só
+    // impede que isso piore.
+    let min = |kind| match kind {
+        Noise::White | Noise::Pink => 15.0,
+        Noise::Brown | Noise::Blue | Noise::Hum => 30.0,
+        Noise::Violet => 55.0,
+        Noise::Keyboard => 6.0,
+        Noise::Babble => -10.0,
+    };
+    for kind in NOISES {
+        let (_, mask, mix) = voice_with(kind);
+        let (s0, p0) = levels(&mix, &mask);
+        for pr in SPEAKING {
+            let (s, p) = levels(&process(&preset(pr), &mix), &mask);
+            let gain = (s - p) - (s0 - p0);
+            assert!(gain >= min(kind), "{kind:?}/{pr:?}: {gain:+.1} dB");
+        }
+    }
+}
+
+/// Lê o WAV que o MicBridge exporta (PCM 16 bits, mono, 48 kHz).
+fn read_wav(path: &str) -> Vec<f32> {
+    let b = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+    assert_eq!(&b[..4], b"RIFF", "{path}: não é WAV");
+    let u16at = |i: usize| u16::from_le_bytes([b[i], b[i + 1]]);
+    let u32at = |i: usize| u32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
+    assert_eq!(
+        (u16at(22), u32at(24), u16at(34)),
+        (1, SAMPLE_RATE as u32, 16),
+        "{path}: use o WAV original exportado pelo MicBridge (mono, 48 kHz, 16 bits)"
+    );
+    // Procura o bloco "data" em vez de supor o cabeçalho de 44 bytes.
+    let mut i = 12;
+    while &b[i..i + 4] != b"data" {
+        i += 8 + u32at(i + 4) as usize;
+    }
+    let end = (i + 8 + u32at(i + 4) as usize).min(b.len());
+    b[i + 8..end]
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|x| i16::from_le_bytes(*x) as f32 / 32768.0)
+        .collect()
+}
+
+/// Máscara de fala de uma voz real: frames a menos de 30 dB do mais alto.
+fn speech_mask(x: &[f32]) -> Vec<bool> {
+    let frames: Vec<f32> = x
+        .as_chunks::<FRAME>()
+        .0
+        .iter()
+        .map(|f| db(rms(f)))
+        .collect();
+    let top = frames.iter().copied().fold(f32::MIN, f32::max);
+    frames.iter().map(|&d| d > top - 30.0).collect()
+}
+
+/// Mesmas medições da voz sintética, com uma gravação real (só local: a voz de
+/// quem grava não vai para o repositório). Grave um teste de voz em silêncio,
+/// exporte os WAVs e rode:
+///
+/// MICBRIDGE_VOICE=voz-original.wav cargo test --release dsp_quality::real_voice \
+///   -- --ignored --nocapture
+#[test]
+#[ignore = "precisa de MICBRIDGE_VOICE apontando para uma gravação real"]
+fn real_voice_report() {
+    let path = std::env::var("MICBRIDGE_VOICE").expect("defina MICBRIDGE_VOICE");
+    let mut v = read_wav(&path);
+    v.truncate(v.len() / FRAME * FRAME);
+    let mask = speech_mask(&v);
+    let (speech, room) = levels(&v, &mask);
+    let fala = mask.iter().filter(|m| **m).count() as f32 / mask.len() as f32;
+    println!(
+        "gravação: {:.1} s, fala {:.0}%, voz {speech:.1} dBFS, ambiente {room:.1} dBFS",
+        v.len() as f32 / SAMPLE_RATE,
+        fala * 100.0
+    );
+
+    println!("\nseparação ganha pelo tratamento (ruído 10 dB abaixo da voz):");
+    let g = 10f32.powf((speech - 10.0) / 20.0);
+    for kind in NOISES {
+        let mix: Vec<f32> = v
+            .iter()
+            .zip(noise(kind, v.len()))
+            .map(|(a, b)| a + b * g)
+            .collect();
+        let (s0, p0) = levels(&mix, &mask);
+        let row: Vec<String> = SPEAKING
+            .iter()
+            .map(|&pr| {
+                let (s, p) = levels(&process(&preset(pr), &mix), &mask);
+                format!("{pr:?} {:+.1}", (s - p) - (s0 - p0))
+            })
+            .collect();
+        println!("  {kind:?}: {}", row.join(" | "));
+    }
+
+    println!("\natalhos do EQ na sua voz (graves / agudos, em relação ao Plano):");
+    let run = |id: &str| {
+        let p = preset(Preset::Bruto);
+        p.set_makeup_db(0.0);
+        p.apply_eq_preset(id).unwrap();
+        tilt(&process(&p, &v))
+    };
+    let (lo0, hi0) = run("flat");
+    for (id, label, _) in crate::dsp::EQ_PRESETS.iter().skip(1) {
+        let (lo, hi) = run(id);
+        println!("  {label}: {:+.1} / {:+.1} dB", lo - lo0, hi - hi0);
+    }
 }

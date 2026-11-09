@@ -617,10 +617,10 @@ impl Processor {
         // 3b. Equalizador de 3 bandas. Só recalcula um filtro quando o ganho muda.
         if p.eq.load(Relaxed) {
             let wanted = p.eq_db();
-            for band in 0..3 {
-                if wanted[band] != self.eq_applied_db[band] {
-                    self.eq[band].retune(Biquad::eq_band(band, wanted[band]));
-                    self.eq_applied_db[band] = wanted[band];
+            for (band, &db) in wanted.iter().enumerate() {
+                if db != self.eq_applied_db[band] {
+                    self.eq[band].retune(Biquad::eq_band(band, db));
+                    self.eq_applied_db[band] = db;
                 }
                 // Em 0 dB o filtro devolve o mesmo som; roda assim mesmo para a memória
                 // dele seguir a voz e não estalar quando o ganho mudar.
@@ -866,7 +866,7 @@ mod tests {
 
     fn run(p: &Params, input: &mut [f32]) {
         let mut proc = Processor::new();
-        for frame in input.chunks_exact_mut(FRAME) {
+        for frame in input.as_chunks_mut::<FRAME>().0.iter_mut() {
             proc.process(frame, p);
         }
     }
@@ -966,7 +966,7 @@ mod tests {
             p.apply_preset(preset);
             let mut proc = Processor::new();
             let mut signal = sine(500.0, 0.3, 160);
-            for (i, frame) in signal.chunks_exact_mut(FRAME).enumerate() {
+            for (i, frame) in signal.as_chunks_mut::<FRAME>().0.iter_mut().enumerate() {
                 if (40..80).contains(&i) {
                     frame.fill(0.0);
                 }
@@ -993,7 +993,7 @@ mod tests {
         let p = gate_only();
         let mut proc = Processor::new();
         // Abre com voz acima de -40 dBFS.
-        for frame in sine(500.0, 0.04, 10).chunks_exact_mut(FRAME) {
+        for frame in sine(500.0, 0.04, 10).as_chunks_mut::<FRAME>().0.iter_mut() {
             proc.process(frame, &p);
         }
         // -43 dBFS: abaixo da abertura, mas acima do fechamento (-44).
@@ -1003,7 +1003,7 @@ mod tests {
                 proc.process(&mut [0.0; FRAME], &p);
             }
             let mut quiet = sine(500.0, 0.01, 20);
-            for (i, frame) in quiet.chunks_exact_mut(FRAME).enumerate() {
+            for (i, frame) in quiet.as_chunks_mut::<FRAME>().0.iter_mut().enumerate() {
                 proc.process(frame, &p);
                 assert!(
                     rms(frame) > 0.0065,
@@ -1018,16 +1018,16 @@ mod tests {
     fn gate_fecha_apos_pausa_longa_e_reabre_com_voz() {
         let p = gate_only();
         let mut proc = Processor::new();
-        for frame in sine(500.0, 0.04, 10).chunks_exact_mut(FRAME) {
+        for frame in sine(500.0, 0.04, 10).as_chunks_mut::<FRAME>().0.iter_mut() {
             proc.process(frame, &p);
         }
         let mut background = sine(500.0, 0.001, 100);
-        for frame in background.chunks_exact_mut(FRAME) {
+        for frame in background.as_chunks_mut::<FRAME>().0.iter_mut() {
             proc.process(frame, &p);
         }
         assert!(rms(&background[background.len() - FRAME..]) < 0.00004);
         let mut voice = sine(500.0, 0.04, 2);
-        for frame in voice.chunks_exact_mut(FRAME) {
+        for frame in voice.as_chunks_mut::<FRAME>().0.iter_mut() {
             proc.process(frame, &p);
         }
         assert!(rms(&voice[FRAME..]) > 0.027);

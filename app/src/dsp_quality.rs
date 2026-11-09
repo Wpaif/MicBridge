@@ -32,7 +32,7 @@ fn voice(seconds: f32) -> (Vec<f32>, Vec<bool>) {
             let len = ((0.15 + 0.15 * (rng.next() * 0.5 + 0.5)) * SAMPLE_RATE) as usize;
             let f0 = 150.0 + 30.0 * rng.next();
             let end = (t + len).min(phrase_end);
-            for i in t..end {
+            for (i, o) in out.iter_mut().enumerate().take(end).skip(t) {
                 let k = (i - t) as f32 / len as f32;
                 let env = (PI * k).sin().powf(0.6);
                 phase += 2.0 * PI * f0 / SAMPLE_RATE;
@@ -45,14 +45,16 @@ fn voice(seconds: f32) -> (Vec<f32>, Vec<bool>) {
                         + 1.5 * (-((f - 1200.0) / 300.0).powi(2)).exp();
                     s += (phase * h as f32).sin() * formant / h as f32;
                 }
-                out[i] = s * env;
+                *o = s * env;
             }
             t = end + (0.04 * SAMPLE_RATE) as usize;
         }
         t += (0.6 * SAMPLE_RATE) as usize;
     }
     let mask = out
-        .chunks_exact(FRAME)
+        .as_chunks::<FRAME>()
+        .0
+        .iter()
         .map(|f| f.iter().map(|s| s * s).sum::<f32>() > 1e-3)
         .collect();
     (out, mask)
@@ -84,7 +86,9 @@ fn rms(x: &[f32]) -> f32 {
 /// Escala para que a parte com fala tenha `db_rms` dBFS.
 fn scale_to(x: &mut [f32], mask: &[bool], db_rms: f32) {
     let speech: Vec<f32> = x
-        .chunks_exact(FRAME)
+        .as_chunks::<FRAME>()
+        .0
+        .iter()
         .zip(mask)
         .filter(|(_, m)| **m)
         .flat_map(|(f, _)| f.iter().copied())
@@ -96,7 +100,7 @@ fn scale_to(x: &mut [f32], mask: &[bool], db_rms: f32) {
 fn process(p: &Params, input: &[f32]) -> Vec<f32> {
     let mut proc = Processor::new();
     let mut out = input.to_vec();
-    for frame in out.chunks_exact_mut(FRAME) {
+    for frame in out.as_chunks_mut::<FRAME>().0.iter_mut() {
         proc.process(frame, p);
     }
     out
@@ -107,7 +111,7 @@ fn process(p: &Params, input: &[f32]) -> Vec<f32> {
 fn levels(x: &[f32], mask: &[bool]) -> (f32, f32) {
     let skip = (SAMPLE_RATE as usize / FRAME).max(1);
     let (mut sp, mut pa) = (Vec::new(), Vec::new());
-    for (i, f) in x.chunks_exact(FRAME).enumerate().skip(skip) {
+    for (i, f) in x.as_chunks::<FRAME>().0.iter().enumerate().skip(skip) {
         // Pausa "de verdade": sem fala neste frame nem nos 30 vizinhos (300 ms).
         let quiet = (i.saturating_sub(30)..(i + 30).min(mask.len())).all(|j| !mask[j]);
         if mask[i] {
@@ -199,7 +203,7 @@ fn compressor_acts_on_voice_at_phone_level() {
     let mut proc = Processor::new();
     let mut max_gr = 0.0_f32;
     let mut with = v.clone();
-    for frame in with.chunks_exact_mut(FRAME) {
+    for frame in with.as_chunks_mut::<FRAME>().0.iter_mut() {
         proc.process(frame, &on);
         max_gr = max_gr.max(on.effects().compression_db.unwrap_or(0.0));
     }

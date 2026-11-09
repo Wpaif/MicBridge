@@ -51,7 +51,7 @@ encerre a instalada antes.
 
 O workflow [Testes automatizados](../.github/workflows/ci.yml) executa em pushes,
 pull requests e acionamento manual na aba **Actions** do GitHub. Ele verifica a
-formatação e executa `cargo test --locked`, compilando com Rust estável e as
+formatação, recusa avisos do clippy e executa `cargo test --locked`, compilando com Rust estável e as
 dependências fixadas em `Cargo.lock`. As dependências Cargo ficam em cache.
 
 O ambiente usa Debian Trixie em contêiner. Testes que exigem hardware continuam
@@ -60,6 +60,7 @@ ignorados nessa execução; os procedimentos abaixo permitem executá-los localm
 ```sh
 cargo test --offline --manifest-path app/Cargo.toml
 cargo fmt --manifest-path app/Cargo.toml --check
+cargo clippy --offline --manifest-path app/Cargo.toml --all-targets -- -D warnings
 git diff --check
 ```
 

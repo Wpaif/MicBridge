@@ -62,7 +62,7 @@ impl Look {
     }
 
     fn badge(self) -> Badge {
-        let on = self.phase % 2 == 0;
+        let on = self.phase.is_multiple_of(2);
         let blink = |lo: f32| if on { 1.0 } else { lo };
         match self.link {
             Link::Connected => Badge {

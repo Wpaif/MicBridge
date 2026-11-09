@@ -365,7 +365,6 @@ async fn negotiate(st: &AppState, device: String, offer_sdp: String) -> Result<S
                 rtcp_feedback: vec![],
             },
             payload_type: 111,
-            ..Default::default()
         },
         RtpCodecKind::Audio,
     )?;

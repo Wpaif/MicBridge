@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   test:
-    name: Formatação e testes Rust
+    name: Formatação, clippy e testes Rust
     runs-on: ubuntu-24.04
     container: debian:trixie-slim
     timeout-minutes: 30
@@ -39,7 +39,7 @@ jobs:
       - name: Instalar Rust estável
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          components: rustfmt, clippy
 
       - name: Verificar formatação
         run: cargo fmt --manifest-path app/Cargo.toml -- --check
@@ -55,6 +55,9 @@ jobs:
           key: cargo-debian-trixie-${{ runner.arch }}-${{ hashFiles('app/Cargo.lock') }}
           restore-keys: |
             cargo-debian-trixie-${{ runner.arch }}-
+
+      - name: Verificar avisos do clippy
+        run: cargo clippy --locked --manifest-path app/Cargo.toml --all-targets -- -D warnings
 
       - name: Compilar e executar testes
         run: cargo test --locked --manifest-path app/Cargo.toml

@@ -55,10 +55,11 @@ fn same_destination(a: &Path, b: &Path) -> bool {
     if a == b {
         return true;
     }
-    if let (Ok(a), Ok(b)) = (std::fs::metadata(a), std::fs::metadata(b)) {
-        if a.dev() == b.dev() && a.ino() == b.ino() {
-            return true;
-        }
+    if let (Ok(a), Ok(b)) = (std::fs::metadata(a), std::fs::metadata(b))
+        && a.dev() == b.dev()
+        && a.ino() == b.ino()
+    {
+        return true;
     }
     let normalized = |p: &Path| {
         p.parent()
@@ -104,16 +105,16 @@ pub fn export_with_overwrite(
     // Reject dangling and non-dangling symbolic links before creating either WAV.
     // O_NOFOLLOW below also closes the race between this check and open().
     for path in [original, treated] {
-        if let Ok(metadata) = std::fs::symlink_metadata(path) {
-            if !metadata.is_file() {
-                return Err(ExportError {
-                    completed,
-                    source: io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        "Escolha arquivos regulares, sem links simbólicos, para os dois WAVs",
-                    ),
-                });
-            }
+        if let Ok(metadata) = std::fs::symlink_metadata(path)
+            && !metadata.is_file()
+        {
+            return Err(ExportError {
+                completed,
+                source: io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Escolha arquivos regulares, sem links simbólicos, para os dois WAVs",
+                ),
+            });
         }
     }
     let mut opened: Vec<File> = Vec::new();
@@ -217,8 +218,10 @@ mod tests {
         assert_eq!(u16at(34), 16);
         assert_eq!(u32at(40), 16);
         let pcm: Vec<i16> = b[44..]
-            .chunks_exact(2)
-            .map(|x| i16::from_le_bytes(x.try_into().unwrap()))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|x| i16::from_le_bytes(*x))
             .collect();
         assert_eq!(pcm, [-32768, -32768, 0, 32767, 32767, 0, 0, 0]);
     }
@@ -256,7 +259,7 @@ mod tests {
         assert!(e.completed.is_empty());
         assert!(!a.exists());
         let e = export(&take(), &a, &bad).unwrap_err();
-        assert_eq!(e.completed, [a.clone()]);
+        assert_eq!(e.completed, std::slice::from_ref(&a));
         assert!(a.exists());
     }
     #[test]

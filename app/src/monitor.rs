@@ -138,10 +138,10 @@ impl Monitor {
         if !lease.load(SeqCst) {
             return;
         }
-        if let Some(old) = self.control.lease.lock().unwrap().replace(lease.clone()) {
-            if !Arc::ptr_eq(&old, &lease) {
-                old.store(false, SeqCst);
-            }
+        if let Some(old) = self.control.lease.lock().unwrap().replace(lease.clone())
+            && !Arc::ptr_eq(&old, &lease)
+        {
+            old.store(false, SeqCst);
         }
         self.reserve(id, generation, target.clone());
         let operation = self.control.next.fetch_add(1, SeqCst) + 1;
@@ -689,14 +689,16 @@ mod worker_tests {
             if let Some(c)=capture.as_mut(){let _=c.kill().await;let _=c.wait().await;}
             let bytes = std::fs::read(&capture_path).unwrap();
             let peak = bytes
-                .chunks_exact(4)
-                .map(|b| f32::from_le_bytes(b.try_into().unwrap()).abs())
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|b| f32::from_le_bytes(*b).abs())
                 .fold(0f32, f32::max);
             assert!(
                 peak > 0.001,
                 "no non-silent PCM captured at Bluetooth sink, peak={peak}"
             );
-            let samples:Vec<f32>=bytes.chunks_exact(4).map(|b|f32::from_le_bytes(b.try_into().unwrap())).collect();
+            let samples:Vec<f32>=bytes.as_chunks::<4>().0.iter().map(|b|f32::from_le_bytes(*b)).collect();
             let (re,im)=samples.iter().enumerate().fold((0f64,0f64),|(re,im),(i,v)|{let p=2.0*std::f64::consts::PI*440.0*i as f64/48000.0;(re+*v as f64*p.cos(),im+*v as f64*p.sin())});
             let tone=2.0*re.hypot(im)/samples.len().max(1) as f64;
             assert!(tone>0.005 && peak<0.012,"unexpected captured tone amplitude={tone}, peak={peak}");
@@ -799,8 +801,10 @@ mod worker_tests {
         let actual = std::fs::read(f.dir.join("pcm")).unwrap();
         assert!(
             actual
-                .chunks_exact(4)
-                .all(|bytes| bytes == 0.1f32.to_le_bytes())
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|bytes| *bytes == 0.1f32.to_le_bytes())
         );
     }
     #[tokio::test]

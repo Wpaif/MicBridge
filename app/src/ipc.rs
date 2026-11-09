@@ -698,7 +698,7 @@ impl Daemon {
         let live = |text: &str| text != "Desligado" && text != "Sem áudio";
         let levels = p.effect_reading().levels;
         let fx = json!({
-            "gate": live(&gate).then(|| match levels.gate {
+            "gate": live(&gate).then_some(match levels.gate {
                 crate::dsp::effects::GateState::Open => "open",
                 crate::dsp::effects::GateState::Holding => "hold",
                 crate::dsp::effects::GateState::Attenuating => "closed",

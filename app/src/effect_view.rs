@@ -81,6 +81,35 @@ impl Activity {
             .is_some_and(|last| now.saturating_sub(last) < Duration::from_millis(300))
     }
 }
+
+use crate::dsp::Params;
+/// Textos de atuação de gate, compressor e volume automático para a interface.
+pub struct Readout {
+    activity: Activity,
+}
+impl Readout {
+    pub fn new(params: &Params, generation: u64) -> Self {
+        Self {
+            activity: Activity::new(generation, params.effect_reading().frames),
+        }
+    }
+    pub fn read(
+        &mut self,
+        params: &Params,
+        generation: u64,
+        connected: bool,
+        now: Duration,
+    ) -> [String; 3] {
+        use std::sync::atomic::Ordering::Relaxed;
+        let reading = params.effect_reading();
+        let fresh = self
+            .activity
+            .observe_effects(reading, generation, connected, now);
+        let flags = [&params.gate, &params.compressor, &params.auto_gain].map(|v| v.load(Relaxed));
+        let value = presentation(reading.levels, flags, fresh);
+        [value.gate, value.compressor, value.auto_gain]
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,34 +214,5 @@ mod tests {
         assert!(a.observe(2, 15, true, ms(600)));
         let mut wrap = Activity::new(1, u32::MAX);
         assert!(wrap.observe(1, 0, true, ms(0)));
-    }
-}
-
-use crate::dsp::Params;
-/// Textos de atuação de gate, compressor e volume automático para a interface.
-pub struct Readout {
-    activity: Activity,
-}
-impl Readout {
-    pub fn new(params: &Params, generation: u64) -> Self {
-        Self {
-            activity: Activity::new(generation, params.effect_reading().frames),
-        }
-    }
-    pub fn read(
-        &mut self,
-        params: &Params,
-        generation: u64,
-        connected: bool,
-        now: Duration,
-    ) -> [String; 3] {
-        use std::sync::atomic::Ordering::Relaxed;
-        let reading = params.effect_reading();
-        let fresh = self
-            .activity
-            .observe_effects(reading, generation, connected, now);
-        let flags = [&params.gate, &params.compressor, &params.auto_gain].map(|v| v.load(Relaxed));
-        let value = presentation(reading.levels, flags, fresh);
-        [value.gate, value.compressor, value.auto_gain]
     }
 }

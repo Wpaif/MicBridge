@@ -38,12 +38,12 @@ fn update(path: &Path, key: &str, value: serde_json::Value) -> std::io::Result<(
     };
     // Valida sob o mesmo lock da escrita: uma biblioteca incompatível ou danificada
     // deve continuar no disco, inclusive se mudou depois da abertura da interface.
-    if key == "voice_profiles" {
-        if let Some(current) = settings.get(key) {
-            let library: crate::profiles::Library =
-                serde_json::from_value(current.clone()).map_err(std::io::Error::other)?;
-            library.validate().map_err(std::io::Error::other)?;
-        }
+    if key == "voice_profiles"
+        && let Some(current) = settings.get(key)
+    {
+        let library: crate::profiles::Library =
+            serde_json::from_value(current.clone()).map_err(std::io::Error::other)?;
+        library.validate().map_err(std::io::Error::other)?;
     }
     settings.insert(key.into(), value);
     if let Some(dir) = path.parent() {

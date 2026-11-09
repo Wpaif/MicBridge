@@ -466,6 +466,7 @@ mod tests {
         ]);
         let g = parse(&dump);
         let _ = child.kill();
+        let _ = child.wait();
         assert_eq!(g.streams.len(), 2);
         assert_eq!(
             g.streams[0].label(),

@@ -239,7 +239,7 @@ pub fn process_block(
     generation: Generation,
 ) {
     let capture = recorder.active_id(generation).map(|id| (id, pcm.to_vec()));
-    for frame in pcm.chunks_exact_mut(crate::dsp::FRAME) {
+    for frame in pcm.as_chunks_mut::<{ crate::dsp::FRAME }>().0 {
         processor.process(frame, params);
     }
     if let Some((id, original)) = capture {

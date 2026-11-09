@@ -246,6 +246,9 @@ fn next_command(
         End::Command(commands.borrow_and_update().clone())
     }
 }
+// O laço de envio precisa de todas estas peças do worker; agrupá-las numa struct
+// só para o clippy esconderia de onde cada uma vem.
+#[allow(clippy::too_many_arguments)]
 async fn stream(
     core: &Inner,
     queue: &mpsc::Receiver<Block>,

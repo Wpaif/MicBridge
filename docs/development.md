@@ -38,6 +38,10 @@ interface do repositório em vez da instalada, aponte `MICBRIDGE_UI_DIR` para el
 MICBRIDGE_UI_DIR=$PWD/app/ui cargo run --manifest-path app/Cargo.toml
 ```
 
+Para testar com o celular, use `--release`: o build de desenvolvimento não é
+otimizado e pode cortar o áudio recebido (o original do teste de voz já chega
+cortado).
+
 O Quickshell recarrega a janela sozinho ao salvar um `.qml`; mudanças no Rust
 pedem reiniciar o daemon. `XDG_DATA_HOME` aponta os dados para outro lugar, mas
 não isola as portas de rede, o socket nem os nodes PipeWire de outra instância:
@@ -71,8 +75,9 @@ Para medir a cadeia com áudio real, a bancada `dsp_bench` processa uma gravaç�
 ```sh
 MICBRIDGE_BENCH_IN=entrada.f32 MICBRIDGE_BENCH_OUT=pasta \
   cargo test --release --manifest-path app/Cargo.toml dsp_bench -- --ignored --nocapture
-``` Uma aprovação não equivale a uma validação
-auditiva com celular, Bluetooth ou aplicação de chamada.
+```
+
+Uma aprovação não equivale a uma validação auditiva com celular, Bluetooth ou aplicação de chamada.
 
 O teste Bluetooth é ignorado por padrão. Liste os ignorados com:
 

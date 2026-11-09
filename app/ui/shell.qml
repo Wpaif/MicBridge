@@ -536,6 +536,129 @@ ShellRoot {
                                         onMoved: v => backend.send({ c: "extra_volume", value: v })
                                     }
                                 }
+                                // Calibração: mede ruído e voz e sugere gate, redução de ruído e ganho.
+                                Card {
+                                    id: calCard
+                                    Layout.fillWidth: true
+                                    Layout.alignment: Qt.AlignTop
+                                    title: "Calibração"
+                                    readonly property var cal: win.st.calibration || ({ phase: "idle" })
+                                    readonly property var d: cal.detail || ({})
+                                    readonly property bool running: cal.phase === "silence" || cal.phase === "speech"
+                                    dot: running ? Theme.warn : "transparent"
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        visible: calCard.cal.phase === "idle"
+                                        text: win.link === "connected"
+                                            ? "Mede o ruído do ambiente e a sua voz e sugere o limiar do gate, a redução de ruído e o ganho. Leva 13 segundos."
+                                            : "Conecte o celular para calibrar."
+                                        color: Theme.muted
+                                        font.family: Theme.font
+                                        font.pixelSize: 11
+                                        wrapMode: Text.Wrap
+                                    }
+
+                                    // Em andamento: instrução da fase e progresso.
+                                    Text {
+                                        Layout.fillWidth: true
+                                        visible: calCard.running
+                                        text: calCard.cal.phase === "silence"
+                                            ? "1/2 · Fique em silêncio, com o ambiente como ele costuma estar."
+                                            : "2/2 · Leia em voz normal, como numa chamada:"
+                                        color: Theme.foreground
+                                        font.family: Theme.font
+                                        font.pixelSize: 12
+                                        wrapMode: Text.Wrap
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        visible: calCard.cal.phase === "speech"
+                                        text: "“Bom dia a todos. Hoje vamos revisar o planejamento da semana, "
+                                            + "ver o que ficou pendente e combinar os próximos passos de cada um.”"
+                                        color: Theme.accent
+                                        font.family: Theme.font
+                                        font.pixelSize: 12
+                                        wrapMode: Text.Wrap
+                                    }
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        visible: calCard.running
+                                        height: 4
+                                        radius: 2
+                                        color: Theme.surface
+                                        Rectangle {
+                                            width: parent.width * (calCard.cal.progress || 0)
+                                            height: parent.height
+                                            radius: 2
+                                            color: calCard.cal.phase === "silence" ? Theme.muted : Theme.accent
+                                        }
+                                    }
+
+                                    // Resultado: o que mudaria, de -> para.
+                                    Column {
+                                        Layout.fillWidth: true
+                                        visible: calCard.cal.phase === "done"
+                                        spacing: 4
+                                        Repeater {
+                                            model: {
+                                                const d = calCard.d
+                                                if (calCard.cal.phase !== "done") return []
+                                                const rows = [["Medido", "ruído " + d.noise_db + " dB · voz " + d.voice_db + " dB"]]
+                                                rows.push(["Gate", d.gate_was_on
+                                                    ? (d.gate_from === d.gate_db ? d.gate_db + " dB (igual)" : d.gate_from + " → " + d.gate_db + " dB")
+                                                    : "ligar, " + d.gate_db + " dB"])
+                                                if (d.denoise !== d.denoise_from) rows.push(["Redução de ruído", "ligar"])
+                                                if (d.makeup_db !== null && d.makeup_db !== undefined)
+                                                    rows.push(["Ganho manual", d.makeup_from + " → " + d.makeup_db + " dB"])
+                                                return rows
+                                            }
+                                            delegate: Row {
+                                                required property var modelData
+                                                spacing: 8
+                                                Text { width: 130; text: modelData[0]; color: Theme.muted; font.family: Theme.font; font.pixelSize: 11 }
+                                                Text { text: modelData[1]; color: Theme.foreground; font.family: Theme.font; font.pixelSize: 12 }
+                                            }
+                                        }
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        visible: (calCard.cal.phase === "done" && !!calCard.d.warning) || calCard.cal.phase === "failed"
+                                        text: calCard.cal.phase === "failed" ? (calCard.cal.detail || "") : (calCard.d.warning || "")
+                                        color: calCard.cal.phase === "failed" ? Theme.urgent : Theme.warn
+                                        font.family: Theme.font
+                                        font.pixelSize: 11
+                                        wrapMode: Text.Wrap
+                                    }
+
+                                    Flow {
+                                        Layout.fillWidth: true
+                                        spacing: 6
+                                        Button {
+                                            visible: calCard.cal.phase === "idle" || calCard.cal.phase === "failed"
+                                            text: calCard.cal.phase === "failed" ? "Tentar de novo" : "Calibrar"
+                                            accent: true
+                                            enabled: win.link === "connected"
+                                            onClicked: backend.send({ c: "calibrate", on: true })
+                                        }
+                                        Button {
+                                            visible: calCard.running
+                                            text: "Cancelar"
+                                            onClicked: backend.send({ c: "calibrate", on: false })
+                                        }
+                                        Button {
+                                            visible: calCard.cal.phase === "done"
+                                            text: "Aplicar"
+                                            accent: true
+                                            onClicked: backend.send({ c: "calibrate_apply" })
+                                        }
+                                        Button {
+                                            visible: calCard.cal.phase === "done" || calCard.cal.phase === "failed"
+                                            text: calCard.cal.phase === "done" ? "Descartar" : "Fechar"
+                                            onClicked: backend.send({ c: "calibrate_discard" })
+                                        }
+                                    }
+                                }
                             }
                         }
                         ColumnLayout {

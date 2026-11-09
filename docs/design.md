@@ -24,7 +24,7 @@ operação apenas porque houve um clique.
 
 | Seção | Conteúdo |
 |---|---|
-| Voz | Medidores, histórico de níveis e os cards Retorno no fone, Teste de voz e Fonte extra. |
+| Voz | Medidores, histórico de níveis e os cards Retorno no fone, Teste de voz, Fonte extra e Calibração. |
 | Perfil | Perfis de fábrica e personalizados, com salvar, renomear e excluir. |
 | Efeitos | Mesa de som: um canal (`Strip`) por efeito, na ordem do sinal. |
 | Conexão | QR, pareamento, celulares conhecidos, inicialização e certificado. |

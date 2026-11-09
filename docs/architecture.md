@@ -41,6 +41,7 @@ preserva os pontos de captura, sem compensar o atraso interno do denoiser.
 | Coordenação de reprodução e retorno | [local_audio.rs](../app/src/local_audio.rs) |
 | Retorno, dispositivo, fila e volume | [monitor.rs](../app/src/monitor.rs), [monitor](../app/src/monitor/) |
 | Fonte extra (som de um app no microfone virtual) | [app_source.rs](../app/src/app_source.rs) |
+| Calibração automática (mede silêncio e voz, sugere gate, ruído e ganho) | [calibration.rs](../app/src/calibration.rs) |
 | Exclusividade e restauração dos links | [monitor/routing](../app/src/monitor/routing/) |
 | Perfis personalizados e preferências | [profiles.rs](../app/src/profiles.rs), [settings.rs](../app/src/settings.rs) |
 | Textos e decisões que a interface mostra | [monitor_view.rs](../app/src/monitor_view.rs), [recording_view.rs](../app/src/recording_view.rs), [effect_view.rs](../app/src/effect_view.rs) |

@@ -9,7 +9,8 @@
 //! - retorno: `monitor` (`on`), `monitor_output` (`id` do node ou null),
 //!   `monitor_volume` (`value`), `monitor_refresh`, `monitor_retry`;
 //! - teste de voz: `record` (`on`), `play` (`version`), `stop_play`, `export` (`path`),
-//!   `export_confirm` (`on`).
+//!   `export_confirm` (`on`);
+//! - calibração: `calibrate` (`on`: começa ou cancela), `calibrate_apply`, `calibrate_discard`.
 //!
 //! Daemon → UI: `{"t":"qr",...}` quando o link muda e `{"t":"state",...}` a cada
 //! mudança de estado (no máximo 10 vezes por segundo, por causa dos medidores).
@@ -120,6 +121,7 @@ pub struct Daemon {
     monitor: Arc<Mutex<MonitorControl>>,
     recording: Arc<Mutex<RecordingControl>>,
     profile_error: Mutex<Option<String>>,
+    calibration: Arc<Mutex<crate::calibration::Calibration>>,
 }
 
 /// Exportação do teste de voz: a confirmação de substituição fica pendente aqui
@@ -181,6 +183,7 @@ impl Daemon {
             monitor: Arc::default(),
             recording: Arc::default(),
             profile_error: Mutex::default(),
+            calibration: Arc::default(),
             shared,
         })
     }
@@ -224,6 +227,15 @@ impl Daemon {
             "ping" => {}
             "quit" => self.request_quit(),
             "mute" => self.shared.params.muted.store(on, Relaxed),
+            "calibrate" if on => crate::calibration::start(&self.calibration, &self.shared)?,
+            "calibrate" | "calibrate_discard" => {
+                self.calibration.lock().unwrap().cancel(&self.shared.params)
+            }
+            "calibrate_apply" => self
+                .calibration
+                .lock()
+                .unwrap()
+                .apply(&self.shared.params)?,
             "pairing" if on => self.shared.open_pairing(),
             "pairing" => self.shared.close_pairing(),
             "forget" => {
@@ -746,6 +758,7 @@ impl Daemon {
             "fx": fx,
             "monitor": self.monitor_state(st.link == Link::Connected),
             "recording": self.recording_state(st.link == Link::Connected),
+            "calibration": self.calibration.lock().unwrap().state(&self.shared.params),
             "extra": self.extra_state(),
             // Níveis arredondados para não reenviar o estado por ruído de ponto flutuante.
             "in": (p.in_level() * 1000.0).round() / 1000.0,
@@ -863,6 +876,18 @@ mod tests {
                 .is_err()
         );
         assert_eq!(p.comp_ratio(), 7.5);
+    }
+
+    #[test]
+    fn calibration_needs_the_phone_and_starts_idle() {
+        let f = Fixture::new("exit 0");
+        let d = daemon(&f);
+        assert_eq!(d.state()["calibration"]["phase"], "idle");
+        let err = d.handle(r#"{"c":"calibrate","on":true}"#).unwrap_err();
+        assert!(err.contains("Conecte o celular"), "{err}");
+        assert!(d.handle(r#"{"c":"calibrate_apply"}"#).is_err());
+        d.handle(r#"{"c":"calibrate_discard"}"#).unwrap();
+        assert_eq!(d.state()["calibration"]["phase"], "idle");
     }
 
     #[test]

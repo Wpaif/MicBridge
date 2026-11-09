@@ -1,6 +1,7 @@
 mod app_source;
 #[cfg(test)]
 mod audio_test;
+mod calibration;
 mod dsp;
 #[cfg(test)]
 mod dsp_bench;

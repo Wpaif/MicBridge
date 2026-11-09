@@ -25,7 +25,7 @@ Uma bolinha ao lado da seção indica o que está ativo sem precisar abri-la
 (gravação, retorno, fonte extra, alterações não salvas, pareamento aberto).
 
 - **Voz:** medidores de entrada e saída, histórico de níveis e os cards
-  **Retorno no fone**, **Teste de voz** e **Fonte extra**.
+  **Retorno no fone**, **Teste de voz**, **Fonte extra** e **Calibração**.
 - **Perfil:** perfis de fábrica e personalizados.
 - **Efeitos:** a mesa de som com os efeitos (veja abaixo).
 - **Conexão:** QR code, pareamento, celulares conhecidos, certificado e
@@ -69,6 +69,31 @@ Os medidores mostram **—** sem áudio recente, o que indica ausência de frame
 necessariamente uma falha na conexão. Eles não equivalem a um diagnóstico geral
 nem a um alerta de clipping. Se a mesa não couber na janela, ela rola na
 horizontal pela roda do mouse, pelo touchpad ou pela barra embaixo dos canais.
+
+## Calibração
+
+O card **Calibração** (seção **Voz**) ajusta o tratamento ao seu ambiente em 13
+segundos, com o celular conectado e na posição em que você vai usá-lo:
+
+1. **Silêncio (5 s):** fique quieto, com o ambiente como costuma estar (ventilador,
+   ar-condicionado e afins ligados).
+2. **Leitura (8 s):** leia o texto mostrado em voz normal, como numa chamada.
+
+O app mede o ruído e a sua voz no ponto em que o gate decide, depois do filtro de
+graves e da redução de ruído, e mostra o que mudaria:
+
+| Ajuste | Regra |
+|---|---|
+| Gate | Liga, com o limiar 6 dB acima do ruído e pelo menos 18 dB abaixo da voz, para não cortar sílabas fracas. |
+| Redução de ruído | Liga se o ruído do ambiente passar de −62 dBFS; nunca desliga se já estava ligada. |
+| Ganho manual | Só com o volume automático desligado: leva a voz ao nível-alvo (−18 dBFS). |
+
+Nada muda até você tocar em **Aplicar**. Aplicado, o resultado aparece como
+alterações não salvas do perfil atual; use **Salvar alterações** ou **Salvar como
+novo…** para guardá-lo. Se a voz ficar menos de 10 dB acima do ruído, o card avisa
+para aproximar o celular ou procurar um lugar mais silencioso. Durante a medição,
+o filtro de graves e a redução de ruído ficam ligados e voltam ao estado anterior
+ao terminar ou cancelar.
 
 ## Perfis personalizados
 

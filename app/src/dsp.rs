@@ -37,7 +37,7 @@ const DEESS_HZ: f32 = 6_000.0;
 const DEESS_THRESHOLD_DB: f32 = -32.0;
 const DEESS_MAX_REDUCTION_DB: f32 = 8.0;
 
-const AGC_TARGET_DB: f32 = -18.0;
+pub(crate) const AGC_TARGET_DB: f32 = -18.0;
 const AGC_MAX_GAIN_DB: f32 = 18.0;
 const AGC_MIN_GAIN_DB: f32 = -6.0;
 /// Abaixo disso o AGC congela o ganho, para não amplificar ruído de fundo.
@@ -74,6 +74,9 @@ pub struct Params {
 
     /// RMS linear da entrada e da saída.
     pub in_level: AtomicU32,
+    /// RMS linear no ponto em que o gate decide (depois do passa-altas e do
+    /// RNNoise). A calibração mede ruído e voz aqui para sugerir o limiar.
+    pub gate_in_level: AtomicU32,
     pub out_level: AtomicU32,
 
     /// Frames processados (com wrap). Quem observa o nível compara com a leitura
@@ -119,6 +122,7 @@ impl Default for Params {
             eq_db: [atomic_f32(0.0), atomic_f32(0.0), atomic_f32(0.0)],
 
             in_level: atomic_f32(0.0),
+            gate_in_level: atomic_f32(0.0),
             out_level: atomic_f32(0.0),
             frames: AtomicU32::new(0),
             effects: Mutex::new(Arc::new(effects::EffectMeter::new(0))),
@@ -281,6 +285,10 @@ impl Params {
         } else {
             load_f32(&self.out_level)
         }
+    }
+
+    pub fn gate_in_level(&self) -> f32 {
+        load_f32(&self.gate_in_level)
     }
 
     pub fn frames(&self) -> u32 {
@@ -566,6 +574,7 @@ impl Processor {
         }
 
         // 2. Noise gate.
+        p.gate_in_level.store(rms(frame).to_bits(), Relaxed);
         let gate_state = if p.gate.load(Relaxed) {
             self.gate(frame, p.gate_threshold())
         } else {

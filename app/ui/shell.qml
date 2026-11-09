@@ -52,8 +52,6 @@ ShellRoot {
         property string page: "voz"
         readonly property var pages: [
             { id: "voz", label: "Voz", glyph: "\u{f036c}" },
-            { id: "retorno", label: "Retorno", glyph: "\u{f02cb}" },
-            { id: "teste", label: "Teste de voz", glyph: "\u{f044a}" },
             { id: "perfil", label: "Perfil", glyph: "\u{f0004}" },
             { id: "efeitos", label: "Efeitos", glyph: "\u{f062e}" },
             { id: "conexao", label: "Conexão", glyph: "\u{f011c}" }
@@ -91,8 +89,7 @@ ShellRoot {
         }
         // Bolinha no trilho: o que está ligado sem precisar abrir a seção.
         function badge(id) {
-            if (id === "retorno") return mon.active ? Theme.accent : "transparent"
-            if (id === "teste") return rec.can_stop ? Theme.urgent : "transparent"
+            if (id === "voz") return rec.can_stop ? Theme.urgent : mon.active ? Theme.accent : "transparent"
             if (id === "perfil") return editor.dirty ? Theme.warn : "transparent"
             if (id === "conexao") return st.pairing > 0 ? Theme.warn : "transparent"
             return "transparent"
@@ -138,7 +135,7 @@ ShellRoot {
                 else if (e.key === Qt.Key_Escape && win.focused !== shortcuts) shortcuts.forceActiveFocus()
                 else if (e.key === Qt.Key_Escape || (e.key === Qt.Key_Q && e.modifiers & Qt.ControlModifier)) Qt.quit()
                 else if (e.key === Qt.Key_Question || (e.key === Qt.Key_Slash && e.modifiers & Qt.ShiftModifier) || e.key === Qt.Key_F1) win.helpOpen = !win.helpOpen
-                // Seções: Ctrl+Tab, Ctrl+PgUp/PgDn, Alt+↑/↓ e Alt+1…6.
+                // Seções: Ctrl+Tab, Ctrl+PgUp/PgDn, Alt+↑/↓ e Alt+1…4.
                 else if (e.key === Qt.Key_Tab && e.modifiers & Qt.ControlModifier) win.stepPage(1)
                 else if (e.key === Qt.Key_Backtab && e.modifiers & Qt.ControlModifier) win.stepPage(-1)
                 else if (e.key === Qt.Key_PageDown && e.modifiers & Qt.ControlModifier) win.stepPage(1)
@@ -345,144 +342,156 @@ ShellRoot {
                                 id: historyTop
                                 Layout.fillWidth: true
                                 Layout.topMargin: 12
-                                Layout.preferredHeight: Math.max(160, pane.height - vozPage.y - historyTop.y - 36)
+                                Layout.preferredHeight: win.wide ? 220 : 160
                                 input: win.st.in || 0
                                 output: win.st.out || 0
                             }
-                        }
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            visible: win.page === "retorno"
-                            spacing: 6
 
-                                Toggle {
+                            // Recursos usados durante a call ficam na mesma tela, em cards.
+                            GridLayout {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 16
+                                columns: win.wide ? 2 : 1
+                                columnSpacing: Theme.gap
+                                rowSpacing: Theme.gap
+
+                                Card {
                                     Layout.fillWidth: true
-                                    title: "Ouvir a voz tratada"
-                                    hint: win.mon.message || ""
-                                    checked: win.mon.active || false
-                                    enabled: win.mon.can_toggle || false
-                                    onToggled: on => backend.send({ c: "monitor", on: on })
-                                }
-                                Flow {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 10
-                                    spacing: 6
-                                    Repeater {
-                                        model: win.mon.outputs || []
-                                        delegate: Chip {
-                                            required property var modelData
-                                            text: modelData.label
-                                            active: modelData.id === win.mon.selected
-                                            enabled: win.mon.can_choose || false
-                                            onClicked: backend.send({ c: "monitor_output", id: active ? null : modelData.id })
+                                    Layout.alignment: Qt.AlignTop
+                                    title: "Retorno no fone"
+                                    dot: win.mon.active ? Theme.accent : "transparent"
+
+                                        Toggle {
+                                            Layout.fillWidth: true
+                                            title: "Ouvir a voz tratada"
+                                            hint: win.mon.message || ""
+                                            checked: win.mon.active || false
+                                            enabled: win.mon.can_toggle || false
+                                            onToggled: on => backend.send({ c: "monitor", on: on })
                                         }
-                                    }
-                                    Button {
-                                        text: "Atualizar saídas"
-                                        enabled: win.mon.can_refresh || false
-                                        onClicked: backend.send({ c: "monitor_refresh" })
-                                    }
-                                    Button {
-                                        text: "Restaurar conexões"
-                                        accent: true
-                                        visible: win.mon.can_retry || false
-                                        onClicked: backend.send({ c: "monitor_retry" })
-                                    }
-                                }
-                                Slider {
-                                    Layout.fillWidth: true
-                                    title: "Volume do retorno"
-                                    from: 0; to: 100; step: 1; unit: "%"
-                                    value: win.mon.volume || 0
-                                    onMoved: v => backend.send({ c: "monitor_volume", value: v })
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 10
-                                    text: "Exclusivo: desconecta outros apps da saída escolhida e os restaura ao parar."
-                                    color: Theme.muted
-                                    font.family: Theme.font
-                                    font.pixelSize: 11
-                                    wrapMode: Text.Wrap
-                                }
-
-                        }
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            visible: win.page === "teste"
-                            spacing: 6
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 10
-                                    Layout.rightMargin: 10
-                                    spacing: 10
-                                    Text {
-                                        text: win.rec.caption || ""
-                                        color: Theme.foreground
-                                        font.family: Theme.font
-                                        font.pixelSize: 12
-                                    }
-                                    Rectangle {
-                                        Layout.fillWidth: true
-                                        height: 4
-                                        radius: 2
-                                        color: Theme.surface
-                                        Rectangle {
-                                            width: parent.width * (win.rec.progress || 0)
-                                            height: parent.height
-                                            radius: 2
-                                            color: win.rec.can_stop ? Theme.urgent : Theme.accent
+                                        Flow {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 10
+                                            spacing: 6
+                                            Repeater {
+                                                model: win.mon.outputs || []
+                                                delegate: Chip {
+                                                    required property var modelData
+                                                    text: modelData.label
+                                                    active: modelData.id === win.mon.selected
+                                                    enabled: win.mon.can_choose || false
+                                                    onClicked: backend.send({ c: "monitor_output", id: active ? null : modelData.id })
+                                                }
+                                            }
+                                            Button {
+                                                text: "Atualizar saídas"
+                                                enabled: win.mon.can_refresh || false
+                                                onClicked: backend.send({ c: "monitor_refresh" })
+                                            }
+                                            Button {
+                                                text: "Restaurar conexões"
+                                                accent: true
+                                                visible: win.mon.can_retry || false
+                                                onClicked: backend.send({ c: "monitor_retry" })
+                                            }
                                         }
-                                    }
-                                }
-                                Flow {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 10
-                                    spacing: 6
-                                    Button {
-                                        text: win.rec.can_stop ? "Parar gravação" : "Gravar teste"
-                                        accent: win.rec.can_stop || false
-                                        enabled: win.rec.can_start || win.rec.can_stop || false
-                                        onClicked: backend.send({ c: "record", on: !win.rec.can_stop })
-                                    }
-                                    Chip {
-                                        text: "Ouvir original"
-                                        active: win.rec.playing === "original"
-                                        enabled: win.rec.can_listen || false
-                                        onClicked: backend.send(active ? { c: "stop_play" } : { c: "play", version: "original" })
-                                    }
-                                    Chip {
-                                        text: "Ouvir tratado"
-                                        active: win.rec.playing === "treated"
-                                        enabled: win.rec.can_listen || false
-                                        onClicked: backend.send(active ? { c: "stop_play" } : { c: "play", version: "treated" })
-                                    }
-                                    Button {
-                                        text: "Exportar WAVs"
-                                        enabled: (win.rec.can_export || false) && !win.rec.confirm
-                                        onClicked: exportDialog.open()
-                                    }
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 10
-                                    text: win.rec.message || ""
-                                    color: Theme.muted
-                                    font.family: Theme.font
-                                    font.pixelSize: 11
-                                    wrapMode: Text.Wrap
-                                }
-                                Confirm {
-                                    Layout.fillWidth: true
-                                    visible: !!win.rec.confirm
-                                    title: "Substituir arquivos do teste?"
-                                    body: win.rec.confirm ? "Os que já existem serão substituídos.\n" + win.rec.confirm.original + "\n" + win.rec.confirm.treated : ""
-                                    action: "Substituir"
-                                    onAccepted: backend.send({ c: "export_confirm", on: true })
-                                    onRejected: backend.send({ c: "export_confirm", on: false })
-                                }
+                                        Slider {
+                                            Layout.fillWidth: true
+                                            title: "Volume do retorno"
+                                            from: 0; to: 100; step: 1; unit: "%"
+                                            value: win.mon.volume || 0
+                                            onMoved: v => backend.send({ c: "monitor_volume", value: v })
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 10
+                                            text: "Exclusivo: desconecta outros apps da saída escolhida e os restaura ao parar."
+                                            color: Theme.muted
+                                            font.family: Theme.font
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                        }
 
+                                }
+                                Card {
+                                    Layout.fillWidth: true
+                                    Layout.alignment: Qt.AlignTop
+                                    title: "Teste de voz"
+                                    dot: win.rec.can_stop ? Theme.urgent : "transparent"
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 10
+                                            Layout.rightMargin: 10
+                                            spacing: 10
+                                            Text {
+                                                text: win.rec.caption || ""
+                                                color: Theme.foreground
+                                                font.family: Theme.font
+                                                font.pixelSize: 12
+                                            }
+                                            Rectangle {
+                                                Layout.fillWidth: true
+                                                height: 4
+                                                radius: 2
+                                                color: Theme.surface
+                                                Rectangle {
+                                                    width: parent.width * (win.rec.progress || 0)
+                                                    height: parent.height
+                                                    radius: 2
+                                                    color: win.rec.can_stop ? Theme.urgent : Theme.accent
+                                                }
+                                            }
+                                        }
+                                        Flow {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 10
+                                            spacing: 6
+                                            Button {
+                                                text: win.rec.can_stop ? "Parar gravação" : "Gravar teste"
+                                                accent: win.rec.can_stop || false
+                                                enabled: win.rec.can_start || win.rec.can_stop || false
+                                                onClicked: backend.send({ c: "record", on: !win.rec.can_stop })
+                                            }
+                                            Chip {
+                                                text: "Ouvir original"
+                                                active: win.rec.playing === "original"
+                                                enabled: win.rec.can_listen || false
+                                                onClicked: backend.send(active ? { c: "stop_play" } : { c: "play", version: "original" })
+                                            }
+                                            Chip {
+                                                text: "Ouvir tratado"
+                                                active: win.rec.playing === "treated"
+                                                enabled: win.rec.can_listen || false
+                                                onClicked: backend.send(active ? { c: "stop_play" } : { c: "play", version: "treated" })
+                                            }
+                                            Button {
+                                                text: "Exportar WAVs"
+                                                enabled: (win.rec.can_export || false) && !win.rec.confirm
+                                                onClicked: exportDialog.open()
+                                            }
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 10
+                                            text: win.rec.message || ""
+                                            color: Theme.muted
+                                            font.family: Theme.font
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                        }
+                                        Confirm {
+                                            Layout.fillWidth: true
+                                            visible: !!win.rec.confirm
+                                            title: "Substituir arquivos do teste?"
+                                            body: win.rec.confirm ? "Os que já existem serão substituídos.\n" + win.rec.confirm.original + "\n" + win.rec.confirm.treated : ""
+                                            action: "Substituir"
+                                            onAccepted: backend.send({ c: "export_confirm", on: true })
+                                            onRejected: backend.send({ c: "export_confirm", on: false })
+                                        }
+
+                                }
+                            }
                         }
                         ColumnLayout {
                             Layout.fillWidth: true

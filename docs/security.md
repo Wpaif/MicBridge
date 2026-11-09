@@ -57,7 +57,7 @@ O áudio é processado localmente. A gravação de teste fica em memória até a
 exportação explícita de WAVs. Esses WAVs contêm voz original e tratada; o mute
 da saída virtual não silencia a gravação nem o retorno.
 
-Perfis e temas ficam em `settings.json`. O registro `monitor-routing.json` guarda
+Os perfis ficam em `settings.json`. O registro `monitor-routing.json` guarda
 links de áudio necessários à restauração do retorno exclusivo. Não apague esse
 registro para tentar corrigir uma restauração pendente; use o controle de retry.
 

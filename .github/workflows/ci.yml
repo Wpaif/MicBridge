@@ -16,7 +16,6 @@ jobs:
   test:
     name: Formatação e testes Rust
     runs-on: ubuntu-24.04
-    # Ubuntu 24.04 fornece GTK 4.14; o aplicativo exige GTK >= 4.16.
     container: debian:trixie-slim
     timeout-minutes: 30
     env:
@@ -30,9 +29,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             build-essential ca-certificates cmake curl git pkg-config zstd \
-            libgtk-4-dev libadwaita-1-dev libopus-dev
-          pkg-config --atleast-version=4.16 gtk4
-          pkg-config --atleast-version=1.6 libadwaita-1
+            libopus-dev
 
       - name: Obter código
         uses: actions/checkout@v6

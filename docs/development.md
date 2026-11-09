@@ -7,10 +7,10 @@ de compilação e execução, consulte [Instalação](installation.md).
 
 ```text
 app/
-  src/          Aplicação Rust, DSP, rede, modelos e interface
+  src/          Daemon Rust: DSP, rede, áudio e protocolo da interface
+  ui/           Interface QML (Quickshell); ui/tests tem os testes de QML
   web/          Página do celular, embutida no binário
-  data/         CSS, ícone, atalho e paleta de exemplo
-  tests/        Auxiliares Python dos testes de entrada GTK
+  data/         Ícone e atalho .desktop
   Cargo.toml    Dependências e recursos habilitados
   Cargo.lock    Resolução de dependências versionada
 docs/           Guias atuais de uso e manutenção
@@ -31,10 +31,17 @@ cargo run --manifest-path app/Cargo.toml
 execute sem essa opção se precisar obtê-las. Use `--release` para o build de
 distribuição; o instalador também compila em release.
 
-O app executado pelo Cargo é completo: inicia rede e áudio. O modo debug aceita
-`MICBRIDGE_APP_ID` para usar outro ID de aplicação e `XDG_DATA_HOME` para dados
-temporários. Isso evita compartilhar preferências e pareamento, mas não isola
-automaticamente as portas de rede nem os nodes PipeWire de outra instância.
+O app executado pelo Cargo é completo: inicia rede, áudio e a janela. Para usar a
+interface do repositório em vez da instalada, aponte `MICBRIDGE_UI_DIR` para ela:
+
+```sh
+MICBRIDGE_UI_DIR=$PWD/app/ui cargo run --manifest-path app/Cargo.toml
+```
+
+O Quickshell recarrega a janela sozinho ao salvar um `.qml`; mudanças no Rust
+pedem reiniciar o daemon. `XDG_DATA_HOME` aponta os dados para outro lugar, mas
+não isola as portas de rede, o socket nem os nodes PipeWire de outra instância:
+encerre a instalada antes.
 
 ## Testes
 
@@ -43,9 +50,8 @@ pull requests e acionamento manual na aba **Actions** do GitHub. Ele verifica a
 formatação e executa `cargo test --locked`, compilando com Rust estável e as
 dependências fixadas em `Cargo.lock`. As dependências Cargo ficam em cache.
 
-O ambiente usa Debian Trixie em contêiner para atender aos requisitos de GTK
-e libadwaita. Testes que exigem sessão gráfica ou hardware continuam ignorados
-nessa execução; os procedimentos abaixo permitem executá-los localmente.
+O ambiente usa Debian Trixie em contêiner. Testes que exigem hardware continuam
+ignorados nessa execução; os procedimentos abaixo permitem executá-los localmente.
 
 ```sh
 cargo test --offline --manifest-path app/Cargo.toml
@@ -57,42 +63,17 @@ A suíte comum cobre DSP, perfis, persistência, captura, WAV, filas e coordena�
 processos/roteamento com fixtures. Uma aprovação não equivale a uma validação
 auditiva com celular, Bluetooth ou aplicação de chamada.
 
-Testes gráficos e o teste Bluetooth são ignorados por padrão. Liste-os com:
+O teste Bluetooth é ignorado por padrão. Liste os ignorados com:
 
 ```sh
 cargo test --offline --manifest-path app/Cargo.toml -- --ignored --list
 ```
 
-Execute cada teste GTK em **um processo separado**, usando filtro e uma única
-thread. Executar todos os ignorados juntos não é o procedimento de validação:
-GTK exige afinidade de thread e alguns testes também alteram variáveis XDG.
+Os testes de QML ficam em `app/ui/tests` e rodam com o `qmltestrunner` do Qt 6 (o do `PATH` pode ser outro e sair sem mensagem):
 
 ```sh
-G_DEBUG=fatal-warnings cargo test --offline --manifest-path app/Cargo.toml connection_sidebar_stays -- --ignored --test-threads=1
+QT_QPA_PLATFORM=offscreen /usr/lib/qt6/bin/qmltestrunner -input app/ui/tests
 ```
-
-Filtros úteis:
-
-| Filtro | Verificação |
-|---|---|
-| `studio_panels_use` | Colunas, larguras, agrupamento de A/B/retorno e maximização. |
-| `connection_sidebar_stays` | Lateral fixa, diálogo compacto e retorno dos controles. |
-| `fixed_monitoring_header` | Status e medidores fora da rolagem. |
-| `custom_audio_profiles_follow` | CRUD, restauração, dirty e erros de escrita. |
-| `mute_control` | Estado e posição do mute. |
-| `appearance_dialog_previews` | Prévia, cancelamento e persistência visual. |
-| `panel_controls` | Controles do retorno e encerramento da janela. |
-
-Para roda, teclado e arraste reais, em uma sessão Wayland:
-
-```sh
-python3 app/tests/run_slider_scroll.py
-```
-
-Esse runner usa Xwayland rootful isolado, Python padrão e as bibliotecas
-libX11/libXtst. Encerra o servidor ao terminar. Em X11 normal, também é possível
-executar diretamente o filtro `slider_wheel_scrolls` com `GDK_BACKEND=x11`.
-Essas ferramentas não são novas dependências de execução do MicBridge.
 
 O teste `bluetooth_live_monitor` exige dispositivo e PipeWire reais. Ele
 reproduz áudio e pode modificar os links da saída selecionada. Não trate sua
@@ -100,13 +81,9 @@ ausência numa suíte comum como aprovação de hardware.
 
 ## Prévia visual e logs
 
-Os testes de layout aceitam `MICBRIDGE_TEST_SNAPSHOTS=1` para salvar capturas
-em `/tmp`; consulte o teste executado para os nomes e cenários das capturas.
-
-No binário de debug, `MICBRIDGE_SNAPSHOT` salva uma captura após a abertura e
-encerra; `MICBRIDGE_SNAPSHOT_SIZE=LARGURAxALTURA` escolhe o tamanho, e
-`MICBRIDGE_DEMO` simula a apresentação do status. Essas variáveis não substituem
-testes reais de conexão.
+Para conferir a interface, rode o daemon com `MICBRIDGE_UI_DIR` (acima) e capture
+a janela. Sem celular conectado os medidores ficam parados: uma captura não
+substitui testes reais de conexão e áudio.
 
 Mensagens do servidor, áudio e persistência aparecem ao executar o programa no
 terminal. O projeto não configura um arquivo de log permanente por padrão.
@@ -117,11 +94,10 @@ terminal. O projeto não configura um arquivo de log permanente por padrão.
 |---|---|
 | `.git/` | Metadados Git; gerenciados pelo Git. |
 | `.gitignore` | Regras centrais para build, editor e temporários. |
-| `.claude/skills/libadwaita-design/SKILL.md` | Instrução versionada; caminho preservado para descoberta pela ferramenta. |
+| `.claude/skills/interface-design/SKILL.md` | Instrução versionada para quem altera a interface ou a página do celular. |
 | `.zed/` | Preferências locais, ignoradas; não são reescritas pela organização do projeto. |
 | `.superpowers/` | Scratch/cache local ignorado. |
 | `app/target/` | Build e cache Cargo, ignorados. |
-| `__pycache__/` e `*.pyc` | Cache Python, ignorado. |
 
 Diretórios como `.agents`, `.codex` e `.aws` podem ser fornecidos pelo ambiente de
 trabalho. Não são documentação do produto; não os mova nem reorganize credenciais

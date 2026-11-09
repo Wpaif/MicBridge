@@ -23,10 +23,11 @@ procedimentos em [Desenvolvimento](development.md#testes).
 
 ## Melhorias adicionais presentes
 
-- Layout com status fixo, lateral de conexão e estúdio responsivo.
-- Temas visuais, transparência e paletas JSON com importação/exportação.
-- Detecção de Omarchy para acompanhar a paleta no modo sistema.
-- Proteção dos deslizantes contra alterações acidentais ao rolar.
+- Interface Quickshell com trilho de seções, cards e atalhos de teclado.
+- Mesa de som para os efeitos, com equalizador de 3 bandas.
+- Fonte extra: som de um app junto com a voz.
+- Cores que acompanham o tema do Omarchy.
+- Proteção dos faders contra alterações acidentais ao rolar.
 - Controles de retorno bloqueados durante preparação/restauração.
 
 Novos itens devem ser descritos com comportamento, validação e limites claros

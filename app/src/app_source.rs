@@ -224,7 +224,9 @@ fn parse(dump: &Value) -> Graph {
                 if props["port.monitor"].as_bool() == Some(true) || text("port.monitor") == "true" {
                     continue;
                 }
-                let Some(node) = prop_u32(props, "node.id") else { continue };
+                let Some(node) = prop_u32(props, "node.id") else {
+                    continue;
+                };
                 let output = info["direction"].as_str() == Some("output");
                 let channel = text("audio.channel");
                 g.ports.push((node, channel, output, id));
@@ -437,7 +439,10 @@ mod tests {
     #[test]
     fn lists_streams_flags_calls_and_pairs_channels() {
         // Um filho de verdade, como o `pw-cat` da voz: o filtro olha o processo pai.
-        let mut child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .unwrap();
         let dump = json!([
             { "id": 71, "type": "PipeWire:Interface:Node", "info": { "props": {
                 "media.class": "Stream/Output/Audio", "application.name": "Firefox (2)",

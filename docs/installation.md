@@ -5,8 +5,8 @@
 O aplicativo é destinado a Linux com PipeWire e sessão gráfica. Para compilar:
 
 - Rust/Cargo com suporte à edição 2024 e às dependências do projeto.
-- Bibliotecas de desenvolvimento GTK 4.16 ou superior, libadwaita 1.6 ou superior
-  e libopus, acessíveis ao `pkg-config`.
+- Biblioteca de desenvolvimento libopus, acessível ao `pkg-config`.
+- [Quickshell](https://quickshell.org) (`qs`), que abre a interface.
 - `rsvg-convert`, do librsvg, para gerar os ícones durante a instalação.
 
 O áudio usa `pw-cat` e `pw-loopback`. O retorno exclusivo também usa `pw-dump`,
@@ -37,23 +37,13 @@ O script compila em release, encerra a instância instalada em execução e inst
 | Executável | `~/.local/bin/micbridge` |
 | Atalho | `$XDG_DATA_HOME/applications/dev.wilian.MicBridge.desktop` |
 | Ícones SVG e PNG | `$XDG_DATA_HOME/icons/hicolor/` |
+| Interface QML | `$XDG_DATA_HOME/micbridge/ui/` |
 
-| Interface QML (só Quickshell) | `$XDG_DATA_HOME/micbridge/ui/` |
+### Interface
 
-### Interface: GTK ou Quickshell
-
-O instalador escolhe a interface pelo ambiente. Em tiling WMs (Hyprland, Sway,
-niri, river...) usa a interface [Quickshell](https://quickshell.org), inspirada no
-[Flea](https://github.com/thisisgm/flea), que segue as cores do tema Omarchy. Em
-GNOME, KDE e outros desktops completos usa GTK4/libadwaita. Sem o `qs` instalado,
-cai para GTK. Para forçar uma delas:
-
-```sh
-./scripts/install.sh --ui=quickshell   # ou --ui=gtk
-```
-
-No modo Quickshell o atalho executa `micbridge --quickshell`: o motor roda como
-daemon com a bandeja e a janela é um processo `qs` à parte. Fechar a janela não
+A interface é QML, aberta pelo [Quickshell](https://quickshell.org) e inspirada no
+[Flea](https://github.com/thisisgm/flea). O atalho executa `micbridge`: o motor roda
+como daemon com a bandeja e a janela é um processo `qs` à parte. Fechar a janela não
 desliga o microfone; use **Sair** na bandeja. Abrir o MicBridge com a janela já
 aberta a traz para frente (Hyprland e Sway).
 
@@ -64,9 +54,8 @@ fica lado a lado em `dwindle` e `scrolling` e flutua em `floating`
 desinstalador removem esse bloco, sem tocar no resto do arquivo. Se o Hyprland
 acusar erro depois de recarregar, o arquivo anterior volta.
 
-A interface Quickshell tem os mesmos recursos da GTK, exceto o diálogo de
-aparência: as cores seguem o tema atual do Omarchy e mudam junto com ele. Fora do
-Omarchy, usa uma paleta escura padrão. Atalhos de teclado:
+As cores seguem o tema atual do Omarchy e mudam junto com ele. Fora do Omarchy,
+usa uma paleta escura padrão. Atalhos de teclado (`?` ou `F1` mostra todos):
 
 | Tecla | Ação |
 |---|---|

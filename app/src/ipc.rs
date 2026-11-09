@@ -16,10 +16,10 @@
 
 use crate::dsp::Preset;
 use crate::monitor::MonitorPhase;
-use crate::monitor_ui::{Choices, PendingAction, RefreshSchedule};
+use crate::monitor_view::{Choices, PendingAction, RefreshSchedule};
 use crate::profiles::Library;
 use crate::recording::Version;
-use crate::recording_ui::{
+use crate::recording_view::{
     Destinations, ExportOutcome, Notice, OperationKey, current_notice, export_selection,
 };
 use crate::settings;
@@ -115,7 +115,7 @@ pub struct Daemon {
     ui: Mutex<Option<std::process::Child>>,
     pub quit: tokio::sync::Notify,
     quitting: AtomicBool,
-    readout: Mutex<crate::effect_ui::Readout>,
+    readout: Mutex<crate::effect_view::Readout>,
     started: std::time::Instant,
     monitor: Arc<Mutex<MonitorControl>>,
     recording: Arc<Mutex<RecordingControl>>,
@@ -128,8 +128,8 @@ pub struct Daemon {
 struct RecordingControl {
     exporting: bool,
     sequence: u64,
-    notice: Option<crate::recording_ui::Notice>,
-    confirm: Option<crate::recording_ui::Destinations>,
+    notice: Option<crate::recording_view::Notice>,
+    confirm: Option<crate::recording_view::Destinations>,
 }
 
 /// Mesmo ciclo do painel GTK de retorno: ação em curso, erro da última tentativa
@@ -173,7 +173,7 @@ impl Daemon {
             ui: Mutex::new(None),
             quit: tokio::sync::Notify::new(),
             quitting: AtomicBool::new(false),
-            readout: Mutex::new(crate::effect_ui::Readout::new(
+            readout: Mutex::new(crate::effect_view::Readout::new(
                 &shared.params,
                 shared.generation(),
             )),
@@ -231,7 +231,7 @@ impl Daemon {
                 // Sem celulares, volta a mostrar o QR, como na interface GTK.
                 self.shared.open_pairing();
             }
-            "autostart" => crate::write_autostart(&self.autostart_path, on, "--quickshell")
+            "autostart" => crate::write_autostart(&self.autostart_path, on)
                 .map_err(|e| format!("Não foi possível alterar a inicialização: {e}"))?,
             "effect" => {
                 let p = &self.shared.params;
@@ -341,9 +341,21 @@ impl Daemon {
                         "ratio" => (crate::dsp::Params::set_comp_ratio, 1.0, 10.0),
                         "makeup_db" => (crate::dsp::Params::set_makeup_db, 0.0, 24.0),
                         // Closures sem captura viram `fn` comum, como os setters acima.
-                        "eq_low" => (|p, v| p.set_eq_db(0, v), -crate::dsp::EQ_MAX_DB, crate::dsp::EQ_MAX_DB),
-                        "eq_mid" => (|p, v| p.set_eq_db(1, v), -crate::dsp::EQ_MAX_DB, crate::dsp::EQ_MAX_DB),
-                        "eq_high" => (|p, v| p.set_eq_db(2, v), -crate::dsp::EQ_MAX_DB, crate::dsp::EQ_MAX_DB),
+                        "eq_low" => (
+                            |p, v| p.set_eq_db(0, v),
+                            -crate::dsp::EQ_MAX_DB,
+                            crate::dsp::EQ_MAX_DB,
+                        ),
+                        "eq_mid" => (
+                            |p, v| p.set_eq_db(1, v),
+                            -crate::dsp::EQ_MAX_DB,
+                            crate::dsp::EQ_MAX_DB,
+                        ),
+                        "eq_high" => (
+                            |p, v| p.set_eq_db(2, v),
+                            -crate::dsp::EQ_MAX_DB,
+                            crate::dsp::EQ_MAX_DB,
+                        ),
                         other => return Err(format!("ajuste desconhecido: {other}")),
                     };
                 if !value.is_finite() {
@@ -488,13 +500,13 @@ impl Daemon {
         let r = self.shared.recorder.status();
         let pb = self.shared.playback.status();
         let control = self.recording.lock().unwrap();
-        let view = crate::recording_ui::presentation(&r, &pb, connected, control.exporting);
+        let view = crate::recording_view::presentation(&r, &pb, connected, control.exporting);
         let key = OperationKey {
             recording: r.id,
             playback: pb.operation,
             export: control.sequence,
         };
-        let message = crate::recording_ui::message(
+        let message = crate::recording_view::message(
             &r,
             &pb,
             &view,
@@ -510,7 +522,7 @@ impl Daemon {
                 Version::Treated => "treated",
             });
         json!({
-            "caption": crate::recording_ui::caption(&r, &view),
+            "caption": crate::recording_view::caption(&r, &view),
             "progress": (r.samples as f64 / crate::recording::MAX_SAMPLES as f64).min(1.0),
             "can_start": view.can_start,
             "can_stop": view.can_stop,
@@ -581,7 +593,7 @@ impl Daemon {
         }
         let choices = Choices::new(&snapshot, self.shared.monitor_output().as_ref());
         let available = choices.available && snapshot.error.is_none() && !snapshot.busy;
-        let view = crate::monitor_ui::presentation(&m, connected, available);
+        let view = crate::monitor_view::presentation(&m, connected, available);
         let message = if let Some(action) = action {
             action.text().to_string()
         } else if m.phase == MonitorPhase::Restoring {
@@ -1070,7 +1082,10 @@ mod tests {
         assert_eq!(d.state()["autostart"], false);
         d.handle(r#"{"c":"autostart","on":true}"#).unwrap();
         let entry = std::fs::read_to_string(&d.autostart_path).unwrap();
-        assert!(entry.contains(" --quickshell --hidden\n"), "{entry}");
+        assert!(
+            entry.contains(" --hidden\n") && !entry.contains("--quickshell"),
+            "{entry}"
+        );
         assert_eq!(d.state()["autostart"], true);
         d.handle(r#"{"c":"autostart","on":false}"#).unwrap();
         d.handle(r#"{"c":"autostart","on":false}"#).unwrap();

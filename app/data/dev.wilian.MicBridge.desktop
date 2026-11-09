@@ -6,6 +6,6 @@ Comment=Use o celular como microfone do PC, com cancelamento de ruído
 Exec=micbridge
 Icon=dev.wilian.MicBridge
 Terminal=false
-Categories=AudioVideo;Audio;GTK;
+Categories=AudioVideo;Audio;
 Keywords=microfone;mic;audio;celular;webrtc;
 StartupWMClass=dev.wilian.MicBridge

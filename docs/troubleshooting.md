@@ -64,7 +64,7 @@ ativo. Ao desligar, aguarde **Restaurando conexões…**. Se houver pendências,
 **Tentar restaurar conexões**. Não apague o registro local de roteamento.
 Dispositivos/portas removidos ou substituídos podem impedir a restauração original.
 
-## Não consigo salvar um perfil ou tema
+## Não consigo salvar um perfil
 
 Confira a mensagem do editor e a possibilidade de escrita no diretório de dados.
 Perfis exigem nome único de 1–60 caracteres e têm limite de 32 personalizados.
@@ -75,16 +75,15 @@ Antes de corrigir preferências manualmente, feche o app e faça uma cópia de
 `settings.json`. Não apague o diretório inteiro: ele também contém pareamento,
 certificados e o registro de restauração de áudio.
 
-## A conexão sumiu da lateral ou a bandeja não aparece
+## A janela não abre ou a bandeja não aparece
 
-Em janela estreita ou baixa, abra **Conexão** pelo botão de rede no cabeçalho.
-Esse é o modo compacto, não perda do painel. A bandeja depende do suporte
-StatusNotifier do desktop. Fechar a janela só a esconde; **Sair** na bandeja encerra.
+A janela é aberta pelo Quickshell: confirme que `qs` está instalado e no `PATH`.
+Rodar `micbridge` num terminal mostra o erro se o `qs` falhar ao abrir. Abrir o
+MicBridge de novo com o daemon rodando só traz a janela para frente. A bandeja
+depende do suporte StatusNotifier do desktop. Fechar a janela só a esconde;
+**Sair** na bandeja encerra.
 
-## O tema não acompanha Omarchy ou o fundo não fica desfocado
+## As cores não acompanham o Omarchy
 
-Selecione **Seguir o sistema** e confirme que a sessão é reconhecida como Omarchy.
-GNOME/KDE não usam automaticamente paletas Omarchy deixadas no disco. Um erro de
-leitura mantém a última paleta válida; o app informa quando usa o fallback nativo.
-Alto contraste desativa transparência/paleta customizada. Desfoque depende do
-compositor e não é configurado pelo MicBridge.
+A interface lê `~/.local/state/omarchy/current/theme/colors.toml` e o relê quando
+o tema muda. Sem esse arquivo, ela usa a paleta escura padrão.

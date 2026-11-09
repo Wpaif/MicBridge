@@ -241,12 +241,17 @@ impl Params {
     /// Ganho de uma banda do equalizador (0 graves, 1 médios, 2 agudos).
     pub fn set_eq_db(&self, band: usize, v: f32) {
         if let Some(slot) = self.eq_db.get(band) {
-            slot.store(finite_clamp(v, -EQ_MAX_DB, EQ_MAX_DB, 0.0).to_bits(), Relaxed);
+            slot.store(
+                finite_clamp(v, -EQ_MAX_DB, EQ_MAX_DB, 0.0).to_bits(),
+                Relaxed,
+            );
         }
     }
 
     pub fn eq_db(&self) -> [f32; 3] {
-        self.eq_db.each_ref().map(|a| finite_clamp(load_f32(a), -EQ_MAX_DB, EQ_MAX_DB, 0.0))
+        self.eq_db
+            .each_ref()
+            .map(|a| finite_clamp(load_f32(a), -EQ_MAX_DB, EQ_MAX_DB, 0.0))
     }
 
     pub(crate) fn begin_effects(&self, generation: u64) {
@@ -1032,7 +1037,11 @@ mod tests {
         p.set_eq_db(0, 6.0);
         p.set_eq_db(1, -6.0);
         p.set_eq_db(2, 6.0);
-        let (low, mid, high) = (eq_gain_db(&p, 50.0), eq_gain_db(&p, 1_000.0), eq_gain_db(&p, 14_000.0));
+        let (low, mid, high) = (
+            eq_gain_db(&p, 50.0),
+            eq_gain_db(&p, 1_000.0),
+            eq_gain_db(&p, 14_000.0),
+        );
         assert!((low - 6.0).abs() < 1.0, "graves {low:.2} dB");
         assert!((mid + 6.0).abs() < 1.0, "médios {mid:.2} dB");
         assert!((high - 6.0).abs() < 1.0, "agudos {high:.2} dB");

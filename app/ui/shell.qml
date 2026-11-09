@@ -188,7 +188,7 @@ ShellRoot {
                                 ["PgUp PgDn  ·  Home End", "Slider: 10 passos / extremos"],
                                 ["Espaço  ·  Enter", "Ligar, desligar ou clicar"],
                                 ["Ctrl+Tab  ·  Alt+↑ ↓", "Próxima / seção anterior"],
-                                ["Alt+1 … 7", "Ir direto para a seção"],
+                                ["Alt+1 … 4", "Ir direto para a seção"],
                                 ["M", "Silenciar microfone"],
                                 ["1 … 9", "Escolher perfil"],
                                 ["N  ·  S  ·  R  ·  Del", "Perfil: novo, salvar, renomear, excluir"],

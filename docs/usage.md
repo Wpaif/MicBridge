@@ -3,9 +3,8 @@
 ## Primeira conexão
 
 1. Coloque PC e celular na mesma rede local e abra o MicBridge.
-2. No painel **Conexão**, habilite **Aceitar novo celular** se necessário.
-3. Escaneie o QR code com o celular. O botão de QR na conexão abre uma
-   visualização dedicada; o QR inline aparece durante a janela de pareamento.
+2. Na seção **Conexão**, habilite **Aceitar novo celular** se necessário (atalho `P`).
+3. Escaneie o QR code da seção **Conexão** com o celular.
 4. Autorize o microfone no navegador e toque em **Iniciar microfone**.
 5. No Discord, OBS ou aplicativo de chamada, selecione **MicBridge** como entrada.
 
@@ -17,19 +16,26 @@ Na próxima utilização, abra o app no PC e a página no celular. O navegador
 reconhecido pode reconectar sem escanear outro QR. Isso depende de manter as
 credenciais do site e usar o mesmo endereço.
 
-## Interface e rolagem
+## Interface
 
-Status, medidores de entrada/saída e mute ficam fixos no topo. A conexão fica
-fixa à esquerda, abaixo do status; o estúdio à direita tem rolagem independente.
-Em janelas estreitas ou baixas, o botão de rede **Conexão** na barra superior abre
-o mesmo painel num diálogo.
+A janela é aberta pelo [Quickshell](https://quickshell.org) e tem um trilho à
+esquerda com quatro seções: **Voz**, **Perfil**, **Efeitos** e **Conexão**. No topo
+do trilho fica o estado da conexão; embaixo, **Silenciar** e a folha de atalhos.
+Uma bolinha ao lado da seção indica o que está ativo sem precisar abri-la
+(gravação, retorno, fonte extra, alterações não salvas, pareamento aberto).
 
-Os painéis se reorganizam conforme o espaço útil: tratamento de voz, teste A/B
-e retorno permanecem agrupados por contexto. A/B e retorno ficam consecutivos.
-Os controles têm largura limitada para não esticarem excessivamente ao maximizar.
+- **Voz:** medidores de entrada e saída, histórico de níveis e os cards
+  **Retorno no fone**, **Teste de voz** e **Fonte extra**.
+- **Perfil:** perfis de fábrica e personalizados.
+- **Efeitos:** a mesa de som com os efeitos (veja abaixo).
+- **Conexão:** QR code, pareamento, celulares conhecidos, certificado e
+  **Iniciar com o sistema**.
 
-Use arraste ou setas do teclado nos deslizantes. A roda do mouse e a rolagem
-sobre eles continuam rolando o painel, sem modificar os valores, mesmo com foco.
+Tudo funciona pelo teclado; `?` ou `F1` abre a folha de atalhos. Os faders e
+sliders ignoram a roda do mouse, para a rolagem da página não mexer no áudio.
+
+As cores seguem o tema atual do Omarchy (`colors.toml`) e mudam junto com ele.
+Fora do Omarchy a janela usa uma paleta escura padrão.
 
 ## Tratamento da voz
 
@@ -43,22 +49,26 @@ Comece com um dos perfis de fábrica:
 | Streaming | Gate mais firme para ruído de teclado e ambiente. |
 | Original | Módulos de limpeza, timbre e dinâmica desativados; ganho manual e limitador permanecem. |
 
-Refine nos módulos **Limpeza**, **Timbre**, **Dinâmica** e **Volume**:
+Refine na seção **Efeitos**, uma mesa de som com um canal por efeito, na ordem em
+que o sinal passa por eles. Cada canal tem um botão ON/OFF embaixo e um LED que
+acende com o efeito ligado:
 
-| Controle | Efeito |
+| Canal | Efeito e controles |
 |---|---|
-| Redução de ruído | RNNoise para atenuar ruído de fundo. |
-| Filtro de graves | Atenua rumble e vibrações graves. |
-| Noise gate e limiar | Atenua o sinal abaixo do limiar, com sustentação para pausas curtas. |
-| Suavizar chiados | De-esser para sibilantes. |
-| Realçar clareza da voz | Realce de presença. |
-| Compressor, limiar e razão | Reduz diferenças de dinâmica. |
-| Volume automático | Ajusta ganho e congela nas pausas. |
-| Ganho manual | Atua quando o volume automático está desligado. |
+| Graves | Passa-altas: atenua rumble e vibrações abaixo de ~80 Hz. |
+| Ruído | RNNoise para atenuar ruído de fundo. |
+| Gate | Atenua o sinal abaixo do limiar (fader), com sustentação para pausas curtas. O LED fica verde aberto, amarelo em espera e vermelho fechado. |
+| De-esser | Suaviza sibilantes. |
+| Presença | Realce de clareza em ~3 kHz. |
+| EQ | Equalizador de 3 bandas: graves (120 Hz), médios (1 kHz) e agudos (6 kHz), de −12 a +12 dB. Começa desligado e plano; duplo clique num fader volta a banda a 0 dB. |
+| Compressor | Reduz diferenças de dinâmica (faders de limiar e razão). O medidor GR mostra quanto está reduzindo. |
+| Ganho | **AUTO** ajusta o volume e congela nas pausas; o medidor mostra o ajuste. Em **MANUAL** vale o fader de ganho. |
+| Saída | Níveis de entrada e saída e o silenciar (**AO VIVO** / **MUDO**). |
 
-Gate, compressor e volume automático exibem sua atuação. **Sem áudio** indica
-ausência de frames recentes, não necessariamente uma falha na conexão. Esses
-indicadores não equivalem a um diagnóstico geral nem a um alerta de clipping.
+Os medidores mostram **—** sem áudio recente, o que indica ausência de frames, não
+necessariamente uma falha na conexão. Eles não equivalem a um diagnóstico geral
+nem a um alerta de clipping. Se a mesa não couber na janela, ela rola na
+horizontal pela roda do mouse, pelo touchpad ou pela barra embaixo dos canais.
 
 ## Perfis personalizados
 
@@ -74,7 +84,8 @@ Excluir o perfil ativo retorna a **Chamada**.
 O app restaura o último perfil selecionado com seus ajustes salvos ao reabrir.
 São aceitos até 32 personalizados, com nomes únicos de até 60 caracteres.
 Os perfis são locais, sem importação/exportação. Mute, retorno, dispositivos,
-volume do retorno e aparência não fazem parte deles.
+volume do retorno e fonte extra não fazem parte deles. O equalizador faz parte;
+perfis salvos antes dele abrem com o EQ desligado e plano.
 
 Uma falha de escrita preserva os dados anteriores e mostra o erro. Se a biblioteca
 estiver inválida ou incompatível, o app preserva o arquivo e bloqueia as ações de
@@ -100,8 +111,8 @@ captura cheia resulta em **Teste incompleto**, sem bloquear o áudio ao vivo.
 
 ## Retorno no fone
 
-Escolha uma saída em **Retorno no fone** e ative **Ajuste em tempo real · retorno
-exclusivo**. O retorno inicia desligado, com volume local de 25%. O app não troca
+No card **Retorno no fone** (seção **Voz**), escolha uma saída e ative **Ouvir a
+voz tratada**. O retorno inicia desligado, com volume local de 25%. O app não troca
 automaticamente para outra saída se a escolhida desaparecer.
 
 Durante o ajuste, o MicBridge mantém somente seu retorno conectado àquela saída,
@@ -123,37 +134,28 @@ monitoramento, especialmente com Bluetooth; use fones para evitar realimentaçã
 
 ## Mute
 
-**Silenciar microfone** silencia somente a saída **MicBridge** para os outros
-programas. O botão fica destacado e o medidor de saída apresenta zero.
+**Silenciar** (no trilho, atalho `M`, ou **MUDO** no canal Saída da mesa) silencia
+somente a saída **MicBridge** para os outros programas. O botão fica destacado e o
+medidor de saída apresenta zero.
 
 Entrada, processamento, retorno no fone e gravação de teste continuam ativos.
 Desmutar mantém conexão e configurações. O app inicia desmutado; essa escolha
 não é salva entre execuções. Áudio já entregue aos buffers do sistema ainda pode
 ser ouvido por um breve instante.
 
-## Aparência
+## Fonte extra
 
-Abra **Aparência** na barra superior. Há **Seguir o sistema**, **Claro**, **Escuro**
-e **Personalizado**. A prévia só é salva ao **Aplicar**; cancelar/fechar restaura
-o que estava salvo. **Restaurar padrão** também é uma prévia até aplicar.
+O card **Fonte extra** (seção **Voz**) manda o som de um app junto com a sua voz
+para o microfone virtual, por exemplo uma aba do navegador tocando um vídeo numa
+call. Ele lista os apps que estão tocando som; escolha um e ajuste o volume. Você
+continua ouvindo o app no fone normalmente.
 
-Opacidade de fundo varia de 60% a 100%, sem tornar textos e medidores translúcidos.
-Alto contraste usa cores nativas e fundo opaco. Desfoque depende do compositor;
-o aplicativo não o configura nem altera o tema global do desktop.
-
-Temas visuais podem ser importados/exportados como paletas JSON v1. Veja o
-[exemplo Graphite](../app/data/themes/graphite.json). Limite de 64 KiB, cores
-`#RRGGBB` e contraste mínimo 4,5:1 do texto sobre fundo e superfície.
-Isso é independente dos perfis de áudio, que não têm importação/exportação.
-
-Em Omarchy detectado, **Seguir o sistema** acompanha sua paleta automaticamente.
-A detecção considera a sessão ativa; arquivos antigos de Omarchy não devem mudar
-o comportamento em GNOME/KDE. A paleta é verificada a cada dois segundos e erros
-preservam a última válida. Sem paleta válida, o app usa o visual nativo com aviso.
-Os caminhos estão em [Arquitetura](architecture.md#arquivos-do-aplicativo).
+Escolher o próprio app da chamada devolve o som da call para ela mesma (eco); o
+card avisa quando isso acontece. Tocar de novo no app selecionado desliga a fonte.
 
 ## Bandeja e encerramento
 
-Fechar a janela apenas a esconde. Use **Sair** na bandeja para encerrar o app e
-restaurar as conexões de áudio pendentes pelo fluxo normal de parada.
-**Iniciar com o sistema** configura a abertura escondida na bandeja.
+Fechar a janela apenas a esconde; o MicBridge continua rodando e o microfone
+virtual segue ativo. Use **Sair** na bandeja para encerrar o app e restaurar as
+conexões de áudio pendentes pelo fluxo normal de parada. **Iniciar com o sistema**,
+na seção **Conexão**, configura a abertura escondida na bandeja.

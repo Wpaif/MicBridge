@@ -189,9 +189,7 @@ mod tests {
 }
 
 use crate::dsp::Params;
-use adw::prelude::*;
-/// Textos de atuação de gate, compressor e volume automático, sem widgets:
-/// a interface GTK e o daemon Quickshell mostram as mesmas leituras.
+/// Textos de atuação de gate, compressor e volume automático para a interface.
 pub struct Readout {
     activity: Activity,
 }
@@ -216,88 +214,5 @@ impl Readout {
         let flags = [&params.gate, &params.compressor, &params.auto_gain].map(|v| v.load(Relaxed));
         let value = presentation(reading.levels, flags, fresh);
         [value.gate, value.compressor, value.auto_gain]
-    }
-}
-pub struct Indicators {
-    rows: [glib::WeakRef<adw::SwitchRow>; 3],
-    readout: Readout,
-}
-impl Indicators {
-    pub fn new(params: &Params, generation: u64, rows: [&adw::SwitchRow; 3]) -> Self {
-        let mut result = Self {
-            rows: rows.map(|r| r.downgrade()),
-            readout: Readout::new(params, generation),
-        };
-        result.update(params, generation, false, Duration::ZERO);
-        result
-    }
-    pub fn update(&mut self, params: &Params, generation: u64, connected: bool, now: Duration) {
-        let texts = self.readout.read(params, generation, connected, now);
-        for (row, subtitle) in self.rows.iter().zip(texts) {
-            if let Some(row) = row.upgrade() {
-                if row.subtitle().as_deref() != Some(subtitle.as_str()) {
-                    row.set_subtitle(&subtitle);
-                }
-            }
-        }
-    }
-}
-#[cfg(test)]
-mod graphical_tests {
-    use super::*;
-    use crate::dsp::{FRAME, Preset, Processor};
-    use std::sync::atomic::Ordering::Relaxed;
-    #[test]
-    #[ignore = "requer sessão gráfica GTK"]
-    fn indicators_show_processed_audio_bypass_staleness_and_release_widgets() {
-        adw::init().unwrap();
-        let app = adw::Application::builder()
-            .application_id("dev.wilian.MicBridge.EffectTest")
-            .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
-            .build();
-        app.register(None::<&gtk::gio::Cancellable>).unwrap();
-        let parent = adw::ApplicationWindow::builder().application(&app).build();
-        let group = adw::PreferencesGroup::new();
-        let rows: [adw::SwitchRow; 3] = std::array::from_fn(|_| adw::SwitchRow::new());
-        for r in &rows {
-            group.add(r);
-        }
-        parent.set_content(Some(&group));
-        parent.present();
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
-        while !parent.is_realized() {
-            glib::MainContext::default().iteration(false);
-            assert!(
-                std::time::Instant::now() < deadline,
-                "window did not realize"
-            );
-        }
-        let p = Params::default();
-        p.begin_effects(1);
-        p.apply_preset(Preset::Bruto);
-        p.gate.store(true, Relaxed);
-        p.compressor.store(true, Relaxed);
-        p.auto_gain.store(true, Relaxed);
-        let mut indicators = Indicators::new(&p, 1, [&rows[0], &rows[1], &rows[2]]);
-        assert_eq!(rows[0].subtitle().as_deref(), Some("Sem áudio"));
-        let mut processor = Processor::new();
-        processor.process(&mut [0.5; FRAME], &p);
-        indicators.update(&p, 1, true, Duration::from_millis(50));
-        assert_eq!(rows[0].subtitle().as_deref(), Some("Aberto"));
-        assert!(rows[1].subtitle().unwrap().starts_with("Redução: "));
-        assert!(rows[2].subtitle().unwrap().starts_with("Ajuste: -"));
-        p.gate.store(false, Relaxed);
-        indicators.update(&p, 1, true, Duration::from_millis(100));
-        assert_eq!(rows[0].subtitle().as_deref(), Some("Desligado"));
-        indicators.update(&p, 1, true, Duration::from_millis(350));
-        assert_eq!(rows[1].subtitle().as_deref(), Some("Sem áudio"));
-        let weak = rows[0].downgrade();
-        parent.set_content(None::<&gtk::Widget>);
-        parent.destroy();
-        drop(group);
-        drop(rows);
-        drop(parent);
-        assert!(weak.upgrade().is_none(), "telemetry retained its widget");
-        indicators.update(&p, 1, false, Duration::from_millis(400));
     }
 }

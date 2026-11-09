@@ -107,30 +107,23 @@ pub(crate) fn save_profiles_to(
     )
     .map_err(|e| e.to_string())
 }
-pub fn load_appearance() -> crate::theme::Appearance {
-    load_appearance_from(&path())
-}
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn custom_profiles_restore_selection_and_preserve_appearance_and_other_settings() {
+    fn custom_profiles_restore_selection_and_preserve_other_settings() {
         let file = temp_file("voice-library");
         save_preset_to(&file, Preset::Podcast).unwrap();
         let mut library = load_profiles_from(&file).unwrap();
         assert_eq!(library.selected, "podcast");
         let config = library.config().unwrap();
         library.create("Meu podcast", config).unwrap();
-        let appearance = crate::theme::Appearance {
-            opacity: 80,
-            ..Default::default()
-        };
-        save_appearance_to(&file, &appearance).unwrap();
+        // Outras chaves do arquivo sobrevivem à gravação dos perfis, e vice-versa.
+        update(&file, "future", 42.into()).unwrap();
         save_profiles_to(&file, &library).unwrap();
         assert_eq!(load_profiles_from(&file).unwrap(), library);
-        assert_eq!(load_appearance_from(&file), appearance);
-        save_appearance_to(&file, &crate::theme::Appearance::default()).unwrap();
+        update(&file, "future", 43.into()).unwrap();
         assert_eq!(load_profiles_from(&file).unwrap(), library);
         let mut invalid = serde_json::to_value(&library).unwrap();
         invalid["selected"] = "missing".into();
@@ -186,59 +179,10 @@ mod tests {
     }
 
     #[test]
-    fn appearance_and_voice_preset_never_overwrite_each_other() {
-        let file = temp_file("appearance");
-        save_preset_to(&file, Preset::Chamada).unwrap();
-        let appearance = crate::theme::Appearance {
-            source: crate::theme::Source::Dark,
-            opacity: 85,
-            custom: None,
-        };
-        save_appearance_to(&file, &appearance).unwrap();
-        assert_eq!(load_preset_from(&file), Some(Preset::Chamada));
-        save_preset_to(&file, Preset::Bruto).unwrap();
-        assert_eq!(load_appearance_from(&file), appearance);
-        std::fs::write(
-            &file,
-            r#"{"preset":"chamada","appearance":{"opacity":0},"future":42}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            load_appearance_from(&file),
-            crate::theme::Appearance::default()
-        );
-        save_appearance_to(&file, &appearance).unwrap();
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(&file).unwrap())
-                .unwrap()["future"],
-            42
-        );
-        let _ = std::fs::remove_dir_all(file.parent().unwrap());
-    }
-    #[test]
     fn chaves_sao_unicas_e_reversiveis() {
         for preset in Preset::ALL {
             assert_eq!(Preset::from_key(preset.key()), Some(preset));
         }
         assert_eq!(Preset::from_key("Chamada"), None); // a chave não é o nome exibido
     }
-}
-
-fn load_appearance_from(path: &Path) -> crate::theme::Appearance {
-    let value = (|| {
-        let text = std::fs::read_to_string(path).ok()?;
-        let value: serde_json::Value = serde_json::from_str(&text).ok()?;
-        let appearance: crate::theme::Appearance =
-            serde_json::from_value(value.get("appearance")?.clone()).ok()?;
-        appearance.validate().ok()?;
-        Some(appearance)
-    })();
-    value.unwrap_or_default()
-}
-pub(crate) fn save_appearance_to(
-    path: &Path,
-    appearance: &crate::theme::Appearance,
-) -> std::io::Result<()> {
-    appearance.validate().map_err(std::io::Error::other)?;
-    update(path, "appearance", serde_json::to_value(appearance)?)
 }

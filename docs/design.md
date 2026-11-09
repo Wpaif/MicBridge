@@ -1,81 +1,74 @@
 # Design da interface
 
-Este é o documento de referência para a interface atual. A implementação está
-em `app/src/*_ui.rs`, `main.rs`, `widgets.rs`, `studio_layout.rs`,
-`connection_sidebar.rs`, `theme.rs` e `app/data/style.css`.
+Este é o documento de referência para a interface atual. Ela é QML, aberta pelo
+[Quickshell](https://quickshell.org): a janela está em `app/ui/shell.qml` e os
+componentes ficam ao lado, em `app/ui/*.qml`. O daemon (`app/src/ipc.rs`) envia o
+estado e recebe comandos; a interface não guarda regras de áudio próprias.
 
 ## Princípios
 
 O usuário deve conseguir identificar se há conexão, se o áudio chega e se a
-saída está silenciada sem procurar controles na área rolável. Use textos curtos
-em português, estados textuais além de cores e widgets nativos de GTK/libadwaita.
+saída está silenciada sem procurar controles. Use textos curtos em português e
+estados textuais além de cores: um LED aceso sempre vem com uma palavra ou valor.
 
-Evite esticar controles ao maximizar. Prefira largura limitada, agrupamento por
-função e altura natural dos painéis. Animação indica operação/estado, não decoração.
-Durante operações assíncronas, apresente progresso e impeça ações conflitantes
-até a conclusão; não confirme uma operação apenas porque houve um clique.
+Animação indica operação/estado, não decoração. Durante operações assíncronas,
+apresente progresso e impeça ações conflitantes até a conclusão; não confirme uma
+operação apenas porque houve um clique.
 
-## Estrutura fixa e estúdio
+## Estrutura
 
-- Barra de título: ações gerais e acesso à aparência.
-- Topo fixo: status, medidores de entrada/saída e mute.
-- Esquerda, abaixo do status: conexão fixa, sem ScrolledWindow, até 340 px.
-- Direita: estúdio com rolagem própria e colunas independentes.
+- **Trilho à esquerda:** estado da conexão no topo, as seções no meio e, embaixo,
+  a folha de atalhos e **Silenciar**. Uma bolinha ao lado da seção mostra o que
+  está ativo nela.
+- **Painel à direita:** só a seção escolhida, com título e rolagem vertical própria.
 
-Cabeçalho e corpo têm limite externo de 1800 px. O estúdio tem limite de 1440 px
-para três colunas, 1040 px para duas e 584 px para uma, incluindo suas margens.
-Use 18 px entre painéis, mantendo espaçamentos internos próprios dos controles.
-
-As colunas dependem da **largura útil do estúdio**, não da janela inteira:
-
-| Largura útil | Agrupamento |
+| Seção | Conteúdo |
 |---|---|
-| Acima de 1240 px | Perfil/limpeza/timbre; dinâmica/volume; A/B/retorno/QR. |
-| 801–1240 px | Tratamento; A/B/retorno/QR. |
-| Até 800 px | Uma coluna. |
+| Voz | Medidores, histórico de níveis e os cards Retorno no fone, Teste de voz e Fonte extra. |
+| Perfil | Perfis de fábrica e personalizados, com salvar, renomear e excluir. |
+| Efeitos | Mesa de som: um canal (`Strip`) por efeito, na ordem do sinal. |
+| Conexão | QR, pareamento, celulares conhecidos, inicialização e certificado. |
 
-A/B e retorno devem ser consecutivos em qualquer modo. Não use linhas homogêneas
-que deixem lacunas abaixo de painéis mais baixos. Reposicione os mesmos widgets,
-preservando estado, sinais e foco.
+Recursos com poucos controles viram um `Card` dentro de uma seção, não uma seção
+própria: uma página quase vazia no trilho é pior que um card a mais na Voz. Os
+cards ficam lado a lado na janela larga (`win.wide`, a partir de 1000 px) e
+empilhados na estreita.
 
-Até 1180 px de largura da janela ou 680 px de altura, recolha a lateral e mostre
-o botão **Conexão**. Ele abre o mesmo painel num diálogo nativo. O diálogo pode
-rolar quando necessário para alcançar os controles; a lateral de desktop não.
-Ao crescer a janela, feche o diálogo e devolva o painel à lateral.
+Formulários usam uma coluna legível (até 720 px); páginas com gráfico ou mesa usam
+a largura da tela cheia (até 1200 px). A mesa de efeitos ocupa a altura disponível
+e rola na horizontal quando não cabe, com roda, touchpad ou barra própria.
 
-Até 600 px da janela, empilhe os medidores. Preserve uma área útil de rolagem em
-420×400. QR inline continua condicionado ao pareamento; o botão de QR da conexão
-mantém a visualização dedicada.
+## Componentes
 
-## Controles e acessibilidade
+| Componente | Uso |
+|---|---|
+| `Toggle`, `Slider`, `Chip`, `Button` | Controles de linha nos formulários. |
+| `Card` | Agrupa um recurso com título e um ponto de atividade. |
+| `Strip`, `Fader`, `VMeter` | Canal da mesa, fader vertical e medidor vertical. |
+| `Meter`, `History` | Nível em dBFS e histórico de níveis da seção Voz. |
+| `Confirm`, `NameField` | Confirmações e nomes de perfil dentro da própria página. |
 
-Use `PreferencesGroup`, `ActionRow`, `SwitchRow`, `ComboRow` e componentes nativos
-adequados. `ComboRow` deve estar numa ListBox para navegação e foco corretos.
-Reutilize `widgets::slider`: roda/gestos de rolagem devem passar ao painel sem
-alterar valores; arraste, setas e atualizações programáticas continuam funcionando.
+Faders e sliders não reagem à roda do mouse: a rolagem passa para a página sem
+alterar o áudio. Durante o arraste mostram o valor local e depois seguram esse
+valor até o daemon confirmar. Faixas com sinal (EQ) acendem a partir do zero, e o
+duplo clique volta ao valor de repouso.
 
-O ganho manual só fica disponível com volume automático desligado. Gate,
-compressor e volume automático mostram atuação ou estados **Desligado** e
-**Sem áudio**. Esses textos não substituem os medidores nem um diagnóstico geral.
+Confirmações (substituir WAVs, descartar alterações, excluir perfil, esquecer
+celulares) aparecem na própria página, não em janelas separadas.
 
-Mute usa texto e destaque, sem depender apenas de cor. Botões só com ícone devem
-ter tooltip e nome acessível. Use fonte/tamanho relativos nos rótulos dos medidores.
-Diálogos devem oferecer fechamento claro e navegação por teclado.
+## Teclado
 
-## Aparência e CSS
+Tudo deve funcionar pelo teclado. Tab e ↑↓ andam entre controles; o painel rola
+até o controle focado. Ctrl+Tab, Alt+↑↓ e Alt+1…4 trocam de seção. Esc solta o
+foco e, de novo, fecha a janela. Ao criar um atalho novo, acrescente-o à folha de
+atalhos (`?` / F1) em `shell.qml`.
 
-`style.css` concentra estrutura e classes `mb-*`. `theme.rs` gera a paleta aplicada
-ao escopo `.mb-window`, sem modificar preferências globais do desktop. Os modos
-são sistema, claro, escuro e personalizado. Alto contraste usa cores nativas e
-superfícies opacas. Transparência afeta fundos, não textos e controles.
+## Cores
 
-Use `add_css_class` na janela para preservar classes nativas como `csd` e
-`background`. Não copie propriedades de CSS de navegador, como `backdrop-filter`
-ou layout flex/grid, para o CSS GTK. Desfoque pertence ao compositor.
-
-Omarchy é detectado pela sessão; **Seguir o sistema** já deve acompanhá-lo.
-Não crie uma opção separada de integração nem altere o tema global. Prefira
-integração nativa GTK também no KDE, sem prometer reprodução de controles Qt.
+`Theme.qml` lê a paleta do Omarchy em `colors.toml` e a relê quando o tema muda.
+Fora do Omarchy fica a paleta escura padrão do próprio arquivo. Use os tokens do
+`Theme` (`background`, `surface`, `foreground`, `muted`, `accent`, `ok`, `warn`,
+`urgent`), nunca cores fixas nos componentes.
 
 ## Página do celular
 
@@ -85,7 +78,7 @@ detalhes internos de PipeWire, filas ou DSP no fluxo de iniciar/parar a captura.
 
 ## Verificação visual
 
-Teste janela pequena, intermediária, maximizada, claro/escuro, alto contraste e
-diálogos. Verifique foco, cortes de texto, área de rolagem e estados de operação.
-Use os testes e capturas documentados em [Desenvolvimento](development.md),
-sem confundir status simulado com validação de áudio ou rede.
+Teste a janela em meia tela e em tela cheia, com tema claro e escuro do Omarchy.
+Verifique foco, cortes de texto, rolagem e estados de operação. Captura com estado
+simulado não comprova funcionamento de rede ou áudio; registre à parte o que
+exigir celular, PipeWire ou fone.

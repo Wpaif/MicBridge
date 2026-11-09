@@ -661,6 +661,22 @@ impl Daemon {
             self.started.elapsed(),
         );
         let activity = json!({ "gate": gate, "compressor": compressor, "auto_gain": auto_gain });
+        // Números para os medidores da mesa de efeitos; nulos quando o efeito está
+        // desligado ou sem áudio recente (o mesmo critério dos textos acima).
+        let live = |text: &str| text != "Desligado" && text != "Sem áudio";
+        let levels = p.effect_reading().levels;
+        let fx = json!({
+            "gate": live(&gate).then(|| match levels.gate {
+                crate::dsp::effects::GateState::Open => "open",
+                crate::dsp::effects::GateState::Holding => "hold",
+                crate::dsp::effects::GateState::Attenuating => "closed",
+                crate::dsp::effects::GateState::Disabled => "off",
+            }),
+            "reduction_db": levels.compression_db.filter(|v| v.is_finite() && live(&compressor))
+                .map(|v| (v * 10.0).round() / 10.0),
+            "auto_gain_db": levels.auto_gain_db.filter(|v| v.is_finite() && live(&auto_gain))
+                .map(|v| (v * 10.0).round() / 10.0),
+        });
         let library = self.library.lock().unwrap();
         let mut profiles: Vec<Value> = Preset::ALL
             .iter()
@@ -706,6 +722,7 @@ impl Daemon {
                 "makeup_db": p.makeup_db(),
             },
             "activity": activity,
+            "fx": fx,
             "monitor": self.monitor_state(st.link == Link::Connected),
             "recording": self.recording_state(st.link == Link::Connected),
             "extra": self.extra_state(),

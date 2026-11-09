@@ -636,112 +636,186 @@ ShellRoot {
                         ColumnLayout {
                             Layout.fillWidth: true
                             visible: win.page === "efeitos"
-                            spacing: 6
+                            spacing: 8
 
-                            GridLayout {
+                            Text {
                                 Layout.fillWidth: true
-                                columns: win.wide ? 2 : 1
-                                columnSpacing: 48
-                                rowSpacing: 6
-                                uniformCellWidths: true
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    Layout.alignment: Qt.AlignTop
+                                text: "Os canais seguem a ordem do sinal, da esquerda para a direita."
+                                color: Theme.muted
+                                font.family: Theme.font
+                                font.pixelSize: 11
+                                wrapMode: Text.Wrap
+                            }
+
+                            // Mesa: rola na horizontal quando a janela é estreita.
+                            Flickable {
+                                id: desk
+                                Layout.fillWidth: true
+                                // A mesa ocupa a altura que sobra no painel: faders mais longos, ajuste mais fino.
+                                Layout.preferredHeight: Math.max(300, pane.height - 130)
+                                contentWidth: deskRow.width
+                                contentHeight: height
+                                flickableDirection: Flickable.HorizontalFlick
+                                boundsBehavior: Flickable.StopAtBounds
+                                clip: true
+
+                                RowLayout {
+                                    id: deskRow
                                     spacing: 6
-                                Section { text: "Limpeza" }
-                                Toggle {
-                                    Layout.fillWidth: true
-                                    title: "Redução de ruído"
-                                    hint: "RNNoise"
-                                    checked: win.effect("denoise")
-                                    onToggled: on => win.setEffect("denoise", on)
-                                }
-                                Toggle {
-                                    Layout.fillWidth: true
-                                    title: "Filtro de graves"
-                                    hint: "Corta rumble abaixo de ~80 Hz"
-                                    checked: win.effect("highpass")
-                                    onToggled: on => win.setEffect("highpass", on)
-                                }
-                                Toggle {
-                                    Layout.fillWidth: true
-                                    title: "Noise gate"
-                                    hint: win.activity("gate")
-                                    checked: win.effect("gate")
-                                    onToggled: on => win.setEffect("gate", on)
-                                }
-                                Slider {
-                                    Layout.fillWidth: true
-                                    title: "Limiar do gate"
-                                    from: -80; to: -20; step: 1; unit: " dB"
-                                    value: win.tuning("gate_db")
-                                    enabled: win.effect("gate")
-                                    onMoved: v => backend.send({ c: "tune", name: "gate_db", value: v })
-                                }
+                                    // Na janela larga os canais esticam para ocupar a mesa toda.
+                                    width: Math.max(implicitWidth, desk.width)
+                                    height: desk.height - (deskRow.implicitWidth > desk.width ? 12 : 0)
+                                    readonly property var fx: win.st.fx || ({})
 
-                                Section { text: "Tom" }
-                                Toggle {
-                                    Layout.fillWidth: true
-                                    title: "Suavizar chiados (\"s\")"
-                                    hint: "De-esser"
-                                    checked: win.effect("deesser")
-                                    onToggled: on => win.setEffect("deesser", on)
-                                }
-                                Toggle {
-                                    Layout.fillWidth: true
-                                    title: "Realçar clareza da voz"
-                                    hint: "Presença (~3 kHz)"
-                                    checked: win.effect("presence")
-                                    onToggled: on => win.setEffect("presence", on)
-                                }
+                                    Strip {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        title: "Graves"
+                                        hint: "Corta rumble abaixo de ~80 Hz"
+                                        on: win.effect("highpass")
+                                        onToggled: on => win.setEffect("highpass", on)
+                                    }
+                                    Strip {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        title: "Ruído"
+                                        hint: "RNNoise\nremove o ruído de fundo"
+                                        on: win.effect("denoise")
+                                        onToggled: on => win.setEffect("denoise", on)
+                                    }
+                                    Strip {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        title: "Gate"
+                                        on: win.effect("gate")
+                                        led: !on ? "transparent"
+                                            : deskRow.fx.gate === "open" ? Theme.ok
+                                            : deskRow.fx.gate === "hold" ? Theme.warn
+                                            : deskRow.fx.gate === "closed" ? Theme.urgent : Theme.muted
+                                        status: !on ? "" : ({ open: "aberto", hold: "espera", closed: "fechado" })[deskRow.fx.gate] || "sem áudio"
+                                        onToggled: on => win.setEffect("gate", on)
+                                        Fader {
+                                            Layout.fillHeight: true
+                                            label: "limiar"
+                                            from: -80; to: -20; step: 1; unit: " dB"
+                                            value: win.tuning("gate_db")
+                                            enabled: win.effect("gate")
+                                            onMoved: v => backend.send({ c: "tune", name: "gate_db", value: v })
+                                        }
+                                    }
+                                    Strip {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        title: "De-esser"
+                                        hint: "Suaviza chiados de \"s\""
+                                        on: win.effect("deesser")
+                                        onToggled: on => win.setEffect("deesser", on)
+                                    }
+                                    Strip {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        title: "Presença"
+                                        hint: "Realça a clareza da voz (~3 kHz)"
+                                        on: win.effect("presence")
+                                        onToggled: on => win.setEffect("presence", on)
+                                    }
+                                    Strip {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        title: "Compressor"
+                                        on: win.effect("compressor")
+                                        led: on && deskRow.fx.reduction_db > 0.5 ? Theme.warn : (on ? Theme.ok : "transparent")
+                                        onToggled: on => win.setEffect("compressor", on)
+                                        Fader {
+                                            Layout.fillHeight: true
+                                            label: "limiar"
+                                            from: -50; to: 0; step: 1; unit: " dB"
+                                            value: win.tuning("threshold_db")
+                                            enabled: win.effect("compressor")
+                                            onMoved: v => backend.send({ c: "tune", name: "threshold_db", value: v })
+                                        }
+                                        Fader {
+                                            Layout.fillHeight: true
+                                            label: "razão"
+                                            from: 1; to: 10; step: 0.5; unit: ":1"
+                                            value: win.tuning("ratio")
+                                            enabled: win.effect("compressor")
+                                            onMoved: v => backend.send({ c: "tune", name: "ratio", value: v })
+                                        }
+                                        // Redução de ganho (GR): desce do topo, como nas mesas.
+                                        VMeter {
+                                            Layout.fillHeight: true
+                                            label: "GR"
+                                            fromTop: true
+                                            color: Theme.warn
+                                            live: deskRow.fx.reduction_db != null
+                                            fraction: (deskRow.fx.reduction_db || 0) / 20
+                                            readout: "-" + (deskRow.fx.reduction_db || 0).toFixed(1).replace(".", ",")
+                                        }
+                                    }
+                                    Strip {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        title: "Ganho"
+                                        on: win.effect("auto_gain")
+                                        onText: "AUTO"
+                                        offText: "MANUAL"
+                                        // Em manual, o canal segue ativo: o LED fica aceso mesmo assim.
+                                        led: Theme.ok
+                                        onToggled: on => win.setEffect("auto_gain", on)
+                                        // O ganho manual só vale com o volume automático desligado.
+                                        Fader {
+                                            Layout.fillHeight: true
+                                            label: "manual"
+                                            from: 0; to: 24; step: 1; unit: " dB"
+                                            value: win.tuning("makeup_db")
+                                            enabled: !win.effect("auto_gain")
+                                            onMoved: v => backend.send({ c: "tune", name: "makeup_db", value: v })
+                                        }
+                                        VMeter {
+                                            Layout.fillHeight: true
+                                            label: "auto"
+                                            center: true
+                                            live: deskRow.fx.auto_gain_db != null
+                                            fraction: (deskRow.fx.auto_gain_db || 0) / 12
+                                            readout: {
+                                                var v = deskRow.fx.auto_gain_db || 0
+                                                return (v >= 0 ? "+" : "") + v.toFixed(1).replace(".", ",")
+                                            }
+                                        }
+                                    }
 
-                                }
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    Layout.alignment: Qt.AlignTop
-                                    spacing: 6
-                                Section { text: "Dinâmica" }
-                                Toggle {
-                                    Layout.fillWidth: true
-                                    title: "Compressor"
-                                    hint: win.activity("compressor")
-                                    checked: win.effect("compressor")
-                                    onToggled: on => win.setEffect("compressor", on)
-                                }
-                                Slider {
-                                    Layout.fillWidth: true
-                                    title: "Limiar"
-                                    from: -50; to: 0; step: 1; unit: " dB"
-                                    value: win.tuning("threshold_db")
-                                    enabled: win.effect("compressor")
-                                    onMoved: v => backend.send({ c: "tune", name: "threshold_db", value: v })
-                                }
-                                Slider {
-                                    Layout.fillWidth: true
-                                    title: "Razão"
-                                    from: 1; to: 10; step: 0.5; unit: ":1"
-                                    value: win.tuning("ratio")
-                                    enabled: win.effect("compressor")
-                                    onMoved: v => backend.send({ c: "tune", name: "ratio", value: v })
-                                }
-
-                                Section { text: "Volume" }
-                                Toggle {
-                                    Layout.fillWidth: true
-                                    title: "Volume automático"
-                                    hint: win.activity("auto_gain")
-                                    checked: win.effect("auto_gain")
-                                    onToggled: on => win.setEffect("auto_gain", on)
-                                }
-                                // O ganho manual só vale com o volume automático desligado.
-                                Slider {
-                                    Layout.fillWidth: true
-                                    title: "Ganho manual"
-                                    from: 0; to: 24; step: 1; unit: " dB"
-                                    value: win.tuning("makeup_db")
-                                    enabled: !win.effect("auto_gain")
-                                    onMoved: v => backend.send({ c: "tune", name: "makeup_db", value: v })
-                                }
+                                    // Master: níveis de entrada e saída e o silenciar.
+                                    Rectangle {
+                                        Layout.fillHeight: true
+                                        width: 1
+                                        color: Theme.surface
+                                    }
+                                    Strip {
+                                        Layout.fillHeight: true
+                                        title: "Saída"
+                                        on: !(win.st.muted || false)
+                                        onText: "AO VIVO"
+                                        offText: "MUDO"
+                                        led: on ? ((win.st.out || 0) > 0.001 ? Theme.ok : "transparent") : Theme.urgent
+                                        onToggled: on => backend.send({ c: "mute", on: !on })
+                                        VMeter {
+                                            Layout.fillHeight: true
+                                            label: "in"
+                                            readonly property real db: (win.st.in || 0) > 0 ? 20 * Math.log(win.st.in) / Math.LN10 : -99
+                                            fraction: (db + 60) / 60
+                                            color: fraction > 0.9 ? Theme.urgent : Theme.accent
+                                            readout: db > -60 ? db.toFixed(0) : "-∞"
+                                        }
+                                        VMeter {
+                                            Layout.fillHeight: true
+                                            label: "out"
+                                            readonly property real db: (win.st.out || 0) > 0 ? 20 * Math.log(win.st.out) / Math.LN10 : -99
+                                            fraction: (db + 60) / 60
+                                            color: fraction > 0.9 ? Theme.urgent : Theme.accent
+                                            readout: db > -60 ? db.toFixed(0) : "-∞"
+                                        }
+                                    }
                                 }
                             }
                         }

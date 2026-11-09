@@ -5,6 +5,8 @@ Item {
     id: root
     property real level: 0
     property string label: ""
+    // Saturação recente: acende "CLIP" à direita da barra.
+    property bool clip: false
     readonly property real fraction: level <= 0 ? 0 : Math.max(0, Math.min(1, (20 * Math.log(level) / Math.LN10 + 60) / 60))
     property real peak: 0
     onFractionChanged: if (fraction > peak) peak = fraction
@@ -21,9 +23,20 @@ Item {
         width: 52
         anchors.verticalCenter: parent.verticalCenter
     }
+    Text {
+        id: badge
+        anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+        width: 30
+        horizontalAlignment: Text.AlignRight
+        text: "CLIP"
+        color: root.clip ? Theme.urgent : "transparent"
+        font.family: Theme.font
+        font.pixelSize: 10
+        font.bold: true
+    }
     Rectangle {
         id: track
-        anchors { left: caption.right; right: parent.right; verticalCenter: parent.verticalCenter }
+        anchors { left: caption.right; right: badge.left; rightMargin: 8; verticalCenter: parent.verticalCenter }
         height: 6
         radius: 3
         color: Theme.surface

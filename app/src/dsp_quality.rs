@@ -237,3 +237,18 @@ fn speaking_presets_sound_different_from_each_other() {
         }
     }
 }
+
+#[test]
+fn normal_voice_never_lights_the_clipping_warning() {
+    use std::sync::atomic::Ordering::Relaxed;
+    let (input, _, _) = phone_voice_with_noise();
+    for pr in SPEAKING {
+        let p = preset(pr);
+        process(&p, &input);
+        let (i, o) = (
+            p.in_clip_frames.load(Relaxed),
+            p.out_limit_frames.load(Relaxed),
+        );
+        assert_eq!((i, o), (0, 0), "{pr:?}: entrada {i}, saída {o} frames");
+    }
+}

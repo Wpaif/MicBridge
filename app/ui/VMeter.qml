@@ -12,6 +12,8 @@ Item {
     property string label: ""
     property string readout: ""
     property bool live: true
+    // Saturação recente: o valor no topo vira "CLIP" e a barra fica vermelha.
+    property bool clip: false
 
     implicitWidth: 24
     implicitHeight: 220
@@ -19,8 +21,9 @@ Item {
     Text {
         id: top
         anchors { top: parent.top; horizontalCenter: parent.horizontalCenter }
-        text: root.live ? root.readout : "—"
-        color: root.live ? Theme.foreground : Theme.muted
+        text: root.clip ? "CLIP" : root.live ? root.readout : "—"
+        color: root.clip ? Theme.urgent : root.live ? Theme.foreground : Theme.muted
+        font.bold: root.clip
         font.family: Theme.font
         font.pixelSize: 11
     }
@@ -43,7 +46,7 @@ Item {
         Rectangle {
             width: parent.width
             radius: 2
-            color: root.color
+            color: root.clip ? Theme.urgent : root.color
             height: root.center ? parent.height / 2 * Math.abs(well.f) : parent.height * Math.max(0, well.f)
             y: root.center ? (well.f >= 0 ? parent.height / 2 - height : parent.height / 2)
                            : (root.fromTop ? 0 : parent.height - height)

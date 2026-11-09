@@ -29,6 +29,10 @@ const COMP_ATTACK_MS: f32 = 5.0;
 const COMP_RELEASE_MS: f32 = 120.0;
 const LIMITER_RELEASE_MS: f32 = 50.0;
 const LIMITER_CEILING_DB: f32 = -1.0;
+/// Amostra de entrada a partir da qual o áudio do celular conta como saturado.
+pub(crate) const INPUT_CLIP_LEVEL: f32 = 0.99;
+/// Redução do limitador a partir da qual a saída conta como esmagada.
+pub(crate) const LIMITER_HEAVY_DB: f32 = 6.0;
 
 const HPF_HZ: f32 = 80.0;
 const PRESENCE_HZ: f32 = 3_000.0;
@@ -78,6 +82,10 @@ pub struct Params {
     /// RNNoise). A calibração mede ruído e voz aqui para sugerir o limiar.
     pub gate_in_level: AtomicU32,
     pub out_level: AtomicU32,
+    /// Frames com a entrada encostada no máximo (clipping que vem do celular).
+    pub in_clip_frames: AtomicU32,
+    /// Frames em que o limitador cortou mais que `LIMITER_HEAVY_DB` (ganho alto demais).
+    pub out_limit_frames: AtomicU32,
 
     /// Frames processados (com wrap). Quem observa o nível compara com a leitura
     /// anterior para saber se ainda chega áudio, e não um valor antigo.
@@ -124,6 +132,8 @@ impl Default for Params {
             in_level: atomic_f32(0.0),
             gate_in_level: atomic_f32(0.0),
             out_level: atomic_f32(0.0),
+            in_clip_frames: AtomicU32::new(0),
+            out_limit_frames: AtomicU32::new(0),
             frames: AtomicU32::new(0),
             effects: Mutex::new(Arc::new(effects::EffectMeter::new(0))),
         }
@@ -542,6 +552,9 @@ impl Processor {
         }
 
         p.in_level.store(rms(frame).to_bits(), Relaxed);
+        if frame.iter().any(|s| s.abs() >= INPUT_CLIP_LEVEL) {
+            p.in_clip_frames.fetch_add(1, Relaxed);
+        }
 
         // 0. Passa-altas antes do RNNoise: tira rumble que confunde o detector.
         if p.highpass.load(Relaxed) {
@@ -644,6 +657,7 @@ impl Processor {
         // 6. Limitador de pico.
         let ceiling = db_to_lin(LIMITER_CEILING_DB);
         let release = coef(LIMITER_RELEASE_MS);
+        let mut min_limiter_gain = 1.0_f32;
 
         for sample in frame.iter_mut() {
             let amplified = *sample;
@@ -660,6 +674,7 @@ impl Processor {
             }
 
             *sample = amplified * self.limiter_gain;
+            min_limiter_gain = min_limiter_gain.min(self.limiter_gain);
 
             // Proteção final contra picos e valores inválidos.
             if !sample.is_finite() {
@@ -668,6 +683,10 @@ impl Processor {
             } else {
                 *sample = sample.clamp(-ceiling, ceiling);
             }
+        }
+
+        if min_limiter_gain < db_to_lin(-LIMITER_HEAVY_DB) {
+            p.out_limit_frames.fetch_add(1, Relaxed);
         }
 
         // Production binds once in for_generation, before processing any packet.

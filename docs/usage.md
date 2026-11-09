@@ -66,8 +66,17 @@ acende com o efeito ligado:
 | Saída | Níveis de entrada e saída e o silenciar (**AO VIVO** / **MUDO**). |
 
 Os medidores mostram **—** sem áudio recente, o que indica ausência de frames, não
-necessariamente uma falha na conexão. Eles não equivalem a um diagnóstico geral
-nem a um alerta de clipping. Se a mesa não couber na janela, ela rola na
+necessariamente uma falha na conexão. Eles não equivalem a um diagnóstico geral.
+
+**CLIP** acende em vermelho nos medidores (na Voz e no canal Saída) e fica aceso
+por 3 segundos depois da última saturação:
+
+- **Entrada:** o áudio já chega saturado do celular, e nenhum efeito conserta
+  isso. Afaste o celular da boca ou fale mais baixo.
+- **Saída:** o limitador está cortando mais de 6 dB para não passar do teto, sinal
+  de ganho alto demais. Baixe o ganho manual ou as bandas do EQ.
+
+Se a mesa não couber na janela, ela rola na
 horizontal pela roda do mouse, pelo touchpad ou pela barra embaixo dos canais.
 
 ## Calibração

@@ -122,6 +122,7 @@ pub struct Daemon {
     recording: Arc<Mutex<RecordingControl>>,
     profile_error: Mutex<Option<String>>,
     calibration: Arc<Mutex<crate::calibration::Calibration>>,
+    clip: Mutex<crate::clip_view::Clip>,
 }
 
 /// Exportação do teste de voz: a confirmação de substituição fica pendente aqui
@@ -184,6 +185,7 @@ impl Daemon {
             recording: Arc::default(),
             profile_error: Mutex::default(),
             calibration: Arc::default(),
+            clip: Mutex::default(),
             shared,
         })
     }
@@ -689,6 +691,7 @@ impl Daemon {
             st.link == Link::Connected,
             self.started.elapsed(),
         );
+        let [clip_in, clip_out] = self.clip.lock().unwrap().read(p, self.started.elapsed());
         let activity = json!({ "gate": gate, "compressor": compressor, "auto_gain": auto_gain });
         // Números para os medidores da mesa de efeitos; nulos quando o efeito está
         // desligado ou sem áudio recente (o mesmo critério dos textos acima).
@@ -763,6 +766,8 @@ impl Daemon {
             // Níveis arredondados para não reenviar o estado por ruído de ponto flutuante.
             "in": (p.in_level() * 1000.0).round() / 1000.0,
             "out": (p.out_level() * 1000.0).round() / 1000.0,
+            // Saturação recente: no celular (entrada) ou limitador esmagando (saída).
+            "clip": { "in": clip_in, "out": clip_out },
             "read_only": self.read_only,
         })
     }

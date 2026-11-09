@@ -14,9 +14,9 @@ Revisão em 09/11/2026. Tudo o que aparece como implementado está integrado à
 | 5 | Perfis personalizados de áudio | Implementados: criar, selecionar, atualizar, renomear e excluir, incluindo o equalizador; sem importação/exportação. |
 | 6 | Calibração automática | Implementada: mede silêncio e leitura e sugere limiar do gate, redução de ruído e ganho manual; aplicar vira alteração não salva do perfil. |
 | 7 | Mute | Implementado na saída virtual; retorno e gravação continuam ativos. |
-| 8 | Indicadores dedicados de saturação/clipping | Pendentes. Os medidores da mesa mostram nível e pico, mas não avisam quando há clipping. |
+| 8 | Indicadores dedicados de saturação/clipping | Implementados: **CLIP** nos medidores de entrada (celular saturado) e de saída (limitador cortando mais de 6 dB), aceso por 3 s. |
 
-Seis das oito melhorias estão implementadas. Confirmação manual e integração de
+Sete das oito melhorias estão implementadas; só o diagnóstico (etapa 4) segue adiado. Confirmação manual e integração de
 branches são etapas próprias; consulte o histórico Git e os procedimentos em
 [Desenvolvimento](development.md#testes).
 
@@ -41,10 +41,9 @@ branches são etapas próprias; consulte o histórico Git e os procedimentos em
 | Prioridade | Item | Observação |
 |---|---|---|
 | 1 | Validação de ouvido | Ouvir com o celular os perfis após a mudança do compressor, o EQ durante a fala, a fonte extra numa chamada real e o gate depois da calibração em ambientes diferentes. A bancada mediu, mas não substitui a escuta. |
-| 2 | Aviso de clipping (etapa 8) | Indicar na mesa quando a entrada ou a saída satura, não só o pico. |
-| 3 | Presets de equalização | Atalhos como "voz fina" e "voz abafada", calibrados na bancada. |
-| 4 | Analisador de espectro | Mostrar no canal EQ o que cada banda está fazendo. |
-| 5 | Avisos do clippy | Dez avisos apontados, três deles no código recente do EQ e do estado da mesa. |
+| 2 | Presets de equalização | Atalhos como "voz fina" e "voz abafada", calibrados na bancada. |
+| 3 | Analisador de espectro | Mostrar no canal EQ o que cada banda está fazendo. |
+| 4 | Avisos do clippy | Dez avisos apontados, três deles no código recente do EQ e do estado da mesa. |
 | — | Redução de ruído com ruídos reais | Medida com ruído rosa: +20 a +31 dB de separação. Falta avaliar com teclado, rua e ventilador. |
 
 Novos itens devem ser descritos com comportamento, validação e limites claros

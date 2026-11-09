@@ -335,8 +335,20 @@ ShellRoot {
                             visible: win.page === "voz"
                             spacing: 6
 
-                                Meter { Layout.fillWidth: true; label: "entrada"; level: win.st.in || 0 }
-                                Meter { Layout.fillWidth: true; label: "saída"; level: win.st.out || 0 }
+                                Meter { Layout.fillWidth: true; label: "entrada"; level: win.st.in || 0; clip: !!(win.st.clip && win.st.clip.in) }
+                                Meter { Layout.fillWidth: true; label: "saída"; level: win.st.out || 0; clip: !!(win.st.clip && win.st.clip.out) }
+                                Text {
+                                    Layout.fillWidth: true
+                                    readonly property bool hotIn: !!(win.st.clip && win.st.clip.in)
+                                    readonly property bool hotOut: !!(win.st.clip && win.st.clip.out)
+                                    visible: hotIn || hotOut
+                                    wrapMode: Text.WordWrap
+                                    color: Theme.urgent
+                                    font.family: Theme.font
+                                    font.pixelSize: 12
+                                    text: hotIn ? "O áudio já chega saturado do celular: afaste-o da boca ou fale mais baixo."
+                                                : "O limitador está segurando muito volume: baixe o ganho manual ou as bandas do EQ."
+                                }
 
                             History {
                                 id: historyTop
@@ -974,6 +986,7 @@ ShellRoot {
                                         VMeter {
                                             Layout.fillHeight: true
                                             label: "in"
+                                            clip: !!(win.st.clip && win.st.clip.in)
                                             readonly property real db: (win.st.in || 0) > 0 ? 20 * Math.log(win.st.in) / Math.LN10 : -99
                                             fraction: (db + 60) / 60
                                             color: fraction > 0.9 ? Theme.urgent : Theme.accent
@@ -982,6 +995,7 @@ ShellRoot {
                                         VMeter {
                                             Layout.fillHeight: true
                                             label: "out"
+                                            clip: !!(win.st.clip && win.st.clip.out)
                                             readonly property real db: (win.st.out || 0) > 0 ? 20 * Math.log(win.st.out) / Math.LN10 : -99
                                             fraction: (db + 60) / 60
                                             color: fraction > 0.9 ? Theme.urgent : Theme.accent

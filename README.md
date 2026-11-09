@@ -30,6 +30,12 @@ com as cores do tema Omarchy, uma mesa de som para os efeitos e atalhos de tecla
 - RNNoise, filtro de graves, gate, de-esser, presença, equalizador de 3 bandas,
   compressor, volume automático e limitador, numa mesa de som com faders, LEDs e
   medidores de atuação.
+- Redução de ruído que preserva sílabas fracas, com fader de força para trocar
+  um pouco de ruído por mais fala.
+- Atalhos do equalizador: Plano, Clarear, Encorpar e Secar.
+- Calibração automática: mede o silêncio e a sua voz e sugere limiar do gate,
+  redução de ruído e ganho.
+- Aviso de saturação (**CLIP**) na entrada e na saída, com dica do que fazer.
 - Teste de voz de até 30 segundos, comparação original/tratado e exportação WAV.
 - Retorno no fone com saída escolhida, volume próprio e ajuste exclusivo que
   restaura os links de áudio ao terminar.
@@ -41,6 +47,10 @@ com as cores do tema Omarchy, uma mesa de som para os efeitos e atalhos de tecla
   conectado por vez.
 - Cores que acompanham o tema do Omarchy automaticamente.
 - Faders protegidos contra alterações acidentais durante a rolagem.
+
+A redução de ruído lida bem com ruído constante (ventilador, ar-condicionado,
+zumbido elétrico), menos com cliques de teclado, e não separa vozes de outras
+pessoas ao fundo.
 
 Os recursos acima descrevem esta linha de desenvolvimento, não uma release
 publicada. Consulte o [plano de evolução](docs/roadmap.md) para itens pendentes.
@@ -66,14 +76,16 @@ atualização, reinstalação limpa e remoção, veja [Instalação](docs/instal
 3. Toque em **Iniciar microfone** no celular. Nas próximas vezes, ler o QR de novo
    abre a interface; **Aceitar novo celular** só é preciso para um celular novo.
 4. Escolha **MicBridge** no programa de chamada ou gravação.
-5. Ajuste um perfil de voz e use A/B ou retorno no fone para comparar.
+5. Use **Calibrar** (seção Voz) para ajustar ao seu ambiente, refine o perfil na
+   mesa de efeitos e compare com A/B ou retorno no fone.
 
 O navegador precisa aceitar o HTTPS. Consulte [Certificados](docs/security.md#certificados).
 O retorno exclusivo desconecta temporariamente outros aplicativos da saída
 selecionada; a parada tenta restaurá-los. Fechar a janela só a esconde; use
 **Sair** na bandeja para encerrar o app.
 
-Instruções completas de perfis, efeitos, mute, testes, retorno e fonte extra estão no
+Instruções completas de perfis, efeitos, calibração, mute, testes, retorno e fonte
+extra estão no
 [Guia de uso](docs/usage.md).
 
 ## Documentação
@@ -86,7 +98,7 @@ Instruções completas de perfis, efeitos, mute, testes, retorno e fonte extra e
 | Módulos e caminho do áudio | [Arquitetura](docs/architecture.md) |
 | Build, testes e arquivos locais | [Desenvolvimento](docs/development.md) |
 | Convenções da interface | [Design](docs/design.md) |
-| Oito melhorias planejadas | [Evolução](docs/roadmap.md) |
+| Melhorias, próximos passos e avaliações | [Evolução](docs/roadmap.md) |
 
 ## Desenvolvimento
 
@@ -94,9 +106,13 @@ Instruções completas de perfis, efeitos, mute, testes, retorno e fonte extra e
 cargo build --offline --manifest-path app/Cargo.toml
 cargo test --offline --manifest-path app/Cargo.toml
 cargo fmt --manifest-path app/Cargo.toml --check
+cargo clippy --offline --manifest-path app/Cargo.toml --all-targets -- -D warnings
 ```
 
-O modo offline exige dependências previamente disponíveis. Testes da interface e
+O modo offline exige dependências previamente disponíveis. O CI recusa
+formatação fora do padrão e qualquer aviso do clippy. Os testes de qualidade do
+DSP misturam uma voz sintética a oito tipos de ruído; um relatório opcional faz o
+mesmo com uma gravação da sua voz, que fica fora do repositório. Testes da interface e
 de hardware têm procedimentos próprios em [Desenvolvimento](docs/development.md#testes).
 Mantenha os guias atualizados antes de alterar este resumo.
 

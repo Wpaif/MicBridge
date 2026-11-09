@@ -18,7 +18,7 @@ presentes aqui não representam, por si só, uma versão publicada ou já integr
 | Entender os módulos e o caminho do áudio | [Arquitetura](architecture.md) |
 | Compilar, testar e manter o repositório | [Desenvolvimento](development.md) |
 | Alterar a interface mantendo suas convenções | [Design da interface](design.md) |
-| Conferir as oito melhorias planejadas | [Plano de evolução](roadmap.md) |
+| Conferir melhorias, próximos passos e avaliações | [Plano de evolução](roadmap.md) |
 
 ## Como manter estes documentos
 

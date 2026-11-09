@@ -29,3 +29,8 @@ toml = "1.1"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
 webrtc = "0.21.0"
+
+# O RNNoise sem otimização deixa os testes de áudio lentos (~30 s); otimizado só ele,
+# os testes continuam com o código do app em debug.
+[profile.dev.package.nnnoiseless]
+opt-level = 3

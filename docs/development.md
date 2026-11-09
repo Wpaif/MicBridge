@@ -60,7 +60,18 @@ git diff --check
 ```
 
 A suíte comum cobre DSP, perfis, persistência, captura, WAV, filas e coordenação de
-processos/roteamento com fixtures. Uma aprovação não equivale a uma validação
+processos/roteamento com fixtures. Os testes de qualidade do DSP (`app/src/dsp_quality.rs`) passam
+uma voz sintética com ruído rosa pela cadeia e exigem que o tratamento separe voz de
+ruído, leve a voz ao nível-alvo, respeite o teto do limitador, que o compressor atue
+e que os perfis soem diferentes entre si.
+
+Para medir a cadeia com áudio real, a bancada `dsp_bench` processa uma gravação
+(f32 mono 48 kHz, cru) com vários perfis e grava as saídas para comparar:
+
+```sh
+MICBRIDGE_BENCH_IN=entrada.f32 MICBRIDGE_BENCH_OUT=pasta \
+  cargo test --release --manifest-path app/Cargo.toml dsp_bench -- --ignored --nocapture
+``` Uma aprovação não equivale a uma validação
 auditiva com celular, Bluetooth ou aplicação de chamada.
 
 O teste Bluetooth é ignorado por padrão. Liste os ignorados com:

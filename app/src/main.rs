@@ -4,6 +4,8 @@ mod audio_test;
 mod dsp;
 #[cfg(test)]
 mod dsp_bench;
+#[cfg(test)]
+mod dsp_quality;
 mod effect_view;
 mod ipc;
 mod jitter;

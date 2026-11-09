@@ -771,6 +771,37 @@ ShellRoot {
                                     Strip {
                                         Layout.fillWidth: true
                                         Layout.fillHeight: true
+                                        title: "Ganho"
+                                        on: win.effect("auto_gain")
+                                        onText: "AUTO"
+                                        offText: "MANUAL"
+                                        // Em manual, o canal segue ativo: o LED fica aceso mesmo assim.
+                                        led: Theme.ok
+                                        onToggled: on => win.setEffect("auto_gain", on)
+                                        // O ganho manual só vale com o volume automático desligado.
+                                        Fader {
+                                            Layout.fillHeight: true
+                                            label: "manual"
+                                            from: 0; to: 24; step: 1; unit: " dB"
+                                            value: win.tuning("makeup_db")
+                                            enabled: !win.effect("auto_gain")
+                                            onMoved: v => backend.send({ c: "tune", name: "makeup_db", value: v })
+                                        }
+                                        VMeter {
+                                            Layout.fillHeight: true
+                                            label: "auto"
+                                            center: true
+                                            live: deskRow.fx.auto_gain_db != null
+                                            fraction: (deskRow.fx.auto_gain_db || 0) / 12
+                                            readout: {
+                                                var v = deskRow.fx.auto_gain_db || 0
+                                                return (v >= 0 ? "+" : "") + v.toFixed(1).replace(".", ",")
+                                            }
+                                        }
+                                    }
+                                    Strip {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
                                         title: "Compressor"
                                         on: win.effect("compressor")
                                         led: on && deskRow.fx.reduction_db > 0.5 ? Theme.warn : (on ? Theme.ok : "transparent")
@@ -800,37 +831,6 @@ ShellRoot {
                                             live: deskRow.fx.reduction_db != null
                                             fraction: (deskRow.fx.reduction_db || 0) / 20
                                             readout: "-" + (deskRow.fx.reduction_db || 0).toFixed(1).replace(".", ",")
-                                        }
-                                    }
-                                    Strip {
-                                        Layout.fillWidth: true
-                                        Layout.fillHeight: true
-                                        title: "Ganho"
-                                        on: win.effect("auto_gain")
-                                        onText: "AUTO"
-                                        offText: "MANUAL"
-                                        // Em manual, o canal segue ativo: o LED fica aceso mesmo assim.
-                                        led: Theme.ok
-                                        onToggled: on => win.setEffect("auto_gain", on)
-                                        // O ganho manual só vale com o volume automático desligado.
-                                        Fader {
-                                            Layout.fillHeight: true
-                                            label: "manual"
-                                            from: 0; to: 24; step: 1; unit: " dB"
-                                            value: win.tuning("makeup_db")
-                                            enabled: !win.effect("auto_gain")
-                                            onMoved: v => backend.send({ c: "tune", name: "makeup_db", value: v })
-                                        }
-                                        VMeter {
-                                            Layout.fillHeight: true
-                                            label: "auto"
-                                            center: true
-                                            live: deskRow.fx.auto_gain_db != null
-                                            fraction: (deskRow.fx.auto_gain_db || 0) / 12
-                                            readout: {
-                                                var v = deskRow.fx.auto_gain_db || 0
-                                                return (v >= 0 ? "+" : "") + v.toFixed(1).replace(".", ",")
-                                            }
                                         }
                                     }
 

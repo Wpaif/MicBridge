@@ -21,7 +21,8 @@ A/B e retorno recebem o áudio antes do mute. O retorno usa uma saída seleciona
 e volume próprio; não é reprodução no celular.
 
 A cadeia DSP é: passa-altas → RNNoise → gate → de-esser → presença → equalizador
-de 3 bandas → compressor → ganho automático → ganho manual → limitador. O RNNoise usa frames de 480 amostras
+de 3 bandas → ganho automático ou manual → compressor (com makeup automático) →
+limitador. O RNNoise usa frames de 480 amostras
 (10 ms a 48 kHz); o decoder aceita pacotes Opus de até 120 ms. A comparação A/B
 preserva os pontos de captura, sem compensar o atraso interno do denoiser.
 

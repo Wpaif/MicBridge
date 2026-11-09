@@ -1,6 +1,6 @@
 //! Cadeia de tratamento:
 //! passa-altas -> RNNoise -> noise gate -> de-esser -> EQ de presença
-//! -> equalizador de 3 bandas -> compressor -> ganho automático -> ganho manual -> limitador de pico.
+//! -> equalizador de 3 bandas -> ganho automático ou manual -> compressor -> limitador de pico.
 //!
 //! Para leigos, basta escolher um `Preset`; os controles individuais
 //! continuam disponíveis para quem quiser ajustar.
@@ -44,6 +44,9 @@ const AGC_MIN_GAIN_DB: f32 = -6.0;
 const AGC_FREEZE_DB: f32 = -50.0;
 const AGC_ATTACK_S: f32 = 0.15;
 const AGC_RELEASE_S: f32 = 1.5;
+/// Makeup do compressor: devolve em média o que ele reduziu, seguindo devagar
+/// para não desfazer o controle dos picos.
+const COMP_MAKEUP_S: f32 = 1.5;
 
 pub struct Params {
     /// Silencia somente o microfone virtual; retorno e captura seguem ativos.
@@ -454,6 +457,8 @@ pub struct Processor {
 
     // Detector de amplitude do compressor.
     comp_env: f32,
+    // Makeup automático do compressor em dB (suavizado por frame).
+    comp_makeup_db: f32,
 
     // Ganho suavizado do limitador.
     limiter_gain: f32,
@@ -495,6 +500,7 @@ impl Processor {
             gate_hold: 0,
 
             comp_env: 0.0,
+            comp_makeup_db: 0.0,
             limiter_gain: 1.0,
 
             hpf: Biquad::highpass(HPF_HZ, 0.707),
@@ -604,27 +610,34 @@ impl Processor {
             self.eq.iter_mut().for_each(Biquad::reset);
         }
 
-        // 4. Compressor.
+        // 4. Ganho automático ou manual. Vem antes do compressor para ele trabalhar
+        // sobre a voz já nivelada: com o celular mandando a voz baixa (~-30 dBFS),
+        // um compressor antes do ganho nunca chegava ao limiar.
+        let auto_gain_enabled = p.auto_gain.load(Relaxed);
+        if auto_gain_enabled {
+            self.auto_gain(frame);
+        } else {
+            self.agc_gain_db = 0.0;
+            let gain = db_to_lin(p.makeup_db());
+            for sample in frame.iter_mut() {
+                *sample *= gain;
+            }
+        }
+
+        // 5. Compressor.
         let compression_db = if p.compressor.load(Relaxed) {
             Some(self.compress(frame, p.comp_threshold(), p.comp_ratio()))
         } else {
+            self.comp_makeup_db = 0.0;
             None
         };
 
-        // 5. Ganho automático ou manual, e limitador de pico.
-        let auto_gain_enabled = p.auto_gain.load(Relaxed);
-        let makeup = if auto_gain_enabled {
-            self.auto_gain(frame);
-            1.0
-        } else {
-            self.agc_gain_db = 0.0;
-            db_to_lin(p.makeup_db())
-        };
+        // 6. Limitador de pico.
         let ceiling = db_to_lin(LIMITER_CEILING_DB);
         let release = coef(LIMITER_RELEASE_MS);
 
         for sample in frame.iter_mut() {
-            let amplified = *sample * makeup;
+            let amplified = *sample;
 
             // Reduz o ganho quando a amostra ultrapassa o teto.
             // O ataque imediato garante que a saída não exceda o ceiling.
@@ -756,8 +769,12 @@ impl Processor {
         }
     }
 
+    /// Comprime e devolve a maior redução do frame (para o medidor GR). Depois
+    /// aplica o makeup automático, para a voz não ficar mais baixa que sem compressor.
     fn compress(&mut self, frame: &mut [f32], threshold_db: f32, ratio: f32) -> f32 {
+        let active = lin_to_db(rms(frame)) > AGC_FREEZE_DB;
         let mut max_reduction = 0.0_f32;
+        let mut sum_reduction = 0.0_f32;
         let attack = coef(COMP_ATTACK_MS);
         let release = coef(COMP_RELEASE_MS);
         let ratio = finite_clamp(ratio, 1.0, 20.0, 6.0);
@@ -781,8 +798,23 @@ impl Processor {
             let gain_reduction_db = over_db * (1.0 - 1.0 / ratio);
 
             max_reduction = max_reduction.max(gain_reduction_db);
+            sum_reduction += gain_reduction_db;
             let gain = db_to_lin(-gain_reduction_db);
             *sample *= gain;
+        }
+
+        // Congela nas pausas, como o ganho automático, para não subir o ruído.
+        let prev_db = self.comp_makeup_db;
+        if active {
+            let wanted = sum_reduction / frame.len() as f32;
+            let k = 1.0 - (-(FRAME as f32 / SAMPLE_RATE) / COMP_MAKEUP_S).exp();
+            self.comp_makeup_db += k * (wanted - self.comp_makeup_db);
+        }
+        // Rampa dentro do frame, sem estalo na troca de ganho.
+        let (from, to) = (db_to_lin(prev_db), db_to_lin(self.comp_makeup_db));
+        for (i, sample) in frame.iter_mut().enumerate() {
+            let t = (i + 1) as f32 / FRAME as f32;
+            *sample *= from + (to - from) * t;
         }
         max_reduction
     }
@@ -856,7 +888,17 @@ mod tests {
             proc.process(&mut frame, &p);
         }
         assert!((p.effects().compression_db.unwrap() - 4.0).abs() < 0.02);
-        assert!((-lin_to_db(frame[FRAME - 1] / db_to_lin(-12.0)) - 4.0).abs() < 0.02);
+        // O makeup automático devolve aos poucos os 4 dB reduzidos: depois de 1 s
+        // a saída ainda está abaixo da entrada, mas já subiu.
+        let after_1s = -lin_to_db(frame[FRAME - 1] / db_to_lin(-12.0));
+        assert!(after_1s > 0.5 && after_1s < 4.0, "{after_1s}");
+        // Com o sinal estável, o volume volta ao da entrada (o medidor segue em 4 dB).
+        for _ in 0..1000 {
+            frame.fill(db_to_lin(-12.0));
+            proc.process(&mut frame, &p);
+        }
+        assert!((p.effects().compression_db.unwrap() - 4.0).abs() < 0.02);
+        assert!(lin_to_db(frame[FRAME - 1] / db_to_lin(-12.0)).abs() < 0.05);
         p.set_comp_ratio(1.0);
         proc.process(&mut frame, &p);
         assert_eq!(p.effects().compression_db, Some(0.0));
@@ -915,7 +957,7 @@ mod tests {
                 .iter()
                 .map(|b| format!("{b:02x}"))
                 .collect::<String>(),
-            "34ab2a0ead907b3adbb84782900a6007d65f1c8f90aa5c7273f385d9ecad9a81"
+            "619cc6c77ef5c1406c7f5840f1a86dab333ba0f1ad9c51138dabd2ab91bae40e"
         );
     }
     #[test]

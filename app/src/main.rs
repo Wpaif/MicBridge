@@ -2,6 +2,8 @@ mod app_source;
 #[cfg(test)]
 mod audio_test;
 mod dsp;
+#[cfg(test)]
+mod dsp_bench;
 mod effect_view;
 mod ipc;
 mod jitter;

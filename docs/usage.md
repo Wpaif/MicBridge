@@ -61,8 +61,8 @@ acende com o efeito ligado:
 | De-esser | Suaviza sibilantes. |
 | Presença | Realce de clareza em ~3 kHz. |
 | EQ | Equalizador de 3 bandas: graves (120 Hz), médios (1 kHz) e agudos (6 kHz), de −12 a +12 dB. Começa desligado e plano; duplo clique num fader volta a banda a 0 dB. |
-| Compressor | Reduz diferenças de dinâmica (faders de limiar e razão). O medidor GR mostra quanto está reduzindo. |
 | Ganho | **AUTO** ajusta o volume e congela nas pausas; o medidor mostra o ajuste. Em **MANUAL** vale o fader de ganho. |
+| Compressor | Reduz diferenças de dinâmica (faders de limiar e razão). O medidor GR mostra quanto está reduzindo; um makeup automático devolve o volume médio, para a voz não ficar mais baixa. |
 | Saída | Níveis de entrada e saída e o silenciar (**AO VIVO** / **MUDO**). |
 
 Os medidores mostram **—** sem áudio recente, o que indica ausência de frames, não

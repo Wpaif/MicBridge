@@ -112,6 +112,17 @@ O teste `bluetooth_live_monitor` exige dispositivo e PipeWire reais. Ele
 reproduz áudio e pode modificar os links da saída selecionada. Não trate sua
 ausência numa suíte comum como aprovação de hardware.
 
+## Traduções
+
+A página do celular escolhe o idioma pelo `Accept-Language` do navegador; sem
+acerto, usa inglês. Os textos ficam em `app/web/i18n/<tag>.json`, um objeto plano
+`chave -> texto`, com variáveis em `{nome}`. O servidor usa o mesmo arquivo nas
+páginas que monta (`<!--T:chave-->`) e o embute na página para o `app.js` (`t("chave")`).
+
+Para adicionar um idioma, copie `pt-BR.json` com a tag nova, traduza os valores e
+registre o arquivo em `SOURCES`, em `app/src/i18n.rs`. Os testes recusam chave
+faltando, variável diferente entre idiomas e chave usada sem texto.
+
 ## Prévia visual e logs
 
 Para conferir a interface, rode o daemon com `MICBRIDGE_UI_DIR` (acima) e capture

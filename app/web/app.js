@@ -3,6 +3,10 @@
 const BACKOFF_MS = [1000, 2000, 3000, 5000, 8000, 10000]
 const KEY = "micbridge.on"
 
+// Textos no idioma escolhido pelo servidor (Accept-Language), embutidos na página.
+const TEXTS = JSON.parse(document.getElementById("i18n")?.textContent || "{}")
+const t = (key, vars = {}) => (TEXTS[key] ?? key).replace(/\{(\w+)\}/g, (m, name) => vars[name] ?? m)
+
 class Mic {
   constructor() {
     this.button = document.getElementById("button")
@@ -26,8 +30,8 @@ class Mic {
   async start() {
     this.wanted = true
     localStorage.setItem(KEY, "1")
-    this.button.textContent = "Parar"
-    this.render("connecting", "Conectando…")
+    this.button.textContent = t("button.stop")
+    this.render("connecting", t("status.connecting"))
     if (!(await this.acquireMic())) return
     this.requestWakeLock()
     this.connectPeer()
@@ -39,8 +43,8 @@ class Mic {
     localStorage.removeItem(KEY)
     fetch("/offer", { method: "DELETE", credentials: "same-origin", keepalive: true }).catch(() => {})
     this.teardown()
-    this.button.textContent = "Iniciar microfone"
-    this.render("idle", "Desconectado")
+    this.button.textContent = t("button.start")
+    this.render("idle", t("status.disconnected"))
   }
 
   async acquireMic() {
@@ -54,8 +58,8 @@ class Mic {
     } catch (e) {
       this.wanted = false
       localStorage.removeItem(KEY)
-      this.button.textContent = "Iniciar microfone"
-      this.render("error", `Microfone negado: ${e.message}`)
+      this.button.textContent = t("button.start")
+      this.render("error", t("error.mic_denied", { detail: e.message }))
       return false
     }
   }
@@ -73,12 +77,12 @@ class Mic {
       await this.waitIce(pc)
       const res = await fetch("/offer", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/sdp" }, body: pc.localDescription.sdp })
       if (pc !== this.pc) return // já foi substituída por outra tentativa
-      if (res.status === 409) return this.fatal("Já existe outro celular conectado")
-      if (res.status === 403) return this.fatal("Celular não pareado. Escaneie o QR code no PC.")
+      if (res.status === 409) return this.fatal(t("error.other_phone"))
+      if (res.status === 403) return this.fatal(t("error.not_paired"))
       if (!res.ok) throw new Error(await res.text())
       await pc.setRemoteDescription({ type: "answer", sdp: await res.text() })
     } catch (e) {
-      if (pc === this.pc) this.scheduleRetry(`Sem conexão com o PC (${e.message})`)
+      if (pc === this.pc) this.scheduleRetry(t("status.no_connection", { detail: e.message }))
     }
   }
 
@@ -87,17 +91,17 @@ class Mic {
     switch (pc.connectionState) {
       case "connected":
         this.retries = 0
-        this.render("connected", "Conectado")
+        this.render("connected", t("status.connected"))
         this.startMeter()
         break
       case "disconnected": // pode se recuperar sozinha; dá 3 s antes de refazer
-        this.render("reconnecting", "Conexão instável…")
+        this.render("reconnecting", t("status.unstable"))
         clearTimeout(this.graceTimer)
-        this.graceTimer = setTimeout(() => pc === this.pc && pc.connectionState !== "connected" && this.scheduleRetry("Reconectando…"), 3000)
+        this.graceTimer = setTimeout(() => pc === this.pc && pc.connectionState !== "connected" && this.scheduleRetry(t("status.reconnecting")), 3000)
         break
       case "failed":
       case "closed":
-        this.scheduleRetry("Reconectando…")
+        this.scheduleRetry(t("status.reconnecting"))
         break
     }
   }
@@ -126,7 +130,7 @@ class Mic {
     this.wanted = false
     localStorage.removeItem(KEY)
     this.teardown()
-    this.button.textContent = "Iniciar microfone"
+    this.button.textContent = t("button.start")
     this.render("error", message)
   }
 

@@ -1,0 +1,18 @@
+{
+  "button.start": "Start microphone",
+  "button.stop": "Stop",
+  "status.disconnected": "Disconnected",
+  "status.connecting": "Connecting…",
+  "status.connected": "Connected",
+  "status.unstable": "Unstable connection…",
+  "status.reconnecting": "Reconnecting…",
+  "status.no_connection": "No connection to the PC ({detail})",
+  "error.mic_denied": "Microphone denied: {detail}",
+  "error.other_phone": "Another phone is already connected",
+  "error.not_paired": "Phone not paired. Scan the QR code on the PC.",
+  "denied.default": "Unauthorized access.\nScan the QR code shown in the PC app.",
+  "denied.unpaired": "This phone is not paired. Scan the QR code shown in the PC app.",
+  "denied.closed": "Pairing is closed. Turn on \"Accept new phone\" in the PC app.",
+  "denied.bad_qr": "Invalid QR code.\nScan the QR code shown in the PC app.",
+  "ca.not_found": "CA not found"
+}

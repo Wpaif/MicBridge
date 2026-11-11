@@ -9,6 +9,7 @@ mod dsp_bench;
 #[cfg(test)]
 mod dsp_quality;
 mod effect_view;
+mod i18n;
 mod ipc;
 mod jitter;
 mod local_audio;

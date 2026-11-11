@@ -34,6 +34,7 @@ preserva os pontos de captura, sem compensar o atraso interno do denoiser.
 | Estado da sessão e pareamento | [state.rs](../app/src/state.rs) |
 | HTTPS, WebRTC e emissão de áudio | [server.rs](../app/src/server.rs) |
 | Página do celular e autenticação web | [web.rs](../app/src/web.rs), [app/web](../app/web/) |
+| Traduções da página do celular | [i18n.rs](../app/src/i18n.rs), [app/web/i18n](../app/web/i18n/) |
 | Certificados locais | [tls.rs](../app/src/tls.rs) |
 | Processamento e métricas dos efeitos | [dsp.rs](../app/src/dsp.rs), [dsp/effects.rs](../app/src/dsp/effects.rs) |
 | Microfone virtual, mDNS e recuperação da saída | [output.rs](../app/src/output.rs) |

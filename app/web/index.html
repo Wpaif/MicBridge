@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="<!--LANG-->">
 <head>
 <!--HEAD-->
 </head>
@@ -7,10 +7,11 @@
 <main class="card">
   <h1>MicBridge</h1>
   <div id="badge" class="state" data-state="idle"></div>
-  <p id="status" class="status">Desconectado</p>
+  <p id="status" class="status"><!--T:status.disconnected--></p>
   <canvas id="meter" width="300" height="14"></canvas>
-  <button id="button">Iniciar microfone</button>
+  <button id="button"><!--T:button.start--></button>
 </main>
+<script type="application/json" id="i18n"><!--CATALOG--></script>
 <script type="module" src="/app.js"></script>
 </body>
 </html>

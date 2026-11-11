@@ -1,0 +1,18 @@
+{
+  "button.start": "Iniciar microfone",
+  "button.stop": "Parar",
+  "status.disconnected": "Desconectado",
+  "status.connecting": "Conectando…",
+  "status.connected": "Conectado",
+  "status.unstable": "Conexão instável…",
+  "status.reconnecting": "Reconectando…",
+  "status.no_connection": "Sem conexão com o PC ({detail})",
+  "error.mic_denied": "Microfone negado: {detail}",
+  "error.other_phone": "Já existe outro celular conectado",
+  "error.not_paired": "Celular não pareado. Escaneie o QR code no PC.",
+  "denied.default": "Acesso não autorizado.\nEscaneie o QR code mostrado no app do PC.",
+  "denied.unpaired": "Este celular não está pareado. Escaneie o QR code mostrado no app do PC.",
+  "denied.closed": "Pareamento fechado. Ative \"Aceitar novo celular\" no app do PC.",
+  "denied.bad_qr": "QR code inválido.\nEscaneie o QR code mostrado no app do PC.",
+  "ca.not_found": "CA não encontrada"
+}

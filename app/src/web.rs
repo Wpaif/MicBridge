@@ -4,6 +4,7 @@
 //! Secure, SameSite=Strict), criado ao escanear o QR code com a janela de
 //! pareamento aberta.
 
+use crate::i18n::{self, Locale};
 use crate::server::AppState;
 use crate::state::ct_eq;
 use crate::tls;
@@ -23,12 +24,6 @@ const COOKIE_MAX_AGE: u32 = 365 * 24 * 3600;
 const HEAD: &str = include_str!("../web/head.html");
 const INDEX: &str = include_str!("../web/index.html");
 const DENIED: &str = include_str!("../web/denied.html");
-
-const MSG_DEFAULT: &str = "Acesso não autorizado.<br>Escaneie o QR code mostrado no app do PC.";
-const MSG_UNPAIRED: &str =
-    "Este celular não está pareado. Escaneie o QR code mostrado no app do PC.";
-const MSG_CLOSED: &str = "Pareamento fechado. Ative \"Aceitar novo celular\" no app do PC.";
-const MSG_BAD_QR: &str = "QR code inválido.<br>Escaneie o QR code mostrado no app do PC.";
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
@@ -113,13 +108,40 @@ fn html(status: StatusCode, body: String, cookie: Option<String>) -> Response {
     if let Some(c) = cookie.and_then(|c| HeaderValue::from_str(&c).ok()) {
         res.headers_mut().append(header::SET_COOKIE, c);
     }
+    // O idioma da página depende do navegador que pediu.
+    res.headers_mut()
+        .insert(header::VARY, HeaderValue::from_static("Accept-Language"));
     secured(res)
 }
 
-fn denied(message: &str, cookie: Option<String>) -> Response {
-    let body = DENIED
+/// Idioma da resposta, pelo `Accept-Language` do navegador.
+fn locale(h: &HeaderMap) -> &'static Locale {
+    i18n::negotiate(h.get(header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()))
+}
+
+/// Troca cada `<!--T:chave-->` do modelo pelo texto traduzido e escapado.
+fn translate(template: &str, loc: &Locale) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(start) = rest.find("<!--T:") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 6..];
+        let Some(end) = after.find("-->") else { break };
+        out.push_str(&i18n::html(loc.t(&after[..end])));
+        rest = &after[end + 3..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn page(template: &str, loc: &Locale) -> String {
+    translate(template, loc)
         .replace("<!--HEAD-->", HEAD)
-        .replace("<!--MESSAGE-->", message);
+        .replace("<!--LANG-->", loc.tag)
+}
+
+fn denied(loc: &Locale, key: &str, cookie: Option<String>) -> Response {
+    let body = page(DENIED, loc).replace("<!--MESSAGE-->", &i18n::html(loc.t(key)));
     html(StatusCode::FORBIDDEN, body, cookie)
 }
 
@@ -138,7 +160,7 @@ async fn icon_png() -> Response {
 }
 
 /// CA local para o celular instalar e passar a confiar no servidor.
-async fn ca() -> Response {
+async fn ca(h: HeaderMap) -> Response {
     match std::fs::read(tls::ca_path()) {
         Ok(pem) => secured(
             (
@@ -153,7 +175,13 @@ async fn ca() -> Response {
             )
                 .into_response(),
         ),
-        Err(_) => secured((StatusCode::NOT_FOUND, "CA não encontrada").into_response()),
+        Err(_) => secured(
+            (
+                StatusCode::NOT_FOUND,
+                locale(&h).t("ca.not_found").to_owned(),
+            )
+                .into_response(),
+        ),
     }
 }
 
@@ -162,6 +190,7 @@ async fn index(
     Query(q): Query<HashMap<String, String>>,
     h: HeaderMap,
 ) -> Response {
+    let loc = locale(&h);
     // Pareamento: o QR traz `?t=<token>`; troca por um cookie de longa duração.
     if let Some(token) = q.get("t").filter(|t| !t.is_empty()) {
         // Celular já pareado que releu o QR só para abrir a interface: não precisa da janela.
@@ -169,10 +198,10 @@ async fn index(
             return secured((StatusCode::SEE_OTHER, [(header::LOCATION, "/")]).into_response());
         }
         if st.shared.pairing_remaining() == 0 {
-            return denied(MSG_CLOSED, None);
+            return denied(loc, "denied.closed", None);
         }
         if !ct_eq(token, &st.shared.pair_token) {
-            return denied(MSG_BAD_QR, None);
+            return denied(loc, "denied.bad_qr", None);
         }
         let (id, secret) = st.shared.add_device();
         tracing::info!("novo celular pareado");
@@ -185,11 +214,88 @@ async fn index(
     }
 
     match credentials(&h) {
-        None => denied(MSG_DEFAULT, None),
+        None => denied(loc, "denied.default", None),
         Some((id, secret)) if st.shared.verify_device(&id, &secret) => {
-            html(StatusCode::OK, INDEX.replace("<!--HEAD-->", HEAD), None)
+            let body = page(INDEX, loc).replace("<!--CATALOG-->", &i18n::script_json(loc.json));
+            html(StatusCode::OK, body, None)
         }
         // Cookie de um celular que foi esquecido no app: limpa e orienta a parear de novo.
-        Some(_) => denied(MSG_UNPAIRED, Some(clear_cookie())),
+        Some(_) => denied(loc, "denied.unpaired", Some(clear_cookie())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Chaves encontradas entre `open` e `close`; `open` sem aspas inicial é
+    /// uma chamada (`t(`), que precisa ser a função inteira e não o fim de `request(`.
+    fn keys_in(source: &str, open: &str, close: &str, prefix: &str) -> Vec<String> {
+        let mut keys = Vec::new();
+        let mut rest = source;
+        while let Some(i) = rest.find(open) {
+            let before = &source[..source.len() - rest.len() + i];
+            rest = &rest[i + open.len()..];
+            let call = open.ends_with('(') || open.ends_with("(\"");
+            if call && before.ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '.') {
+                continue;
+            }
+            if let Some(j) = rest.find(close) {
+                keys.push(format!("{prefix}{}", &rest[..j]));
+            }
+        }
+        keys
+    }
+
+    #[test]
+    fn toda_chave_usada_existe_nos_catalogos() {
+        // Só o código de produção do web.rs: os testes e comentários citam chaves de exemplo.
+        let rust = include_str!("web.rs").split("#[cfg(test)]").next().unwrap();
+        let mut keys = Vec::new();
+        for html in [INDEX, DENIED] {
+            keys.extend(keys_in(html, "<!--T:", "-->", ""));
+        }
+        keys.extend(keys_in(include_str!("../web/app.js"), "t(\"", "\"", ""));
+        for prefix in ["denied.", "ca."] {
+            keys.extend(keys_in(rust, &format!("\"{prefix}"), "\"", prefix));
+        }
+        for expected in [
+            "button.start",
+            "status.connected",
+            "denied.bad_qr",
+            "ca.not_found",
+        ] {
+            assert!(
+                keys.iter().any(|k| k == expected),
+                "{expected} não extraída: {keys:?}"
+            );
+        }
+        assert!(
+            !keys.iter().any(|k| k == "screen"),
+            "pegou request(\"screen\")"
+        );
+        for tag in ["pt-BR", "en"] {
+            let loc = i18n::negotiate(Some(tag));
+            for key in &keys {
+                assert_ne!(loc.t(key), key, "chave {key} sem texto em {tag}");
+            }
+        }
+    }
+
+    #[test]
+    fn paginas_saem_no_idioma_pedido_e_sem_marcadores() {
+        let en = i18n::negotiate(Some("en-US"));
+        let body = page(INDEX, en).replace("<!--CATALOG-->", &i18n::script_json(en.json));
+        assert!(body.contains(r#"<html lang="en">"#));
+        assert!(body.contains(">Start microphone</button>"));
+        assert!(!body.contains("<!--"), "marcador sobrando: {body}");
+
+        let pt = i18n::negotiate(Some("pt-BR"));
+        let res = denied(pt, "denied.bad_qr", None);
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        assert_eq!(res.headers()[header::VARY], "Accept-Language");
+        let body = page(DENIED, pt).replace("<!--MESSAGE-->", &i18n::html(pt.t("denied.bad_qr")));
+        assert!(body.contains("QR code inválido.<br>Escaneie"));
+        assert!(!body.contains("<!--"));
     }
 }

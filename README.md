@@ -110,7 +110,9 @@ cargo clippy --offline --manifest-path app/Cargo.toml --all-targets -- -D warnin
 ```
 
 O modo offline exige dependências previamente disponíveis. O CI recusa
-formatação fora do padrão e qualquer aviso do clippy. Os testes de qualidade do
+formatação fora do padrão e qualquer aviso do clippy. Para barrar a formatação
+já no commit, ative uma vez por clone o hook do repositório com
+`git config core.hooksPath .githooks`. Os testes de qualidade do
 DSP misturam uma voz sintética a oito tipos de ruído; um relatório opcional faz o
 mesmo com uma gravação da sua voz, que fica fora do repositório. Testes da interface e
 de hardware têm procedimentos próprios em [Desenvolvimento](docs/development.md#testes).

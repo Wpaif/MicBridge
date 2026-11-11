@@ -1,0 +1,14 @@
+#!/bin/sh
+# Recusa o commit quando o código Rust está fora do padrão do rustfmt,
+# a mesma verificação que o CI faz no passo "Verificar formatação".
+# Ative uma vez por clone: git config core.hooksPath .githooks
+
+# Só verifica quando o commit inclui arquivos Rust.
+git diff --cached --name-only --diff-filter=ACMR | grep -q '\.rs$' || exit 0
+
+if ! cargo fmt --manifest-path app/Cargo.toml -- --check >/dev/null 2>&1; then
+  echo "pre-commit: código fora do padrão do rustfmt." >&2
+  echo "Rode: cargo fmt --manifest-path app/Cargo.toml" >&2
+  echo "Depois adicione os arquivos de novo (git add) e refaça o commit." >&2
+  exit 1
+fi

@@ -15,8 +15,8 @@ suas credenciais, sem depender do token antigo.
 
 Apenas um celular é aceito por vez. Outro dispositivo recebe conflito enquanto
 o atual está conectado ou no período de reconexão. As verificações estão em
-[state.rs](../app/src/state.rs), [web.rs](../app/src/web.rs) e
-[server.rs](../app/src/server.rs).
+[state.rs](/app/src/state.rs), [web.rs](/app/src/web.rs) e
+[server.rs](/app/src/server.rs).
 
 ## Certificados
 
@@ -42,7 +42,7 @@ o transporte de mídia é negociado separadamente pelo WebRTC.
 
 Não há STUN configurado: o uso previsto é na rede local. A página receber via
 HTTPS não garante, por si só, que a mídia conseguirá atravessar isolamento entre
-clientes Wi-Fi ou regras de firewall. Veja [Solução de problemas](troubleshooting.md).
+clientes Wi-Fi ou regras de firewall. Veja [Solução de problemas](/docs/troubleshooting.md).
 
 As páginas entregues por `web.rs` usam CSP restrita, `Cache-Control: no-store`,
 `X-Content-Type-Options: nosniff` e `Referrer-Policy: no-referrer`. Isso não substitui
@@ -51,7 +51,7 @@ as verificações de autenticação nas rotas de sinalização.
 ## Persistência e gravações
 
 Os arquivos ficam em `$XDG_DATA_HOME/micbridge`, ou `~/.local/share/micbridge`.
-Consulte o [mapa dos arquivos](architecture.md#arquivos-do-aplicativo).
+Consulte o [mapa dos arquivos](/docs/architecture.md#arquivos-do-aplicativo).
 
 O áudio é processado localmente. A gravação de teste fica em memória até a
 exportação explícita de WAVs. Esses WAVs contêm voz original e tratada; o mute
@@ -62,4 +62,4 @@ links de áudio necessários à restauração do retorno exclusivo. Não apague 
 registro para tentar corrigir uma restauração pendente; use o controle de retry.
 
 Uma instalação comum preserva esses dados. `--reinstall` e `--purge` os removem
-conforme as opções da [instalação](installation.md#reinstalar-ou-remover).
+conforme as opções da [instalação](/docs/installation.md#reinstalar-ou-remover).

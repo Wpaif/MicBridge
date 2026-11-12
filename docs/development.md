@@ -119,9 +119,17 @@ acerto, usa inglês. Os textos ficam em `app/web/i18n/<tag>.json`, um objeto pla
 `chave -> texto`, com variáveis em `{nome}`. O servidor usa o mesmo arquivo nas
 páginas que monta (`<!--T:chave-->`) e o embute na página para o `app.js` (`t("chave")`).
 
-Para adicionar um idioma, copie `pt-BR.json` com a tag nova, traduza os valores e
-registre o arquivo em `SOURCES`, em `app/src/i18n.rs`. Os testes recusam chave
-faltando, variável diferente entre idiomas e chave usada sem texto.
+A janela segue o idioma do sistema (`LC_ALL`, `LC_MESSAGES` ou `LANG`), também
+com inglês como padrão. Os textos ficam em `app/ui/i18n/<tag>.json`, no mesmo
+formato, e o `I18n.qml` oferece `I18n.t("chave", { variavel })`, `I18n.plural`
+(chaves `.one` e `.other`) e `I18n.num`, que usa o separador decimal do idioma.
+Textos que o daemon envia prontos (estado da conexão, mensagens, nomes de perfis)
+ainda saem em português.
+
+Para adicionar um idioma, crie o JSON com a tag nova nas duas pastas, traduza os
+valores e registre a tag em `SOURCES` (`app/src/i18n.rs`) e em `available`
+(`app/ui/I18n.qml`). Os testes recusam chave faltando, variável diferente entre
+idiomas e chave usada sem texto, na página e na janela.
 
 ## Prévia visual e logs
 

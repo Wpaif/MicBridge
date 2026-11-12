@@ -5,7 +5,7 @@ import QtQuick.Layouts
 RowLayout {
     id: root
     property alias text: input.text
-    property string action: "Salvar"
+    property string action: I18n.t("common.save")
     signal accepted(string name)
     signal rejected()
     spacing: 6
@@ -34,6 +34,6 @@ RowLayout {
             Keys.onEscapePressed: root.rejected()
         }
     }
-    Button { text: "Cancelar"; onClicked: root.rejected() }
+    Button { text: I18n.t("common.cancel"); onClicked: root.rejected() }
     Button { text: root.action; accent: true; enabled: input.text.trim() !== ""; onClicked: root.accepted(input.text) }
 }

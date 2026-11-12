@@ -6,7 +6,7 @@ Rectangle {
     id: root
     property string title: ""
     property string body: ""
-    property string action: "Confirmar"
+    property string action: I18n.t("common.confirm")
     signal accepted()
     signal rejected()
 
@@ -39,7 +39,7 @@ Rectangle {
         }
         Row {
             spacing: 6
-            Button { id: cancel; text: "Cancelar"; onClicked: root.rejected() }
+            Button { id: cancel; text: I18n.t("common.cancel"); onClicked: root.rejected() }
             Button { text: root.action; accent: true; onClicked: root.accepted() }
         }
     }

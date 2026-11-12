@@ -13,10 +13,10 @@ ShellRoot {
     // O par -tratado.wav sai ao lado do arquivo escolhido; a substituição é confirmada na janela.
     FileDialog {
         id: exportDialog
-        title: "Salvar teste original e tratado"
+        title: I18n.t("export.title")
         fileMode: FileDialog.SaveFile
-        acceptLabel: "Exportar"
-        nameFilters: ["Áudio WAV (*.wav)"]
+        acceptLabel: I18n.t("export.accept")
+        nameFilters: [I18n.t("export.filter")]
         currentFolder: "file://" + Quickshell.env("HOME")
         selectedFile: "file://" + Quickshell.env("HOME") + "/teste-original.wav"
         options: FileDialog.DontConfirmOverwrite
@@ -51,10 +51,10 @@ ShellRoot {
         // Seção aberta no painel (o trilho lateral troca).
         property string page: "voz"
         readonly property var pages: [
-            { id: "voz", label: "Voz", glyph: "\u{f036c}" },
-            { id: "perfil", label: "Perfil", glyph: "\u{f0004}" },
-            { id: "efeitos", label: "Efeitos", glyph: "\u{f062e}" },
-            { id: "conexao", label: "Conexão", glyph: "\u{f011c}" }
+            { id: "voz", label: I18n.t("page.voz"), glyph: "\u{f036c}" },
+            { id: "perfil", label: I18n.t("page.perfil"), glyph: "\u{f0004}" },
+            { id: "efeitos", label: I18n.t("page.efeitos"), glyph: "\u{f062e}" },
+            { id: "conexao", label: I18n.t("page.conexao"), glyph: "\u{f011c}" }
         ]
         function pageLabel() {
             for (var i = 0; i < pages.length; i++) if (pages[i].id === page) return pages[i].label
@@ -180,21 +180,21 @@ ShellRoot {
                         x: 20; y: 20
                         width: parent.width - 40
                         spacing: 4
-                        Text { text: "Atalhos"; color: Theme.foreground; font.family: Theme.font; font.pixelSize: 15; font.bold: true; bottomPadding: 6 }
+                        Text { text: I18n.t("help.title"); color: Theme.foreground; font.family: Theme.font; font.pixelSize: 15; font.bold: true; bottomPadding: 6 }
                         Repeater {
                             model: [
-                                ["Tab  ·  ↑ ↓", "Próximo / anterior controle"],
-                                ["← →", "Ajustar slider, ou andar na linha"],
-                                ["PgUp PgDn  ·  Home End", "Slider: 10 passos / extremos"],
-                                ["Espaço  ·  Enter", "Ligar, desligar ou clicar"],
-                                ["Ctrl+Tab  ·  Alt+↑ ↓", "Próxima / seção anterior"],
-                                ["Alt+1 … 4", "Ir direto para a seção"],
-                                ["M", "Silenciar microfone"],
-                                ["1 … 9", "Escolher perfil"],
-                                ["N  ·  S  ·  R  ·  Del", "Perfil: novo, salvar, renomear, excluir"],
-                                ["P", "Aceitar novo celular"],
-                                ["Esc", "Soltar o foco; de novo, fechar"],
-                                ["?  ·  F1", "Esta folha"]
+                                ["Tab  ·  ↑ ↓", I18n.t("help.next")],
+                                ["← →", I18n.t("help.adjust")],
+                                ["PgUp PgDn  ·  Home End", I18n.t("help.slider")],
+                                [I18n.t("help.key.space_enter"), I18n.t("help.toggle")],
+                                ["Ctrl+Tab  ·  Alt+↑ ↓", I18n.t("help.section")],
+                                ["Alt+1 … 4", I18n.t("help.goto")],
+                                ["M", I18n.t("help.mute")],
+                                ["1 … 9", I18n.t("help.profile")],
+                                ["N  ·  S  ·  R  ·  Del", I18n.t("help.profile_edit")],
+                                ["P", I18n.t("help.pairing")],
+                                ["Esc", I18n.t("help.esc")],
+                                ["?  ·  F1", I18n.t("help.sheet")]
                             ]
                             delegate: Row {
                                 required property var modelData
@@ -211,7 +211,7 @@ ShellRoot {
             Text {
                 anchors.centerIn: parent
                 visible: !backend.connected
-                text: "Aguardando o MicBridge…"
+                text: I18n.t("waiting")
                 color: Theme.muted
                 font.family: Theme.font
                 font.pixelSize: 14
@@ -284,7 +284,7 @@ ShellRoot {
                         Text {
                             Layout.leftMargin: 18
                             Layout.bottomMargin: 6
-                            text: "?  atalhos"
+                            text: I18n.t("rail.shortcuts")
                             color: Theme.muted
                             font.family: Theme.font
                             font.pixelSize: 11
@@ -295,7 +295,7 @@ ShellRoot {
                         RailRow {
                             Layout.fillWidth: true
                             glyph: win.st.muted ? "\u{f036d}" : "\u{f036c}"
-                            label: win.st.muted ? "Silenciado" : "Silenciar"
+                            label: win.st.muted ? I18n.t("rail.muted") : I18n.t("rail.mute")
                             current: win.st.muted || false
                             alert: true
                             onClicked: backend.send({ c: "mute", on: !win.st.muted })
@@ -335,8 +335,8 @@ ShellRoot {
                             visible: win.page === "voz"
                             spacing: 6
 
-                                Meter { Layout.fillWidth: true; label: "entrada"; level: win.st.in || 0; clip: !!(win.st.clip && win.st.clip.in) }
-                                Meter { Layout.fillWidth: true; label: "saída"; level: win.st.out || 0; clip: !!(win.st.clip && win.st.clip.out) }
+                                Meter { Layout.fillWidth: true; label: I18n.t("meter.in"); level: win.st.in || 0; clip: !!(win.st.clip && win.st.clip.in) }
+                                Meter { Layout.fillWidth: true; label: I18n.t("meter.out"); level: win.st.out || 0; clip: !!(win.st.clip && win.st.clip.out) }
                                 Text {
                                     Layout.fillWidth: true
                                     readonly property bool hotIn: !!(win.st.clip && win.st.clip.in)
@@ -346,8 +346,7 @@ ShellRoot {
                                     color: Theme.urgent
                                     font.family: Theme.font
                                     font.pixelSize: 12
-                                    text: hotIn ? "O áudio já chega saturado do celular: afaste-o da boca ou fale mais baixo."
-                                                : "O limitador está segurando muito volume: baixe o ganho manual ou as bandas do EQ."
+                                    text: hotIn ? I18n.t("clip.in") : I18n.t("clip.out")
                                 }
 
                             History {
@@ -370,12 +369,12 @@ ShellRoot {
                                 Card {
                                     Layout.fillWidth: true
                                     Layout.alignment: Qt.AlignTop
-                                    title: "Retorno no fone"
+                                    title: I18n.t("monitor.title")
                                     dot: win.mon.active ? Theme.accent : "transparent"
 
                                         Toggle {
                                             Layout.fillWidth: true
-                                            title: "Ouvir a voz tratada"
+                                            title: I18n.t("monitor.listen")
                                             hint: win.mon.message || ""
                                             checked: win.mon.active || false
                                             enabled: win.mon.can_toggle || false
@@ -396,12 +395,12 @@ ShellRoot {
                                                 }
                                             }
                                             Button {
-                                                text: "Atualizar saídas"
+                                                text: I18n.t("monitor.refresh")
                                                 enabled: win.mon.can_refresh || false
                                                 onClicked: backend.send({ c: "monitor_refresh" })
                                             }
                                             Button {
-                                                text: "Restaurar conexões"
+                                                text: I18n.t("monitor.retry")
                                                 accent: true
                                                 visible: win.mon.can_retry || false
                                                 onClicked: backend.send({ c: "monitor_retry" })
@@ -409,7 +408,7 @@ ShellRoot {
                                         }
                                         Slider {
                                             Layout.fillWidth: true
-                                            title: "Volume do retorno"
+                                            title: I18n.t("monitor.volume")
                                             from: 0; to: 100; step: 1; unit: "%"
                                             value: win.mon.volume || 0
                                             onMoved: v => backend.send({ c: "monitor_volume", value: v })
@@ -417,7 +416,7 @@ ShellRoot {
                                         Text {
                                             Layout.fillWidth: true
                                             Layout.leftMargin: 10
-                                            text: "Exclusivo: desconecta outros apps da saída escolhida e os restaura ao parar."
+                                            text: I18n.t("monitor.exclusive")
                                             color: Theme.muted
                                             font.family: Theme.font
                                             font.pixelSize: 11
@@ -428,7 +427,7 @@ ShellRoot {
                                 Card {
                                     Layout.fillWidth: true
                                     Layout.alignment: Qt.AlignTop
-                                    title: "Teste de voz"
+                                    title: I18n.t("rec.title")
                                     dot: win.rec.can_stop ? Theme.urgent : "transparent"
 
                                         RowLayout {
@@ -460,25 +459,25 @@ ShellRoot {
                                             Layout.leftMargin: 10
                                             spacing: 6
                                             Button {
-                                                text: win.rec.can_stop ? "Parar gravação" : "Gravar teste"
+                                                text: win.rec.can_stop ? I18n.t("rec.stop") : I18n.t("rec.start")
                                                 accent: win.rec.can_stop || false
                                                 enabled: win.rec.can_start || win.rec.can_stop || false
                                                 onClicked: backend.send({ c: "record", on: !win.rec.can_stop })
                                             }
                                             Chip {
-                                                text: "Ouvir original"
+                                                text: I18n.t("rec.play_original")
                                                 active: win.rec.playing === "original"
                                                 enabled: win.rec.can_listen || false
                                                 onClicked: backend.send(active ? { c: "stop_play" } : { c: "play", version: "original" })
                                             }
                                             Chip {
-                                                text: "Ouvir tratado"
+                                                text: I18n.t("rec.play_treated")
                                                 active: win.rec.playing === "treated"
                                                 enabled: win.rec.can_listen || false
                                                 onClicked: backend.send(active ? { c: "stop_play" } : { c: "play", version: "treated" })
                                             }
                                             Button {
-                                                text: "Exportar WAVs"
+                                                text: I18n.t("rec.export")
                                                 enabled: (win.rec.can_export || false) && !win.rec.confirm
                                                 onClicked: exportDialog.open()
                                             }
@@ -495,9 +494,9 @@ ShellRoot {
                                         Confirm {
                                             Layout.fillWidth: true
                                             visible: !!win.rec.confirm
-                                            title: "Substituir arquivos do teste?"
-                                            body: win.rec.confirm ? "Os que já existem serão substituídos.\n" + win.rec.confirm.original + "\n" + win.rec.confirm.treated : ""
-                                            action: "Substituir"
+                                            title: I18n.t("rec.replace_title")
+                                            body: win.rec.confirm ? I18n.t("rec.replace_body", { original: win.rec.confirm.original, treated: win.rec.confirm.treated }) : ""
+                                            action: I18n.t("rec.replace")
                                             onAccepted: backend.send({ c: "export_confirm", on: true })
                                             onRejected: backend.send({ c: "export_confirm", on: false })
                                         }
@@ -506,7 +505,7 @@ ShellRoot {
                                 Card {
                                     Layout.fillWidth: true
                                     Layout.alignment: Qt.AlignTop
-                                    title: "Fonte extra"
+                                    title: I18n.t("extra.title")
                                     dot: (win.st.extra || {}).linked ? Theme.accent : "transparent"
 
                                     Text {
@@ -515,10 +514,10 @@ ShellRoot {
                                             const x = win.st.extra || {}
                                             const sel = (x.streams || []).find(s => s.id === x.selected)
                                             if (x.error) return x.error
-                                            if (sel && sel.call) return "Cuidado: isso devolve o som da call para ela mesma (eco)"
-                                            if (x.linked) return "No microfone virtual  ·  você continua ouvindo no fone"
-                                            if (!(x.streams || []).length) return "Nenhum app tocando som agora"
-                                            return "Escolha um app para mandar o som dele junto com a voz"
+                                            if (sel && sel.call) return I18n.t("extra.echo")
+                                            if (x.linked) return I18n.t("extra.linked")
+                                            if (!(x.streams || []).length) return I18n.t("extra.none")
+                                            return I18n.t("extra.choose")
                                         }
                                         color: Theme.muted
                                         font.family: Theme.font
@@ -541,7 +540,7 @@ ShellRoot {
                                     }
                                     Slider {
                                         Layout.fillWidth: true
-                                        title: "Volume da fonte extra"
+                                        title: I18n.t("extra.volume")
                                         from: 0; to: 100; step: 1; unit: "%"
                                         value: (win.st.extra || {}).volume || 0
                                         enabled: (win.st.extra || {}).selected != null
@@ -553,7 +552,7 @@ ShellRoot {
                                     id: calCard
                                     Layout.fillWidth: true
                                     Layout.alignment: Qt.AlignTop
-                                    title: "Calibração"
+                                    title: I18n.t("cal.title")
                                     readonly property var cal: win.st.calibration || ({ phase: "idle" })
                                     readonly property var d: cal.detail || ({})
                                     readonly property bool running: cal.phase === "silence" || cal.phase === "speech"
@@ -563,8 +562,8 @@ ShellRoot {
                                         Layout.fillWidth: true
                                         visible: calCard.cal.phase === "idle"
                                         text: win.link === "connected"
-                                            ? "Mede o ruído do ambiente e a sua voz e sugere o limiar do gate, a redução de ruído e o ganho. Leva 13 segundos."
-                                            : "Conecte o celular para calibrar."
+                                            ? I18n.t("cal.intro")
+                                            : I18n.t("cal.connect")
                                         color: Theme.muted
                                         font.family: Theme.font
                                         font.pixelSize: 11
@@ -576,8 +575,8 @@ ShellRoot {
                                         Layout.fillWidth: true
                                         visible: calCard.running
                                         text: calCard.cal.phase === "silence"
-                                            ? "1/2 · Fique em silêncio, com o ambiente como ele costuma estar."
-                                            : "2/2 · Leia em voz normal, como numa chamada:"
+                                            ? I18n.t("cal.silence")
+                                            : I18n.t("cal.speech")
                                         color: Theme.foreground
                                         font.family: Theme.font
                                         font.pixelSize: 12
@@ -586,8 +585,7 @@ ShellRoot {
                                     Text {
                                         Layout.fillWidth: true
                                         visible: calCard.cal.phase === "speech"
-                                        text: "“Bom dia a todos. Hoje vamos revisar o planejamento da semana, "
-                                            + "ver o que ficou pendente e combinar os próximos passos de cada um.”"
+                                        text: I18n.t("cal.script")
                                         color: Theme.accent
                                         font.family: Theme.font
                                         font.pixelSize: 12
@@ -616,13 +614,13 @@ ShellRoot {
                                             model: {
                                                 const d = calCard.d
                                                 if (calCard.cal.phase !== "done") return []
-                                                const rows = [["Medido", "ruído " + d.noise_db + " dB · voz " + d.voice_db + " dB"]]
-                                                rows.push(["Gate", d.gate_was_on
-                                                    ? (d.gate_from === d.gate_db ? d.gate_db + " dB (igual)" : d.gate_from + " → " + d.gate_db + " dB")
-                                                    : "ligar, " + d.gate_db + " dB"])
-                                                if (d.denoise !== d.denoise_from) rows.push(["Redução de ruído", "ligar"])
+                                                const rows = [[I18n.t("cal.measured"), I18n.t("cal.measured_value", { noise: d.noise_db, voice: d.voice_db })]]
+                                                rows.push([I18n.t("cal.gate"), d.gate_was_on
+                                                    ? (d.gate_from === d.gate_db ? I18n.t("cal.same_db", { db: d.gate_db }) : I18n.t("cal.change_db", { from: d.gate_from, to: d.gate_db }))
+                                                    : I18n.t("cal.turn_on_db", { db: d.gate_db })])
+                                                if (d.denoise !== d.denoise_from) rows.push([I18n.t("cal.denoise"), I18n.t("cal.turn_on")])
                                                 if (d.makeup_db !== null && d.makeup_db !== undefined)
-                                                    rows.push(["Ganho manual", d.makeup_from + " → " + d.makeup_db + " dB"])
+                                                    rows.push([I18n.t("cal.makeup"), I18n.t("cal.change_db", { from: d.makeup_from, to: d.makeup_db })])
                                                 return rows
                                             }
                                             delegate: Row {
@@ -648,25 +646,25 @@ ShellRoot {
                                         spacing: 6
                                         Button {
                                             visible: calCard.cal.phase === "idle" || calCard.cal.phase === "failed"
-                                            text: calCard.cal.phase === "failed" ? "Tentar de novo" : "Calibrar"
+                                            text: calCard.cal.phase === "failed" ? I18n.t("cal.retry") : I18n.t("cal.start")
                                             accent: true
                                             enabled: win.link === "connected"
                                             onClicked: backend.send({ c: "calibrate", on: true })
                                         }
                                         Button {
                                             visible: calCard.running
-                                            text: "Cancelar"
+                                            text: I18n.t("common.cancel")
                                             onClicked: backend.send({ c: "calibrate", on: false })
                                         }
                                         Button {
                                             visible: calCard.cal.phase === "done"
-                                            text: "Aplicar"
+                                            text: I18n.t("cal.apply")
                                             accent: true
                                             onClicked: backend.send({ c: "calibrate_apply" })
                                         }
                                         Button {
                                             visible: calCard.cal.phase === "done" || calCard.cal.phase === "failed"
-                                            text: calCard.cal.phase === "done" ? "Descartar" : "Fechar"
+                                            text: calCard.cal.phase === "done" ? I18n.t("cal.discard") : I18n.t("cal.close")
                                             onClicked: backend.send({ c: "calibrate_discard" })
                                         }
                                     }
@@ -709,23 +707,23 @@ ShellRoot {
                                     spacing: 6
                                     visible: win.profileEdit === ""
                                     Button {
-                                        text: "Salvar alterações  ·  S"
+                                        text: I18n.t("profile.save")
                                         accent: true
                                         enabled: win.editor.can_save || false
                                         onClicked: backend.send({ c: "profile_save" })
                                     }
                                     Button {
-                                        text: "Salvar como novo…  ·  N"
+                                        text: I18n.t("profile.new")
                                         enabled: win.editor.can_new || false
                                         onClicked: win.editProfile("new")
                                     }
                                     Button {
-                                        text: "Renomear…  ·  R"
+                                        text: I18n.t("profile.rename_menu")
                                         enabled: win.editor.can_rename || false
                                         onClicked: win.editProfile("rename")
                                     }
                                     Button {
-                                        text: "Excluir"
+                                        text: I18n.t("common.delete")
                                         enabled: win.editor.can_delete || false
                                         onClicked: win.profileEdit = "delete"
                                     }
@@ -734,7 +732,7 @@ ShellRoot {
                                     id: nameField
                                     Layout.fillWidth: true
                                     visible: win.profileEdit === "new" || win.profileEdit === "rename"
-                                    action: win.profileEdit === "rename" ? "Renomear" : "Criar perfil"
+                                    action: win.profileEdit === "rename" ? I18n.t("profile.rename") : I18n.t("profile.create")
                                     onAccepted: name => {
                                         backend.send({ c: win.profileEdit === "rename" ? "profile_rename" : "profile_new", name: name })
                                         win.profileEdit = ""
@@ -744,18 +742,18 @@ ShellRoot {
                                 Confirm {
                                     Layout.fillWidth: true
                                     visible: win.profileEdit === "delete"
-                                    title: "Excluir perfil personalizado?"
-                                    body: "O perfil e seus ajustes não salvos serão removidos. O perfil Chamada será ativado."
-                                    action: "Excluir"
+                                    title: I18n.t("profile.delete_title")
+                                    body: I18n.t("profile.delete_body")
+                                    action: I18n.t("common.delete")
                                     onAccepted: { backend.send({ c: "profile_delete" }); win.profileEdit = "" }
                                     onRejected: win.profileEdit = ""
                                 }
                                 Confirm {
                                     Layout.fillWidth: true
                                     visible: win.pendingProfile !== ""
-                                    title: "Descartar alterações não salvas?"
-                                    body: "O perfil salvo será preservado. Os ajustes atuais serão descartados ao trocar de perfil."
-                                    action: "Descartar"
+                                    title: I18n.t("profile.discard_title")
+                                    body: I18n.t("profile.discard_body")
+                                    action: I18n.t("profile.discard")
                                     onAccepted: { backend.send({ c: "profile", id: win.pendingProfile }); win.pendingProfile = "" }
                                     onRejected: win.pendingProfile = ""
                                 }
@@ -775,7 +773,7 @@ ShellRoot {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: "Os canais seguem a ordem do sinal, da esquerda para a direita."
+                                text: I18n.t("fx.order")
                                 color: Theme.muted
                                 font.family: Theme.font
                                 font.pixelSize: 11
@@ -822,23 +820,23 @@ ShellRoot {
                                     Strip {
                                         Layout.fillWidth: true
                                         Layout.fillHeight: true
-                                        title: "Graves"
-                                        hint: "Corta rumble abaixo de ~80 Hz"
+                                        title: I18n.t("fx.highpass")
+                                        hint: I18n.t("fx.highpass_hint")
                                         on: win.effect("highpass")
                                         onToggled: on => win.setEffect("highpass", on)
                                     }
                                     Strip {
                                         Layout.fillWidth: true
                                         Layout.fillHeight: true
-                                        title: "Ruído"
-                                        hint: "RNNoise\nremove o ruído de fundo"
+                                        title: I18n.t("fx.denoise")
+                                        hint: I18n.t("fx.denoise_hint")
                                         on: win.effect("denoise")
                                         onToggled: on => win.setEffect("denoise", on)
                                         // Abaixo de 100 % deixa passar um pouco de ruído em troca de
                                         // preservar sílabas fracas; duplo clique volta a 100 %.
                                         Fader {
                                             Layout.fillHeight: true
-                                            label: "força"
+                                            label: I18n.t("fx.strength")
                                             from: 0; to: 100; step: 5; unit: "%"; home: 100
                                             value: win.tuning("denoise_strength")
                                             enabled: win.effect("denoise")
@@ -848,17 +846,17 @@ ShellRoot {
                                     Strip {
                                         Layout.fillWidth: true
                                         Layout.fillHeight: true
-                                        title: "Gate"
+                                        title: I18n.t("fx.gate")
                                         on: win.effect("gate")
                                         led: !on ? "transparent"
                                             : deskRow.fx.gate === "open" ? Theme.ok
                                             : deskRow.fx.gate === "hold" ? Theme.warn
                                             : deskRow.fx.gate === "closed" ? Theme.urgent : Theme.muted
-                                        status: !on ? "" : ({ open: "aberto", hold: "espera", closed: "fechado" })[deskRow.fx.gate] || "sem áudio"
+                                        status: !on ? "" : ({ open: I18n.t("fx.gate_open"), hold: I18n.t("fx.gate_hold"), closed: I18n.t("fx.gate_closed") })[deskRow.fx.gate] || I18n.t("fx.gate_silent")
                                         onToggled: on => win.setEffect("gate", on)
                                         Fader {
                                             Layout.fillHeight: true
-                                            label: "limiar"
+                                            label: I18n.t("fx.threshold")
                                             from: -80; to: -20; step: 1; unit: " dB"
                                             value: win.tuning("gate_db")
                                             enabled: win.effect("gate")
@@ -868,16 +866,16 @@ ShellRoot {
                                     Strip {
                                         Layout.fillWidth: true
                                         Layout.fillHeight: true
-                                        title: "De-esser"
-                                        hint: "Suaviza chiados de \"s\""
+                                        title: I18n.t("fx.deesser")
+                                        hint: I18n.t("fx.deesser_hint")
                                         on: win.effect("deesser")
                                         onToggled: on => win.setEffect("deesser", on)
                                     }
                                     Strip {
                                         Layout.fillWidth: true
                                         Layout.fillHeight: true
-                                        title: "Presença"
-                                        hint: "Realça a clareza da voz (~3 kHz)"
+                                        title: I18n.t("fx.presence")
+                                        hint: I18n.t("fx.presence_hint")
                                         on: win.effect("presence")
                                         onToggled: on => win.setEffect("presence", on)
                                     }
@@ -885,7 +883,7 @@ ShellRoot {
                                     Strip {
                                         Layout.fillWidth: true
                                         Layout.fillHeight: true
-                                        title: "EQ"
+                                        title: I18n.t("fx.eq")
                                         on: win.effect("eq")
                                         onToggled: on => win.setEffect("eq", on)
                                         // Atalhos: um toque liga o EQ e posiciona as três bandas.
@@ -907,7 +905,7 @@ ShellRoot {
                                         }
                                         Fader {
                                             Layout.fillHeight: true
-                                            label: "grave"
+                                            label: I18n.t("fx.eq_low")
                                             from: -12; to: 12; step: 0.5; unit: ""; signed: true; home: 0
                                             value: win.tuning("eq_low")
                                             enabled: win.effect("eq")
@@ -915,7 +913,7 @@ ShellRoot {
                                         }
                                         Fader {
                                             Layout.fillHeight: true
-                                            label: "médio"
+                                            label: I18n.t("fx.eq_mid")
                                             from: -12; to: 12; step: 0.5; unit: ""; signed: true; home: 0
                                             value: win.tuning("eq_mid")
                                             enabled: win.effect("eq")
@@ -923,7 +921,7 @@ ShellRoot {
                                         }
                                         Fader {
                                             Layout.fillHeight: true
-                                            label: "agudo"
+                                            label: I18n.t("fx.eq_high")
                                             from: -12; to: 12; step: 0.5; unit: ""; signed: true; home: 0
                                             value: win.tuning("eq_high")
                                             enabled: win.effect("eq")
@@ -933,17 +931,17 @@ ShellRoot {
                                     Strip {
                                         Layout.fillWidth: true
                                         Layout.fillHeight: true
-                                        title: "Ganho"
+                                        title: I18n.t("fx.gain")
                                         on: win.effect("auto_gain")
-                                        onText: "AUTO"
-                                        offText: "MANUAL"
+                                        onText: I18n.t("fx.gain_auto")
+                                        offText: I18n.t("fx.gain_manual")
                                         // Em manual, o canal segue ativo: o LED fica aceso mesmo assim.
                                         led: Theme.ok
                                         onToggled: on => win.setEffect("auto_gain", on)
                                         // O ganho manual só vale com o volume automático desligado.
                                         Fader {
                                             Layout.fillHeight: true
-                                            label: "manual"
+                                            label: I18n.t("fx.manual")
                                             from: 0; to: 24; step: 1; unit: " dB"
                                             value: win.tuning("makeup_db")
                                             enabled: !win.effect("auto_gain")
@@ -951,26 +949,26 @@ ShellRoot {
                                         }
                                         VMeter {
                                             Layout.fillHeight: true
-                                            label: "auto"
+                                            label: I18n.t("fx.auto")
                                             center: true
                                             live: deskRow.fx.auto_gain_db != null
                                             fraction: (deskRow.fx.auto_gain_db || 0) / 12
                                             readout: {
                                                 var v = deskRow.fx.auto_gain_db || 0
-                                                return (v >= 0 ? "+" : "") + v.toFixed(1).replace(".", ",")
+                                                return (v >= 0 ? "+" : "") + I18n.num(v, 1)
                                             }
                                         }
                                     }
                                     Strip {
                                         Layout.fillWidth: true
                                         Layout.fillHeight: true
-                                        title: "Compressor"
+                                        title: I18n.t("fx.compressor")
                                         on: win.effect("compressor")
                                         led: on && deskRow.fx.reduction_db > 0.5 ? Theme.warn : (on ? Theme.ok : "transparent")
                                         onToggled: on => win.setEffect("compressor", on)
                                         Fader {
                                             Layout.fillHeight: true
-                                            label: "limiar"
+                                            label: I18n.t("fx.threshold")
                                             from: -50; to: 0; step: 1; unit: " dB"
                                             value: win.tuning("threshold_db")
                                             enabled: win.effect("compressor")
@@ -978,7 +976,7 @@ ShellRoot {
                                         }
                                         Fader {
                                             Layout.fillHeight: true
-                                            label: "razão"
+                                            label: I18n.t("fx.ratio")
                                             from: 1; to: 10; step: 0.5; unit: ":1"
                                             value: win.tuning("ratio")
                                             enabled: win.effect("compressor")
@@ -987,12 +985,12 @@ ShellRoot {
                                         // Redução de ganho (GR): desce do topo, como nas mesas.
                                         VMeter {
                                             Layout.fillHeight: true
-                                            label: "GR"
+                                            label: I18n.t("fx.gr")
                                             fromTop: true
                                             color: Theme.warn
                                             live: deskRow.fx.reduction_db != null
                                             fraction: (deskRow.fx.reduction_db || 0) / 20
-                                            readout: "-" + (deskRow.fx.reduction_db || 0).toFixed(1).replace(".", ",")
+                                            readout: "-" + I18n.num(deskRow.fx.reduction_db || 0, 1)
                                         }
                                     }
 
@@ -1004,10 +1002,10 @@ ShellRoot {
                                     }
                                     Strip {
                                         Layout.fillHeight: true
-                                        title: "Saída"
+                                        title: I18n.t("fx.output")
                                         on: !(win.st.muted || false)
-                                        onText: "AO VIVO"
-                                        offText: "MUDO"
+                                        onText: I18n.t("fx.live")
+                                        offText: I18n.t("fx.muted")
                                         led: on ? ((win.st.out || 0) > 0.001 ? Theme.ok : "transparent") : Theme.urgent
                                         onToggled: on => backend.send({ c: "mute", on: !on })
                                         VMeter {
@@ -1097,8 +1095,8 @@ ShellRoot {
                             Layout.fillWidth: true
                             horizontalAlignment: Text.AlignHCenter
                             text: win.st.pairing > 0
-                                ? "Escaneie para parear (" + Math.floor(win.st.pairing / 60) + ":" + String(win.st.pairing % 60).padStart(2, "0") + ")"
-                                : "Celular pareado: leia o QR para abrir"
+                                ? I18n.t("pair.scan", { time: Math.floor(win.st.pairing / 60) + ":" + String(win.st.pairing % 60).padStart(2, "0") })
+                                : I18n.t("pair.paired")
                             color: Theme.muted
                             font.family: Theme.font
                             font.pixelSize: 11
@@ -1120,8 +1118,8 @@ ShellRoot {
                                     spacing: 6
                         Toggle {
                             Layout.fillWidth: true
-                            title: "Aceitar novo celular"
-                            hint: "Abre o QR por 5 minutos  ·  P"
+                            title: I18n.t("pair.accept")
+                            hint: I18n.t("pair.accept_hint")
                             checked: win.st.pairing > 0
                             onToggled: on => backend.send({ c: "pairing", on: on })
                         }
@@ -1132,45 +1130,45 @@ ShellRoot {
                             Text {
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
-                                text: win.st.devices === 1 ? "1 celular pareado" : win.st.devices + " celulares pareados"
+                                text: I18n.plural("pair.devices", win.st.devices)
                                 color: Theme.foreground
                                 font.family: Theme.font
                                 font.pixelSize: 13
                                 elide: Text.ElideRight
                             }
-                            Button { text: "Esquecer"; onClicked: win.forgetting = true }
+                            Button { text: I18n.t("pair.forget"); onClicked: win.forgetting = true }
                         }
                         Confirm {
                             Layout.fillWidth: true
                             visible: win.forgetting
-                            title: "Esquecer todos os celulares?"
-                            body: "Eles precisarão ler o QR e parear de novo."
-                            action: "Esquecer"
+                            title: I18n.t("pair.forget_title")
+                            body: I18n.t("pair.forget_body")
+                            action: I18n.t("pair.forget")
                             onAccepted: { backend.send({ c: "forget" }); win.forgetting = false }
                             onRejected: win.forgetting = false
                         }
                         Toggle {
                             Layout.fillWidth: true
-                            title: "Iniciar com o sistema"
-                            hint: "Abre escondido na bandeja"
+                            title: I18n.t("autostart")
+                            hint: I18n.t("autostart_hint")
                             checked: win.st.autostart || false
                             onToggled: on => backend.send({ c: "autostart", on: on })
                         }
                         // Confira no celular ao aceitar o aviso do certificado.
-                        Section { text: "Certificado · SHA-256" }
+                        Section { text: I18n.t("cert.title") }
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 6
                             Text {
                                 Layout.fillWidth: true
-                                text: win.st.fingerprint || "aguardando o servidor…"
+                                text: win.st.fingerprint || I18n.t("cert.waiting")
                                 color: Theme.muted
                                 font.family: Theme.font
                                 font.pixelSize: 10
                                 wrapMode: Text.WrapAnywhere
                             }
                             Button {
-                                text: win.copied ? "Copiado" : "Copiar"
+                                text: win.copied ? I18n.t("cert.copied") : I18n.t("cert.copy")
                                 enabled: !!win.st.fingerprint
                                 onClicked: { Quickshell.clipboardText = win.st.fingerprint; win.copied = true; copiedTimer.restart() }
                                 Timer { id: copiedTimer; interval: 1500; onTriggered: win.copied = false }

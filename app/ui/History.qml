@@ -33,7 +33,7 @@ Item {
         id: legend
         spacing: 14
         Repeater {
-            model: [{ label: "entrada", color: Theme.muted }, { label: "saída", color: Theme.accent }]
+            model: [{ label: I18n.t("meter.in"), color: Theme.muted }, { label: I18n.t("meter.out"), color: Theme.accent }]
             delegate: Row {
                 required property var modelData
                 spacing: 6
@@ -44,7 +44,7 @@ Item {
     }
     Text {
         anchors.right: parent.right
-        text: "últimos " + root.seconds + " s"
+        text: I18n.t("history.last", { n: root.seconds })
         color: Theme.muted
         font.family: Theme.font
         font.pixelSize: 11

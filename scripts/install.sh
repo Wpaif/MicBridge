@@ -91,6 +91,8 @@ EXEC="$HOME/.local/bin/micbridge"
 rm -rf "$UI_DIR"
 mkdir -p "$UI_DIR"
 install -m644 "$APP_DIR"/ui/*.qml "$UI_DIR/"
+mkdir -p "$UI_DIR/i18n"
+install -m644 "$APP_DIR"/ui/i18n/*.json "$UI_DIR/i18n/"
 
 # Exec absoluto: o atalho funciona mesmo sem ~/.local/bin no PATH.
 mkdir -p "$DATA_HOME/applications"

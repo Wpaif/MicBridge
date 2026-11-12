@@ -56,7 +56,7 @@ Item {
         return Math.round(raw / step) * step
     }
     function label(v) {
-        return (step < 1 ? v.toFixed(1) : v.toFixed(0)).replace(".", ",") + root.unit
+        return I18n.num(v, step < 1 ? 1 : 0) + root.unit
     }
 
     Timer { id: settle; interval: 600 }

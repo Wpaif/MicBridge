@@ -51,7 +51,7 @@ Item {
     Timer { id: settle; interval: 600 }
 
     function text(v) {
-        var t = (step < 1 ? v.toFixed(1) : v.toFixed(0)).replace(".", ",")
+        var t = I18n.num(v, step < 1 ? 1 : 0)
         return (root.signed && v > 0 ? "+" : "") + t + root.unit
     }
 

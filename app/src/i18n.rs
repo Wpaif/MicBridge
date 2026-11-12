@@ -161,4 +161,103 @@ mod tests {
             r#"{"x":"\u003c/script>"}"#
         );
     }
+
+    /// Catálogos da janela (ui/i18n), carregados pelo I18n.qml.
+    const UI_SOURCES: &[(&str, &str)] = &[
+        ("pt-BR", include_str!("../ui/i18n/pt-BR.json")),
+        ("en", include_str!("../ui/i18n/en.json")),
+    ];
+
+    /// Arquivos QML que podem chamar I18n.t/plural.
+    const UI_QML: &[(&str, &str)] = &[
+        ("shell.qml", include_str!("../ui/shell.qml")),
+        ("Confirm.qml", include_str!("../ui/Confirm.qml")),
+        ("NameField.qml", include_str!("../ui/NameField.qml")),
+        ("History.qml", include_str!("../ui/History.qml")),
+        ("Fader.qml", include_str!("../ui/Fader.qml")),
+        ("Slider.qml", include_str!("../ui/Slider.qml")),
+        ("I18n.qml", include_str!("../ui/I18n.qml")),
+    ];
+
+    fn ui_catalogs() -> Vec<(&'static str, HashMap<String, String>)> {
+        UI_SOURCES
+            .iter()
+            .map(|&(tag, json)| {
+                let texts = serde_json::from_str(json)
+                    .unwrap_or_else(|e| panic!("ui/i18n/{tag}.json inválido: {e}"));
+                (tag, texts)
+            })
+            .collect()
+    }
+
+    /// Chaves literais em `I18n.t("...")` (e `t("...")` dentro do I18n.qml);
+    /// as de `I18n.plural("x", ...)` viram `x.one` e `x.other`.
+    fn ui_keys(qml: &str) -> Vec<String> {
+        let mut keys = Vec::new();
+        for (open, plural) in [("t(\"", false), ("plural(\"", true)] {
+            let mut rest = qml;
+            while let Some(i) = rest.find(open) {
+                // `t(` precisa ser a função inteira, não o fim de `effect(`.
+                let before = qml[..qml.len() - rest.len() + i].chars().next_back();
+                rest = &rest[i + open.len()..];
+                if before.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+                    continue;
+                }
+                let Some(end) = rest.find('"') else { break };
+                let key = &rest[..end];
+                if plural {
+                    keys.push(format!("{key}.one"));
+                    keys.push(format!("{key}.other"));
+                } else {
+                    keys.push(key.to_string());
+                }
+            }
+        }
+        keys
+    }
+
+    #[test]
+    fn janela_tem_as_mesmas_chaves_e_variaveis_em_todos_os_idiomas() {
+        let catalogs = ui_catalogs();
+        let (_, base) = &catalogs[0];
+        for (tag, texts) in &catalogs {
+            let keys: BTreeSet<_> = texts.keys().collect();
+            assert_eq!(
+                keys,
+                base.keys().collect(),
+                "chaves diferentes em ui/i18n/{tag}.json"
+            );
+            for (key, text) in base {
+                assert_eq!(
+                    vars(&texts[key]),
+                    vars(text),
+                    "variáveis diferentes em {tag}: {key}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn toda_chave_usada_na_janela_tem_texto() {
+        let keys: Vec<String> = UI_QML.iter().flat_map(|(_, qml)| ui_keys(qml)).collect();
+        for expected in [
+            "page.voz",
+            "pair.devices.one",
+            "format.decimal",
+            "common.cancel",
+        ] {
+            assert!(
+                keys.iter().any(|k| k == expected),
+                "{expected} não extraída"
+            );
+        }
+        for (tag, texts) in ui_catalogs() {
+            for key in &keys {
+                assert!(
+                    texts.contains_key(key),
+                    "ui/i18n/{tag}.json sem a chave {key}"
+                );
+            }
+        }
+    }
 }

@@ -3,3 +3,4 @@ Toggle 1.0 ../Toggle.qml
 Slider 1.0 ../Slider.qml
 Chip 1.0 ../Chip.qml
 Button 1.0 ../Button.qml
+singleton I18n 1.0 I18n.qml

@@ -258,7 +258,10 @@ async fn run(
                         Ok(_) => {
                             devices.refresh();
                             lease.store(false, SeqCst);
-                            monitor.report_failure(id,"A saída selecionada foi removida ou substituída. Escolha o dispositivo e ative novamente.".into());
+                            monitor.report_failure(
+                                id,
+                                crate::i18n::t!("daemon.monitor.device_replaced").into(),
+                            );
                             break;
                         }
                         Err(e) => {

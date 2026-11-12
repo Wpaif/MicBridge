@@ -22,7 +22,10 @@ pub(crate) fn presentation(
         can_stop: r.state == TakeState::Recording,
         can_listen: ready,
         can_export: ready && !exporting,
-        duration: format!("{:.1} / 30 s", r.samples as f64 / 48000.0).replace('.', ","),
+        duration: crate::i18n::t!(
+            "daemon.rec.duration",
+            seconds = crate::i18n::num(r.samples as f64 / 48000.0, 1)
+        ),
         warning: r.message.clone(),
     }
 }
@@ -36,7 +39,10 @@ impl Destinations {
         let original = path.with_extension("wav");
         let stem = original.file_stem().unwrap_or_default().to_string_lossy();
         let stem = stem.strip_suffix("-original").unwrap_or(&stem);
-        let treated = original.with_file_name(format!("{stem}-tratado.wav"));
+        let treated = original.with_file_name(format!(
+            "{stem}-{}.wav",
+            crate::i18n::t!("daemon.export.treated_suffix")
+        ));
         Self { original, treated }
     }
     pub(crate) fn needs_confirmation(&self) -> bool {
@@ -66,12 +72,12 @@ pub(crate) fn export_selection(
     };
     result.map_err(|e| {
         if e.completed.is_empty() {
-            format!("Não foi possível exportar: {}", e.source)
+            crate::i18n::t!("daemon.export.failed", error = e.source)
         } else {
-            format!(
-                "Exportação parcial: {} foi salvo; falha no segundo arquivo: {}",
-                e.completed[0].display(),
-                e.source
+            crate::i18n::t!(
+                "daemon.export.partial",
+                file = e.completed[0].display(),
+                error = e.source
             )
         }
     })?;
@@ -96,10 +102,10 @@ pub(crate) fn current_notice(notice: &Option<Notice>, key: OperationKey) -> Opti
 /// Linha de estado: fase do teste e duração gravada.
 pub(crate) fn caption(r: &RecordingStatus, view: &Presentation) -> String {
     let caption = match r.state {
-        TakeState::Empty => "Pronto para gravar",
-        TakeState::Recording => "Gravando",
-        TakeState::Ready => "Teste pronto",
-        TakeState::Incomplete => "Teste incompleto",
+        TakeState::Empty => crate::i18n::t!("daemon.rec.ready"),
+        TakeState::Recording => crate::i18n::t!("daemon.rec.recording"),
+        TakeState::Ready => crate::i18n::t!("daemon.rec.take_ready"),
+        TakeState::Incomplete => crate::i18n::t!("daemon.rec.take_incomplete"),
     };
     format!("{caption} · {}", view.duration)
 }
@@ -113,7 +119,7 @@ pub(crate) fn message<'a>(
     notice: Option<&'a str>,
 ) -> &'a str {
     if exporting {
-        "Exportando o teste selecionado…"
+        crate::i18n::t!("daemon.rec.exporting")
     } else if let Some(text) = notice {
         text
     } else if let Some(error) = pb.error.as_deref().filter(|_| pb.take_id == Some(r.id)) {
@@ -121,11 +127,11 @@ pub(crate) fn message<'a>(
     } else if let Some(warning) = view.warning.as_deref() {
         warning
     } else if !connected {
-        "Conecte o celular para gravar um novo teste."
+        crate::i18n::t!("daemon.rec.connect")
     } else if pb.playing {
-        "Reproduzindo no dispositivo de saída padrão do sistema."
+        crate::i18n::t!("daemon.rec.playing")
     } else {
-        "Até 30 segundos. Nada é salvo até você escolher Exportar WAVs."
+        crate::i18n::t!("daemon.rec.hint")
     }
 }
 

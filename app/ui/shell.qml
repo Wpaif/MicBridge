@@ -18,7 +18,7 @@ ShellRoot {
         acceptLabel: I18n.t("export.accept")
         nameFilters: [I18n.t("export.filter")]
         currentFolder: "file://" + Quickshell.env("HOME")
-        selectedFile: "file://" + Quickshell.env("HOME") + "/teste-original.wav"
+        selectedFile: "file://" + Quickshell.env("HOME") + "/" + I18n.t("export.default_name")
         options: FileDialog.DontConfirmOverwrite
         onAccepted: backend.send({ c: "export", path: decodeURIComponent(String(selectedFile).replace(/^file:\/\//, "")) })
     }

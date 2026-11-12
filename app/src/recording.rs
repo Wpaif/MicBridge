@@ -217,10 +217,7 @@ fn finalize(inner: &Inner) {
         TakeState::Ready
     };
     if failed {
-        d.status.message = Some(
-            "Teste incompleto: a captura não acompanhou o áudio ou recebeu blocos incompatíveis."
-                .into(),
-        );
+        d.status.message = Some(crate::i18n::t!("daemon.rec.incomplete_capture").into());
     }
     if !d.original.is_empty() {
         d.take = Some(Arc::new(Take {

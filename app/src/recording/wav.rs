@@ -10,12 +10,11 @@ pub struct ExportError {
 }
 impl std::fmt::Display for ExportError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}; arquivos concluídos: {}",
-            self.source,
-            self.completed.len()
-        )
+        f.write_str(&crate::i18n::t!(
+            "daemon.wav.completed",
+            error = self.source,
+            files = self.completed.len()
+        ))
     }
 }
 impl std::error::Error for ExportError {}
@@ -25,7 +24,12 @@ pub fn encode(samples: &[f32]) -> io::Result<Vec<u8>> {
         .checked_mul(2)
         .and_then(|n| u32::try_from(n).ok())
         .filter(|n| *n <= u32::MAX - 36)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "WAV grande demais"))?;
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                crate::i18n::t!("daemon.wav.too_big"),
+            )
+        })?;
     let mut bytes = Vec::with_capacity(44 + len as usize);
     bytes.extend_from_slice(b"RIFF");
     bytes.extend_from_slice(&(36 + len).to_le_bytes());
@@ -98,7 +102,7 @@ pub fn export_with_overwrite(
             completed,
             source: io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "Teste vazio, amostras desalinhadas ou destinos iguais",
+                crate::i18n::t!("daemon.wav.invalid"),
             ),
         });
     }
@@ -112,7 +116,7 @@ pub fn export_with_overwrite(
                 completed,
                 source: io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "Escolha arquivos regulares, sem links simbólicos, para os dois WAVs",
+                    crate::i18n::t!("daemon.wav.not_regular"),
                 ),
             });
         }
@@ -141,7 +145,7 @@ pub fn export_with_overwrite(
             {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "Os destinos precisam ser arquivos regulares distintos",
+                    crate::i18n::t!("daemon.wav.distinct"),
                 ));
             }
             // Opening must not truncate until the actual file identity is checked.

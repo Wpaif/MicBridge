@@ -58,16 +58,24 @@ fn identity(v: &serde_json::Value) -> Option<ObjectIdentity> {
 impl Graph {
     pub fn parse(json: &str) -> Result<Self, String> {
         let value: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
-        let list = value.as_array().ok_or("Grafo PipeWire inválido")?;
+        let list = value
+            .as_array()
+            .ok_or(crate::i18n::t!("daemon.routing.graph_invalid"))?;
         let core = list
             .iter()
             .find(|n| n["type"] == "PipeWire:Interface:Core")
-            .ok_or("Core ausente")?;
+            .ok_or(crate::i18n::t!("daemon.routing.core_missing"))?;
         let mut g = Self {
             core: CoreIdentity {
-                name: core["info"]["name"].as_str().ok_or("Core sem nome")?.into(),
-                cookie: u32::try_from(number(&core["info"]["cookie"]).ok_or("Core sem cookie")?)
-                    .map_err(|e| e.to_string())?,
+                name: core["info"]["name"]
+                    .as_str()
+                    .ok_or(crate::i18n::t!("daemon.routing.core_no_name"))?
+                    .into(),
+                cookie: u32::try_from(
+                    number(&core["info"]["cookie"])
+                        .ok_or(crate::i18n::t!("daemon.routing.core_no_cookie"))?,
+                )
+                .map_err(|e| e.to_string())?,
             },
             nodes: vec![],
             ports: vec![],
@@ -148,7 +156,7 @@ impl Graph {
                 }
                 g.links.push(link);
             } else if info["state"] != "error" {
-                return Err("Link sem identidade verificável dos endpoints".into());
+                return Err(crate::i18n::t!("daemon.routing.link_unverifiable").into());
             }
         }
         Ok(g)
@@ -167,7 +175,7 @@ impl Graph {
         name: &str,
     ) -> Result<Vec<SavedLink>, String> {
         if !self.target_matches(target) {
-            return Err("Saída removida ou substituída".into());
+            return Err(crate::i18n::t!("daemon.routing.output_replaced").into());
         }
         let nodes: Vec<_> = self
             .nodes
@@ -175,7 +183,7 @@ impl Graph {
             .filter(|(_, n, c)| n == name && c == "Stream/Output/Audio")
             .collect();
         if nodes.len() != 1 {
-            return Err("Fluxo de retorno ainda não disponível".into());
+            return Err(crate::i18n::t!("daemon.routing.stream_not_ready").into());
         }
         let outputs: Vec<_> = self
             .ports
@@ -192,12 +200,12 @@ impl Graph {
             .filter(|p| p.node.id == target.id && p.direction == Direction::Input)
             .collect();
         if outputs.is_empty() || inputs.is_empty() {
-            return Err("Portas de áudio ainda indisponíveis".into());
+            return Err(crate::i18n::t!("daemon.routing.ports_not_ready").into());
         }
         let mut links = vec![];
         for input in inputs {
             if !["FL", "FR", "MONO"].contains(&input.channel.as_str()) {
-                return Err("Canal de saída não identificável".into());
+                return Err(crate::i18n::t!("daemon.routing.channel_unknown").into());
             }
             let matching: Vec<_> = outputs
                 .iter()
@@ -208,7 +216,7 @@ impl Graph {
                     .iter()
                     .any(|l: &SavedLink| l.input.channel == input.channel)
             {
-                return Err("Mapeamento de canais ambíguo".into());
+                return Err(crate::i18n::t!("daemon.routing.channels_ambiguous").into());
             }
             links.push(SavedLink {
                 core: self.core.clone(),
@@ -221,7 +229,7 @@ impl Graph {
     }
     pub fn competitors(&self, target: &OutputDevice, name: &str) -> Result<Vec<SavedLink>, String> {
         if !self.target_matches(target) {
-            return Err("Saída removida ou substituída".into());
+            return Err(crate::i18n::t!("daemon.routing.output_replaced").into());
         }
         Ok(self
             .links

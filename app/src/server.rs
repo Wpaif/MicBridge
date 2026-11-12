@@ -196,7 +196,10 @@ impl PeerConnectionEventHandler for Handler {
             if let Err(e) = pump(runtime, track, shared.clone(), generation).await {
                 tracing::error!("pipeline de áudio: {e:#}");
                 if shared.is_current(generation) {
-                    shared.set_error(Some(format!("Falha no processamento de áudio: {e}")));
+                    shared.set_error(Some(crate::i18n::t!(
+                        "daemon.status.audio_failed",
+                        error = e
+                    )));
                 }
             }
         }));

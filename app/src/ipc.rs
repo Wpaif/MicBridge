@@ -341,7 +341,7 @@ impl Daemon {
                 if let Some(dest) = pending.filter(|_| on) {
                     self.export(dest, true)?;
                 } else {
-                    self.notify_export("Exportação cancelada.".into());
+                    self.notify_export(crate::i18n::t!("daemon.export.cancelled").into());
                 }
             }
             "eq_preset" => self
@@ -399,9 +399,7 @@ impl Daemon {
         let name = msg["name"].as_str().unwrap_or_default();
         let mut library = self.library.lock().unwrap();
         if self.read_only {
-            return Err(
-                "Perfis somente leitura: corrija as preferências e reabra o MicBridge".into(),
-            );
+            return Err(crate::i18n::t!("daemon.profile.read_only").into());
         }
         let mut candidate = library.clone();
         let selected = candidate.selected.clone();
@@ -431,7 +429,7 @@ impl Daemon {
             other => return Err(format!("comando desconhecido: {other}")),
         };
         settings::save_profiles_to(&self.settings_path, &candidate)
-            .map_err(|e| format!("Não foi possível salvar: {e}"))?;
+            .map_err(|e| crate::i18n::t!("daemon.profile.save_failed", error = e))?;
         // Aplicar preserva o mute, como na interface GTK.
         if apply {
             candidate.config()?.apply(&self.shared.params);
@@ -448,17 +446,22 @@ impl Daemon {
             .config()
             .is_ok_and(|c| c != crate::profiles::Config::capture(&self.shared.params));
         let editable = !self.read_only;
-        let message = self.profile_error.lock().unwrap().clone().unwrap_or_else(|| {
-            if self.read_only {
-                "Não foi possível carregar os perfis. O arquivo foi preservado. Corrija as preferências e reabra o aplicativo para salvar perfis.".into()
-            } else if dirty {
-                "Alterações não salvas".into()
-            } else if factory {
-                "Perfil de fábrica · salve uma cópia para personalizar".into()
-            } else {
-                "Perfil salvo".into()
-            }
-        });
+        let message = self
+            .profile_error
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| {
+                if self.read_only {
+                    crate::i18n::t!("daemon.profile.load_failed").into()
+                } else if dirty {
+                    crate::i18n::t!("daemon.profile.unsaved").into()
+                } else if factory {
+                    crate::i18n::t!("daemon.profile.factory").into()
+                } else {
+                    crate::i18n::t!("daemon.profile.saved").into()
+                }
+            });
         json!({
             "dirty": dirty,
             "can_select": editable,
@@ -506,8 +509,8 @@ impl Daemon {
         let recording = self.recording.clone();
         tokio::task::spawn_blocking(move || {
             let text = match export_selection(&take, Some(&dest), confirmed) {
-                Ok(ExportOutcome::Saved) => "Os dois arquivos WAV foram exportados.".into(),
-                Ok(ExportOutcome::Cancelled) => "Exportação cancelada: o destino mudou. Escolha novamente para confirmar a substituição.".into(),
+                Ok(ExportOutcome::Saved) => crate::i18n::t!("daemon.export.done").into(),
+                Ok(ExportOutcome::Cancelled) => crate::i18n::t!("daemon.export.changed").into(),
                 Err(e) => e,
             };
             let mut control = recording.lock().unwrap();
@@ -570,7 +573,7 @@ impl Daemon {
             let result = self
                 .shared
                 .monitor_output()
-                .ok_or_else(|| "Escolha uma saída para o retorno".to_string())
+                .ok_or_else(|| crate::i18n::t!("daemon.monitor.choose").to_string())
                 .and_then(|target| self.shared.start_monitor(target));
             match result {
                 Ok(id) => control.pending = Some(PendingAction::Starting(id)),
@@ -702,7 +705,10 @@ impl Daemon {
         let activity = json!({ "gate": gate, "compressor": compressor, "auto_gain": auto_gain });
         // Números para os medidores da mesa de efeitos; nulos quando o efeito está
         // desligado ou sem áudio recente (o mesmo critério dos textos acima).
-        let live = |text: &str| text != "Desligado" && text != "Sem áudio";
+        let live = |text: &str| {
+            text != crate::i18n::t!("daemon.fx.off")
+                && text != crate::i18n::t!("daemon.fx.no_audio")
+        };
         let levels = p.effect_reading().levels;
         let fx = json!({
             "gate": live(&gate).then_some(match levels.gate {
@@ -723,7 +729,7 @@ impl Daemon {
             .collect();
         profiles.extend(
             library.custom.iter().map(
-                |c| json!({ "id": c.id, "name": c.name, "description": "Perfil personalizado" }),
+                |c| json!({ "id": c.id, "name": c.name, "description": crate::i18n::t!("daemon.profile.custom") }),
             ),
         );
         json!({
@@ -768,7 +774,7 @@ impl Daemon {
             // Atalhos do EQ e qual deles bate com as bandas atuais (nulo se nenhum).
             "eq_presets": crate::dsp::EQ_PRESETS
                 .iter()
-                .map(|(id, label, _)| json!({ "id": id, "label": label }))
+                .map(|(id, label, _)| json!({ "id": id, "label": crate::i18n::desktop().t(label) }))
                 .collect::<Vec<_>>(),
             "eq_preset": p.eq_preset(),
             "activity": activity,
@@ -835,7 +841,7 @@ impl Daemon {
         if std::os::unix::net::UnixStream::connect(&path).is_ok() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::AddrInUse,
-                "outra instância do MicBridge já está rodando",
+                crate::i18n::t!("daemon.already_running"),
             ));
         }
         let _ = std::fs::remove_file(&path);

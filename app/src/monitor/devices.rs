@@ -13,9 +13,11 @@ impl OutputDevice {
     }
 }
 pub fn parse(json: &str) -> Result<Vec<OutputDevice>, String> {
-    let value: serde_json::Value =
-        serde_json::from_str(json).map_err(|e| format!("Lista de saídas inválida: {e}"))?;
-    let nodes = value.as_array().ok_or("Lista de saídas não é um array")?;
+    let value: serde_json::Value = serde_json::from_str(json)
+        .map_err(|e| crate::i18n::t!("daemon.devices.invalid", error = e))?;
+    let nodes = value
+        .as_array()
+        .ok_or(crate::i18n::t!("daemon.devices.not_array"))?;
     let mut devices = Vec::new();
     for node in nodes {
         if node["type"] != "PipeWire:Interface:Node" {
@@ -132,7 +134,7 @@ async fn query_command(
         .kill_on_drop(true)
         .die_with_parent()
         .spawn()
-        .map_err(|e| format!("Não foi possível consultar saídas: {e}"))?;
+        .map_err(|e| crate::i18n::t!("daemon.devices.query_start_failed", error = e))?;
     let stdout = child.stdout.take().expect("stdout solicitado");
     let result = tokio::time::timeout(std::time::Duration::from_secs(2), async {
         let mut bytes = Vec::new();
@@ -142,16 +144,19 @@ async fn query_command(
             .await
             .map_err(|e| e.to_string())?;
         if bytes.len() > 8 * 1024 * 1024 {
-            return Err("Lista de dispositivos excedeu 8 MiB".into());
+            return Err(crate::i18n::t!("daemon.devices.too_big").into());
         }
         let status = child.wait().await.map_err(|e| e.to_string())?;
         if !status.success() {
-            return Err(format!("Consulta de saídas falhou: {status}"));
+            return Err(crate::i18n::t!(
+                "daemon.devices.query_failed",
+                status = status
+            ));
         }
         parse(std::str::from_utf8(&bytes).map_err(|e| e.to_string())?)
     })
     .await
-    .unwrap_or_else(|_| Err("Consulta de saídas excedeu 2 segundos".into()));
+    .unwrap_or_else(|_| Err(crate::i18n::t!("daemon.devices.timeout").into()));
     if result.is_err() {
         let _ = child.kill().await;
         let _ = child.wait().await;

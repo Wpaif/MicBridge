@@ -15,7 +15,7 @@ impl Choices {
     pub(crate) fn new(snapshot: &DeviceSnapshot, selected: Option<&OutputDevice>) -> Self {
         let mut c = Self {
             devices: vec![None],
-            labels: vec!["Escolha uma saída".into()],
+            labels: vec![crate::i18n::t!("daemon.monitor.choose_short").into()],
             selected: 0,
             available: false,
         };
@@ -39,7 +39,10 @@ impl Choices {
         }
         if let Some(selected) = selected.filter(|_| !c.available) {
             c.devices.push(Some(selected.clone()));
-            c.labels.push(format!("{} · indisponível", selected.label));
+            c.labels.push(crate::i18n::t!(
+                "daemon.monitor.device_unavailable",
+                device = selected.label
+            ));
             c.selected = (c.devices.len() - 1) as u32;
         }
         c
@@ -58,21 +61,21 @@ pub(crate) fn presentation(
 ) -> Presentation {
     let active = matches!(status.phase, MonitorPhase::Opening | MonitorPhase::Active);
     let text = match status.phase {
-        MonitorPhase::Disabled => "Retorno desligado".into(),
-        MonitorPhase::Restoring => "Restaurando conexões…".into(),
-        MonitorPhase::Opening => "Preparando saída exclusiva…".into(),
-        MonitorPhase::Active => format!(
-            "Retorno exclusivo em {}",
-            status
+        MonitorPhase::Disabled => crate::i18n::t!("daemon.monitor.off").into(),
+        MonitorPhase::Restoring => crate::i18n::t!("daemon.monitor.restoring").into(),
+        MonitorPhase::Opening => crate::i18n::t!("daemon.monitor.preparing").into(),
+        MonitorPhase::Active => crate::i18n::t!(
+            "daemon.monitor.active",
+            device = status
                 .target
                 .as_ref()
                 .map(|d| d.label.as_str())
-                .unwrap_or("saída selecionada")
+                .unwrap_or(crate::i18n::t!("daemon.monitor.selected_output"))
         ),
         MonitorPhase::Failed => status
             .error
             .clone()
-            .unwrap_or_else(|| "Falha local no retorno".into()),
+            .unwrap_or_else(|| crate::i18n::t!("daemon.monitor.failed").into()),
     };
     Presentation {
         active,
@@ -99,9 +102,9 @@ impl PendingAction {
     }
     pub(crate) fn text(self) -> &'static str {
         if self.active() {
-            "Preparando saída exclusiva…"
+            crate::i18n::t!("daemon.monitor.preparing")
         } else {
-            "Restaurando conexões…"
+            crate::i18n::t!("daemon.monitor.restoring")
         }
     }
 }

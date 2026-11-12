@@ -69,7 +69,7 @@ pub fn suggest(
     current: Current,
 ) -> Result<Suggestion, String> {
     if silence.len() < 50 || speech.len() < 100 {
-        return Err("Chegou pouco áudio do celular. Confira a conexão e tente de novo.".into());
+        return Err(crate::i18n::t!("daemon.cal.little_audio").into());
     }
     let noise_raw = percentile(
         &mut silence.iter().map(|s| s.raw_db).collect::<Vec<_>>(),
@@ -85,10 +85,7 @@ pub fn suggest(
         .filter(|s| s.gate_db > noise_gate + VOICED_ABOVE_NOISE_DB)
         .collect();
     if voiced.len() * 4 < speech.len() {
-        return Err(
-            "Não ouvi sua voz. Leia o texto em voz normal, perto do celular, e tente de novo."
-                .into(),
-        );
+        return Err(crate::i18n::t!("daemon.cal.no_voice").into());
     }
     let voice_gate = percentile(
         &mut voiced.iter().map(|s| s.gate_db).collect::<Vec<_>>(),
@@ -115,9 +112,9 @@ pub fn suggest(
         gate = noise + 3.0;
     }
     if separation < MIN_SEPARATION_DB {
-        warning = Some(format!(
-            "Sua voz ficou só {separation:.0} dB acima do ruído. Aproxime o celular da boca ou \
-             procure um lugar mais silencioso."
+        warning = Some(crate::i18n::t!(
+            "daemon.cal.low_separation",
+            db = crate::i18n::num(f64::from(separation), 0)
         ));
     }
     let gate_db = gate.clamp(-80.0, -20.0).round();
@@ -171,7 +168,7 @@ impl Calibration {
     /// Aplica a sugestão pronta; vira alteração não salva do perfil.
     pub fn apply(&mut self, p: &Params) -> Result<(), String> {
         let Phase::Done(s) = &self.phase else {
-            return Err("Nenhuma calibração pronta para aplicar".into());
+            return Err(crate::i18n::t!("daemon.cal.nothing_to_apply").into());
         };
         p.gate.store(true, Relaxed);
         p.set_gate_db(s.gate_db);
@@ -216,7 +213,7 @@ fn db(lin: f32) -> f32 {
 /// Começa uma calibração (cancela a anterior). Precisa do celular conectado.
 pub fn start(cal: &Arc<Mutex<Calibration>>, shared: &Arc<Shared>) -> Result<(), String> {
     if shared.status().link != Link::Connected {
-        return Err("Conecte o celular para calibrar.".into());
+        return Err(crate::i18n::t!("daemon.cal.connect").into());
     }
     let p = &shared.params;
     let run = {
@@ -286,12 +283,12 @@ async fn measure(
             }
         }
         if shared.status().link != Link::Connected {
-            return Err("O celular desconectou durante a calibração.".into());
+            return Err(crate::i18n::t!("daemon.cal.disconnected").into());
         }
         let frames = p.frames();
         if frames == last_frames {
             if t - last_fresh > STALL {
-                return Err("O áudio do celular parou de chegar. Tente de novo.".into());
+                return Err(crate::i18n::t!("daemon.cal.stalled").into());
             }
             continue;
         }

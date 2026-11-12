@@ -78,7 +78,7 @@ impl Config {
             (self.denoise_strength, 0.0, 100.0),
         ] {
             if !value.is_finite() || !(min..=max).contains(&value) {
-                return Err("Configuração de áudio fora dos limites permitidos".into());
+                return Err(crate::i18n::t!("daemon.profile.out_of_range").into());
             }
         }
         Ok(())
@@ -115,11 +115,11 @@ impl Library {
             .iter()
             .find(|p| p.id == self.selected)
             .map(|p| p.config.clone())
-            .ok_or_else(|| "Perfil não encontrado".into())
+            .ok_or_else(|| crate::i18n::t!("daemon.profile.not_found").into())
     }
     pub fn validate(&self) -> Result<(), String> {
         if self.version != 1 || self.custom.len() > 32 {
-            return Err("Biblioteca de perfis incompatível ou acima do limite de 32 perfis".into());
+            return Err(crate::i18n::t!("daemon.profile.incompatible").into());
         }
         let mut ids = std::collections::HashSet::new();
         for profile in &self.custom {
@@ -127,7 +127,7 @@ impl Library {
                 || profile.id.len() > 80
                 || !ids.insert(&profile.id)
             {
-                return Err("Identificador de perfil inválido ou duplicado".into());
+                return Err(crate::i18n::t!("daemon.profile.invalid_id").into());
             }
             self.name(&profile.name, Some(&profile.id))?;
             profile.config.validate()?;
@@ -138,16 +138,19 @@ impl Library {
     pub(crate) fn name(&self, name: &str, except: Option<&str>) -> Result<String, String> {
         let name = name.trim();
         if name.is_empty() || name.chars().count() > 60 || name.chars().any(char::is_control) {
-            return Err("Use um nome de 1 a 60 caracteres, sem quebras de linha".into());
+            return Err(crate::i18n::t!("daemon.profile.name_rules").into());
         }
         let key = name.to_lowercase();
-        if Preset::ALL.iter().any(|p| p.name().to_lowercase() == key)
+        // Vale o nome de fábrica em qualquer idioma: trocar o idioma não cria conflito.
+        if Preset::ALL
+            .iter()
+            .any(|p| crate::i18n::desktop_all(p.name_key()).any(|n| n.to_lowercase() == key))
             || self
                 .custom
                 .iter()
                 .any(|p| Some(p.id.as_str()) != except && p.name.to_lowercase() == key)
         {
-            return Err("Já existe um perfil com esse nome".into());
+            return Err(crate::i18n::t!("daemon.profile.name_taken").into());
         }
         Ok(name.into())
     }
@@ -155,7 +158,7 @@ impl Library {
         let name = self.name(name, None)?;
         config.validate()?;
         if self.custom.len() >= 32 {
-            return Err("Limite de 32 perfis personalizados atingido".into());
+            return Err(crate::i18n::t!("daemon.profile.limit").into());
         }
         let id = format!("custom-{}", crate::state::random_hex(16));
         self.custom.push(Custom {
@@ -180,11 +183,11 @@ impl Library {
         self.custom
             .iter_mut()
             .find(|p| p.id == id)
-            .ok_or_else(|| "Os perfis de fábrica são protegidos; salve como novo perfil".into())
+            .ok_or_else(|| crate::i18n::t!("daemon.profile.factory_protected").into())
     }
     pub fn select(&mut self, id: &str) -> Result<(), String> {
         if Preset::from_key(id).is_none() && !self.custom.iter().any(|p| p.id == id) {
-            return Err("Perfil não encontrado".into());
+            return Err(crate::i18n::t!("daemon.profile.not_found").into());
         }
         self.selected = id.into();
         Ok(())

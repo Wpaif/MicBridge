@@ -80,11 +80,11 @@ impl Playback {
                     settled_tx.send_replace(operation);
                     let Request::Play {operation,take,version}=request else {continue};
                     let samples=match version {Version::Original=>&take.original,Version::Treated=>&take.treated};
-                    if samples.is_empty() {complete(&worker_status,operation,Some("Teste sem áudio para reproduzir".into()));continue;}
+                    if samples.is_empty() {complete(&worker_status,operation,Some(crate::i18n::t!("daemon.play.no_audio").into()));continue;}
                     let mut child=match Command::new(&executable).args(&args)
                         .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
                         .kill_on_drop(true).die_with_parent().spawn() {
-                        Ok(child)=>child,Err(e)=>{complete(&worker_status,operation,Some(format!("Não foi possível abrir a reprodução: {e}")));continue;}
+                        Ok(child)=>child,Err(e)=>{complete(&worker_status,operation,Some(crate::i18n::t!("daemon.play.open_failed", error = e)));continue;}
                     };
                     let mut stdin=child.stdin.take().expect("stdin solicitado");
                     let bytes:Vec<u8>=samples.iter().flat_map(|s|s.to_le_bytes()).collect();
@@ -101,11 +101,11 @@ impl Playback {
                             stdin.shutdown().await?;
                             drop(stdin);
                             let status=child.wait().await?;
-                            if status.success() {Ok(())} else {Err(std::io::Error::other(format!("reprodutor encerrou com {status}")))}
+                            if status.success() {Ok(())} else {Err(std::io::Error::other(crate::i18n::t!("daemon.play.player_exited", status = status)))}
                         }=>result,
                     };
                     if result.is_err() {let _=child.kill().await;let _=child.wait().await;}
-                    complete(&worker_status,operation,result.err().map(|e|format!("Falha na reprodução: {e}")));
+                    complete(&worker_status,operation,result.err().map(|e|crate::i18n::t!("daemon.play.failed", error = e)));
                 }
             });
         }).expect("thread de reprodução");
@@ -146,7 +146,7 @@ impl Playback {
                 settled
                     .changed()
                     .await
-                    .map_err(|_| "Worker A/B encerrou antes de confirmar a parada".to_string())?;
+                    .map_err(|_| crate::i18n::t!("daemon.play.worker_ended").to_string())?;
             }
         }
     }

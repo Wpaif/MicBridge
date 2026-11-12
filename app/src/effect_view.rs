@@ -10,34 +10,39 @@ struct Presentation {
 fn presentation(snapshot: EffectSnapshot, enabled: [bool; 3], fresh: bool) -> Presentation {
     let status = |on: bool, value: Option<String>| {
         if !on {
-            "Desligado".into()
+            crate::i18n::t!("daemon.fx.off").into()
         } else if !fresh {
-            "Sem áudio".into()
+            crate::i18n::t!("daemon.fx.no_audio").into()
         } else {
-            value.unwrap_or_else(|| "Sem áudio".into())
+            value.unwrap_or_else(|| crate::i18n::t!("daemon.fx.no_audio").into())
         }
     };
     let gate = match snapshot.gate {
         GateState::Disabled => None,
-        GateState::Open => Some("Aberto".into()),
-        GateState::Holding => Some("Em espera".into()),
-        GateState::Attenuating => Some("Atenuando".into()),
+        GateState::Open => Some(crate::i18n::t!("daemon.fx.open").into()),
+        GateState::Holding => Some(crate::i18n::t!("daemon.fx.holding").into()),
+        GateState::Attenuating => Some(crate::i18n::t!("daemon.fx.attenuating").into()),
     };
     Presentation {
         gate: status(enabled[0], gate),
         compressor: status(
             enabled[1],
-            snapshot
-                .compression_db
-                .filter(|v| v.is_finite())
-                .map(|v| format!("Redução: {v:.1} dB").replace('.', ",")),
+            snapshot.compression_db.filter(|v| v.is_finite()).map(|v| {
+                crate::i18n::t!(
+                    "daemon.fx.reduction",
+                    db = crate::i18n::num(f64::from(v), 1)
+                )
+            }),
         ),
         auto_gain: status(
             enabled[2],
-            snapshot
-                .auto_gain_db
-                .filter(|v| v.is_finite())
-                .map(|v| format!("Ajuste: {v:+.1} dB").replace('.', ",")),
+            snapshot.auto_gain_db.filter(|v| v.is_finite()).map(|v| {
+                let sign = if v >= 0.0 { "+" } else { "" };
+                crate::i18n::t!(
+                    "daemon.fx.adjust",
+                    db = format!("{sign}{}", crate::i18n::num(f64::from(v), 1))
+                )
+            }),
         ),
     }
 }

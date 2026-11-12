@@ -18,7 +18,9 @@ pub struct Journal {
 }
 impl Journal {
     pub fn open(path: PathBuf) -> Result<Self, String> {
-        let parent = path.parent().ok_or("Registro sem diretório")?;
+        let parent = path
+            .parent()
+            .ok_or(crate::i18n::t!("daemon.routing.journal_no_dir"))?;
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         let lock = OpenOptions::new()
             .read(true)
@@ -31,9 +33,9 @@ impl Journal {
             .map_err(|e| e.to_string())?;
         // SAFETY: flock receives a live file descriptor and valid nonblocking flags.
         if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Err(format!(
-                "Outra instância controla as conexões de áudio: {}",
-                std::io::Error::last_os_error()
+            return Err(crate::i18n::t!(
+                "daemon.routing.journal_locked",
+                detail = std::io::Error::last_os_error()
             ));
         }
         Ok(Self { path, _lock: lock })
@@ -53,12 +55,12 @@ impl Journal {
             .read_to_end(&mut bytes)
             .map_err(|e| e.to_string())?;
         if bytes.len() > LIMIT {
-            return Err("Registro excedeu 8 MiB".into());
+            return Err(crate::i18n::t!("daemon.routing.journal_too_big").into());
         }
         let r: Record = serde_json::from_slice(&bytes)
-            .map_err(|e| format!("Registro de conexões inválido: {e}"))?;
+            .map_err(|e| crate::i18n::t!("daemon.routing.journal_invalid", error = e))?;
         if r.version != 1 || r.entries.len() > 4096 {
-            return Err("Versão ou tamanho do registro inválido".into());
+            return Err(crate::i18n::t!("daemon.routing.journal_version").into());
         }
         Ok(r.entries)
     }
@@ -73,7 +75,7 @@ impl Journal {
             }
         }
         if unique.len() > 4096 {
-            return Err("Limite de 4096 conexões excedido".into());
+            return Err(crate::i18n::t!("daemon.routing.journal_limit").into());
         }
         let bytes = serde_json::to_vec(&Record {
             version: 1,
@@ -81,7 +83,7 @@ impl Journal {
         })
         .map_err(|e| e.to_string())?;
         if bytes.len() > LIMIT {
-            return Err("Registro excedeu 8 MiB".into());
+            return Err(crate::i18n::t!("daemon.routing.journal_too_big").into());
         }
         let temp = self.path.with_extension(format!(
             "tmp-{}-{}",
@@ -102,7 +104,7 @@ impl Journal {
         if result.is_err() {
             let _ = std::fs::remove_file(&temp);
         }
-        result.map_err(|e| format!("Não foi possível registrar conexões: {e}"))
+        result.map_err(|e| crate::i18n::t!("daemon.routing.journal_write_failed", error = e))
     }
     pub fn clear(&self) -> Result<(), String> {
         match std::fs::remove_file(&self.path) {

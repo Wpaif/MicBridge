@@ -11,7 +11,7 @@ pub trait RoutingBackend: Send + Sync {
     async fn disconnect(&self, link: &SavedLink) -> Result<(), String>;
     async fn disconnect_current(&self, link: &SavedLink, lease: &AtomicBool) -> Result<(), String> {
         if !lease.load(SeqCst) {
-            return Err("Retorno cancelado".into());
+            return Err(crate::i18n::t!("daemon.routing.cancelled").into());
         }
         self.disconnect(link).await
     }
@@ -25,7 +25,7 @@ impl Changes {
         use tokio::io::AsyncReadExt;
         let mut bytes = [0u8; 4096];
         match self.out.read(&mut bytes).await {
-            Ok(0) => Err("Observação das conexões PipeWire encerrou".into()),
+            Ok(0) => Err(crate::i18n::t!("daemon.routing.watch_ended").into()),
             Ok(_) => Ok(()),
             Err(e) => Err(e.to_string()),
         }
@@ -85,7 +85,7 @@ impl RealBackend {
     ) -> Result<(), String> {
         let before = self.snapshot().await?.validate_saved(link);
         if before == SavedState::Unavailable {
-            return Err("Conexão removida ou substituída antes da operação".into());
+            return Err(crate::i18n::t!("daemon.routing.link_replaced").into());
         }
         let expected = if connect {
             SavedState::Present
@@ -109,11 +109,11 @@ impl RealBackend {
             link.input.port.id.to_string(),
         ]);
         if lease.is_some_and(|lease| !lease.load(SeqCst)) {
-            return Err("Retorno cancelado".into());
+            return Err(crate::i18n::t!("daemon.routing.cancelled").into());
         }
         run(&self.link, &args).await?;
         if self.snapshot().await?.validate_saved(link) != expected {
-            return Err("PipeWire não confirmou a alteração da conexão".into());
+            return Err(crate::i18n::t!("daemon.routing.not_confirmed").into());
         }
         Ok(())
     }
@@ -141,14 +141,14 @@ async fn run(exe: &std::path::Path, args: &[String]) -> Result<String, String> {
         };
         let out = child.stdout.take().expect("stdout solicitado");
         let result = tokio::select! {
-            _=tx.closed()=>Err("Operação PipeWire cancelada".into()),
+            _=tx.closed()=>Err(crate::i18n::t!("daemon.routing.op_cancelled").into()),
             result=tokio::time::timeout(std::time::Duration::from_secs(2),async {
                 let mut bytes=vec![];out.take(8*1024*1024+1).read_to_end(&mut bytes).await.map_err(|e|e.to_string())?;
-                if bytes.len()>8*1024*1024 {return Err("Grafo excedeu 8 MiB".into())}
+                if bytes.len()>8*1024*1024 {return Err(crate::i18n::t!("daemon.routing.graph_too_big").into())}
                 let status=child.wait().await.map_err(|e|e.to_string())?;
-                if !status.success(){return Err(format!("{} encerrou com {status}",exe.display()))}
+                if !status.success(){return Err(crate::i18n::t!("daemon.routing.exited", program = exe.display(), status = status))}
                 String::from_utf8(bytes).map_err(|e|e.to_string())
-            })=>result.unwrap_or_else(|_|Err("Operação PipeWire excedeu 2 segundos".into())),
+            })=>result.unwrap_or_else(|_|Err(crate::i18n::t!("daemon.routing.timeout").into())),
         };
         if result.is_err() {
             let _ = child.kill().await;
@@ -157,7 +157,7 @@ async fn run(exe: &std::path::Path, args: &[String]) -> Result<String, String> {
         let _ = tx.send(result);
     });
     rx.await
-        .map_err(|_| "Executor de comandos encerrou".to_string())?
+        .map_err(|_| crate::i18n::t!("daemon.routing.executor_ended").to_string())?
 }
 #[cfg(test)]
 mod tests {

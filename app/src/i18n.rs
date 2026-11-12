@@ -1,8 +1,12 @@
-//! Textos traduzidos da página do celular.
+//! Textos traduzidos.
 //!
-//! Cada idioma é um JSON plano `chave -> texto` em `web/i18n/`, embutido no
-//! binário. O mesmo arquivo serve ao Rust (páginas montadas no servidor) e ao
-//! `app.js`, que o recebe embutido na página. Variáveis usam `{nome}`.
+//! Cada idioma é um JSON plano `chave -> texto`, embutido no binário, com
+//! variáveis em `{nome}`. Há dois conjuntos, porque são públicos diferentes:
+//!
+//! - a página do celular (`web/i18n/`), no idioma do navegador de quem a abre;
+//!   o mesmo arquivo vai embutido na página para o `app.js`;
+//! - o PC (`ui/i18n/`), no idioma do sistema: a janela QML lê o arquivo, e o
+//!   daemon usa as chaves `daemon.*` para o que mostra na janela e na bandeja.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -31,20 +35,38 @@ impl Locale {
     }
 }
 
-static LOCALES: LazyLock<Vec<Locale>> = LazyLock::new(|| {
-    SOURCES
+fn load(dir: &str, sources: &[(&'static str, &'static str)]) -> Vec<Locale> {
+    sources
         .iter()
         .map(|&(tag, json)| Locale {
             tag,
             json,
             texts: serde_json::from_str(json)
-                .unwrap_or_else(|e| panic!("web/i18n/{tag}.json inválido: {e}")),
+                .unwrap_or_else(|e| panic!("{dir}/{tag}.json inválido: {e}")),
         })
         .collect()
-});
+}
+
+static LOCALES: LazyLock<Vec<Locale>> = LazyLock::new(|| load("web/i18n", SOURCES));
 
 fn by_tag(tag: &str) -> Option<&'static Locale> {
-    LOCALES.iter().find(|l| l.tag.eq_ignore_ascii_case(tag))
+    find(&LOCALES, tag)
+}
+
+/// A tag exata (`pt-BR`) ou, sem ela, a mesma língua (`pt-PT` e `pt` caem em `pt-BR`).
+fn find<'a>(locales: &'a [Locale], tag: &str) -> Option<&'a Locale> {
+    locales
+        .iter()
+        .find(|l| l.tag.eq_ignore_ascii_case(tag))
+        .or_else(|| {
+            let lang = tag.split('-').next()?;
+            locales.iter().find(|l| {
+                l.tag
+                    .split('-')
+                    .next()
+                    .is_some_and(|p| p.eq_ignore_ascii_case(lang))
+            })
+        })
 }
 
 /// Escolhe o idioma pelo cabeçalho `Accept-Language` (ex.: `pt-BR,pt;q=0.9,en;q=0.8`).
@@ -69,20 +91,82 @@ pub fn negotiate(accept_language: Option<&str>) -> &'static Locale {
 
     wanted
         .iter()
-        .find_map(|&(_, tag)| {
-            by_tag(tag).or_else(|| {
-                let lang = tag.split('-').next()?;
-                LOCALES.iter().find(|l| {
-                    l.tag
-                        .split('-')
-                        .next()
-                        .is_some_and(|p| p.eq_ignore_ascii_case(lang))
-                })
-            })
-        })
+        .find_map(|&(_, tag)| by_tag(tag))
         .or_else(|| by_tag(FALLBACK))
         .expect("o idioma padrão existe")
 }
+
+/// `(tag, JSON)` dos idiomas do PC, os mesmos que o `I18n.qml` carrega.
+const DESKTOP_SOURCES: &[(&str, &str)] = &[
+    ("pt-BR", include_str!("../ui/i18n/pt-BR.json")),
+    ("en", include_str!("../ui/i18n/en.json")),
+];
+
+static DESKTOP_LOCALES: LazyLock<Vec<Locale>> = LazyLock::new(|| load("ui/i18n", DESKTOP_SOURCES));
+
+/// Idioma de uma variável POSIX (`pt_BR.UTF-8`, `en_US`, `C`), como o `I18n.qml` faz.
+fn posix(locale: &str) -> &'static Locale {
+    let tag = locale
+        .split(['.', '@'])
+        .next()
+        .unwrap_or_default()
+        .replace('_', "-");
+    find(&DESKTOP_LOCALES, &tag)
+        .or_else(|| find(&DESKTOP_LOCALES, FALLBACK))
+        .expect("o idioma padrão existe")
+}
+
+static DESKTOP: LazyLock<&'static Locale> = LazyLock::new(|| {
+    // Os testes conferem os textos em português, qualquer que seja o idioma da máquina.
+    if cfg!(test) {
+        return posix("pt_BR");
+    }
+    let var = |name| std::env::var(name).ok().filter(|v| !v.is_empty());
+    posix(
+        &var("LC_ALL")
+            .or_else(|| var("LC_MESSAGES"))
+            .or_else(|| var("LANG"))
+            .unwrap_or_default(),
+    )
+});
+
+/// Idioma do PC, para o que o daemon mostra na janela e na bandeja.
+pub fn desktop() -> &'static Locale {
+    *DESKTOP
+}
+
+/// Textos da chave em todos os idiomas do PC (para comparar com o que o usuário digita).
+pub fn desktop_all(key: &'static str) -> impl Iterator<Item = &'static str> {
+    DESKTOP_LOCALES.iter().map(move |l| l.t(key))
+}
+
+/// Número com o separador decimal do idioma do PC.
+pub fn num(value: f64, digits: usize) -> String {
+    format!("{value:.digits$}").replace('.', desktop().t("format.decimal"))
+}
+
+impl Locale {
+    /// Texto da chave com as variáveis `{nome}` trocadas pelos valores.
+    pub fn fill(&self, key: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> String {
+        let mut text = self.t(key).to_string();
+        for (name, value) in vars {
+            text = text.replace(&format!("{{{name}}}"), &value.to_string());
+        }
+        text
+    }
+}
+
+/// Texto no idioma do PC: `t!("chave")` dá `&'static str`;
+/// `t!("chave", nome = valor, ...)` troca as variáveis e dá `String`.
+macro_rules! t {
+    ($key:literal) => {
+        $crate::i18n::desktop().t($key)
+    };
+    ($key:literal, $($name:ident = $value:expr),+ $(,)?) => {
+        $crate::i18n::desktop().fill($key, &[$((stringify!($name), &$value as &dyn std::fmt::Display)),+])
+    };
+}
+pub(crate) use t;
 
 /// Escapa texto para HTML e transforma `\n` em `<br>`.
 pub fn html(text: &str) -> String {
@@ -259,5 +343,96 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Chaves `t!("...")` e `"daemon.*"` literais no código de produção do Rust.
+    fn rust_keys() -> Vec<String> {
+        fn walk(dir: &std::path::Path, out: &mut Vec<String>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    let src = std::fs::read_to_string(&path).unwrap();
+                    let code = src.split("#[cfg(test)]").next().unwrap();
+                    let mut rest = code;
+                    while let Some(i) = rest.find("\"daemon.") {
+                        rest = &rest[i + 1..];
+                        let end = rest.find('"').unwrap();
+                        out.push(rest[..end].to_string());
+                    }
+                }
+            }
+        }
+        let mut keys = Vec::new();
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut keys,
+        );
+        keys
+    }
+
+    #[test]
+    fn toda_chave_do_daemon_tem_texto_nos_idiomas_do_pc() {
+        let keys = rust_keys();
+        for expected in [
+            "daemon.status.connected",
+            "daemon.tray.quit",
+            "daemon.eq.flat",
+            "daemon.preset.bruto.name",
+        ] {
+            assert!(
+                keys.iter().any(|k| k == expected),
+                "{expected} não extraída"
+            );
+        }
+        for locale in DESKTOP_LOCALES.iter() {
+            for key in &keys {
+                assert_ne!(
+                    locale.t(key),
+                    key.as_str(),
+                    "ui/i18n/{}.json sem a chave {key}",
+                    locale.tag
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn idioma_do_pc_vem_da_variavel_posix() {
+        assert_eq!(posix("pt_BR.UTF-8").tag, "pt-BR");
+        assert_eq!(posix("pt_PT.UTF-8@euro").tag, "pt-BR");
+        assert_eq!(posix("en_US.UTF-8").tag, "en");
+        assert_eq!(posix("de_DE.UTF-8").tag, FALLBACK);
+        assert_eq!(posix("C").tag, FALLBACK);
+        assert_eq!(posix("").tag, FALLBACK);
+        // Nos testes o daemon fala português, para os textos conferidos nos outros módulos.
+        assert_eq!(desktop().tag, "pt-BR");
+        assert_eq!(num(-1.25, 1), "-1,2");
+    }
+
+    #[test]
+    fn daemon_em_ingles_usa_textos_e_variaveis_do_catalogo() {
+        let en = posix("en_US.UTF-8");
+        assert_eq!(en.t("daemon.status.connected"), "Connected");
+        assert_eq!(en.t("daemon.tray.quit"), "Quit");
+        assert_eq!(
+            en.fill("daemon.monitor.active", &[("device", &"Headphones")]),
+            "Exclusive monitor on Headphones"
+        );
+        assert_eq!(en.t("format.decimal"), ".");
+        assert_eq!(en.t("export.default_name"), "test-original.wav");
+    }
+
+    #[test]
+    fn nome_de_fabrica_em_qualquer_idioma_nao_pode_virar_perfil() {
+        let library = crate::profiles::Library::new(crate::dsp::Preset::Chamada);
+        for name in ["Chamada", "call", "Original"] {
+            assert!(
+                library.name(name, None).is_err(),
+                "{name} deveria conflitar"
+            );
+        }
+        assert_eq!(library.name("Minha voz", None).unwrap(), "Minha voz");
     }
 }

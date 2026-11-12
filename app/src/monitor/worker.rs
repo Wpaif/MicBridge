@@ -66,7 +66,7 @@ async fn run(
                 report
                     .error
                     .clone()
-                    .unwrap_or_else(|| "Restauração de conexões pendente".into()),
+                    .unwrap_or_else(|| crate::i18n::t!("daemon.monitor.restore_pending").into()),
             )
         } else {
             None
@@ -102,8 +102,7 @@ async fn run(
             fail(
                 &core,
                 id,
-                "A saída não possui identificação estável. Atualize a lista e escolha outra saída."
-                    .into(),
+                crate::i18n::t!("daemon.monitor.no_stable_id").into(),
             );
             continue;
         };
@@ -138,7 +137,11 @@ async fn run(
         {
             Ok(c) => c,
             Err(e) => {
-                fail(&core, id, format!("Não foi possível abrir o retorno: {e}"));
+                fail(
+                    &core,
+                    id,
+                    crate::i18n::t!("daemon.monitor.open_failed", error = e),
+                );
                 continue;
             }
         };
@@ -153,7 +156,7 @@ async fn run(
                 fail(
                     &core,
                     id,
-                    "Não foi possível preparar o fluxo de retorno".into(),
+                    crate::i18n::t!("daemon.monitor.prepare_failed").into(),
                 );
                 continue;
             }
@@ -162,7 +165,7 @@ async fn run(
         let opening = tokio::select! {biased;
             changed=commands.changed()=>Some(next_command(changed,&mut commands)),
             _=cancelled(&core,id,&lease,false)=>Some(End::Stopped),
-            result=child.wait()=>Some(End::Error(format!("O reprodutor encerrou durante a preparação: {result:?}"))),
+            result=child.wait()=>Some(End::Error(crate::i18n::t!("daemon.monitor.player_exited_preparing", result = format!("{result:?}")))),
             result=route.ready()=>result.err().map(End::Error),
         };
         let end = if let Some(end) = opening {
@@ -268,7 +271,7 @@ async fn stream(
             changed=commands.changed()=>return next_command(changed,commands),
             _=cancelled(core,id,lease,true)=>return End::Stopped,
             error=route.failure()=>return End::Error(error),
-            result=child.wait()=>return End::Error(format!("O reprodutor do retorno encerrou: {result:?}")),
+            result=child.wait()=>return End::Error(crate::i18n::t!("daemon.monitor.player_exited", result = format!("{result:?}"))),
             _=interval.tick()=>{}
         }
         let Ok(mut block) = queue.try_recv() else {
@@ -291,7 +294,7 @@ async fn stream(
             result=tokio::time::timeout(Duration::from_millis(250),stdin.write_all(&bytes))=>result,
         };
         if !matches!(result, Ok(Ok(()))) {
-            return End::Error("Falha ou espera excessiva ao escrever no retorno".into());
+            return End::Error(crate::i18n::t!("daemon.monitor.write_failed").into());
         }
     }
 }

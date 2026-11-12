@@ -26,17 +26,17 @@ pub const EQ_HIGH_HZ: f32 = 6_000.0;
 /// Limite de cada banda, para mais e para menos.
 pub const EQ_MAX_DB: f32 = 12.0;
 
-/// Atalhos do equalizador: (id, nome na tela, [graves, médios, agudos] em dB).
+/// Atalhos do equalizador: (id, chave do nome na tela, [graves, médios, agudos] em dB).
 /// Os ganhos são moderados de propósito: o limitador e o compressor vêm depois,
 /// e reforços grandes viram bombeamento. `dsp_quality` confere o efeito de cada um.
 pub const EQ_PRESETS: [(&str, &str, [f32; 3]); 4] = [
-    ("flat", "Plano", [0.0, 0.0, 0.0]),
+    ("flat", "daemon.eq.flat", [0.0, 0.0, 0.0]),
     // Voz abafada (celular no bolso, máscara, tecido): tira graves e abre agudos.
-    ("clear", "Clarear", [-3.0, 1.0, 6.0]),
+    ("clear", "daemon.eq.clear", [-3.0, 1.0, 6.0]),
     // Voz fina (celular longe, microfone pequeno): devolve corpo nos graves.
-    ("warm", "Encorpar", [5.0, 0.0, -2.0]),
+    ("warm", "daemon.eq.warm", [5.0, 0.0, -2.0]),
     // Ambiente reverberante: menos graves e médios embolados, um pouco mais de agudo.
-    ("dry", "Secar", [-5.0, -3.0, 2.0]),
+    ("dry", "daemon.eq.dry", [-5.0, -3.0, 2.0]),
 ];
 const COMP_ATTACK_MS: f32 = 5.0;
 const COMP_RELEASE_MS: f32 = 120.0;
@@ -191,14 +191,19 @@ impl Preset {
         Preset::Bruto,
     ];
 
-    pub fn name(self) -> &'static str {
+    /// Chave do nome no catálogo do PC (o nome exibido muda com o idioma).
+    pub fn name_key(self) -> &'static str {
         match self {
-            Preset::Natural => "Natural",
-            Preset::Chamada => "Chamada",
-            Preset::Podcast => "Podcast",
-            Preset::Streaming => "Streaming",
-            Preset::Bruto => "Original",
+            Preset::Natural => "daemon.preset.natural.name",
+            Preset::Chamada => "daemon.preset.chamada.name",
+            Preset::Podcast => "daemon.preset.podcast.name",
+            Preset::Streaming => "daemon.preset.streaming.name",
+            Preset::Bruto => "daemon.preset.bruto.name",
         }
+    }
+
+    pub fn name(self) -> &'static str {
+        crate::i18n::desktop().t(self.name_key())
     }
 
     /// Identificador estável, usado para guardar a escolha em disco. Diferente de `name()`,
@@ -219,11 +224,11 @@ impl Preset {
 
     pub fn description(self) -> &'static str {
         match self {
-            Preset::Natural => "Voz limpa, processamento leve",
-            Preset::Chamada => "Reuniões: remove ruído e deixa a voz clara",
-            Preset::Podcast => "Voz encorpada e com volume uniforme",
-            Preset::Streaming => "Corta teclado e ventilador com firmeza",
-            Preset::Bruto => "Sem tratamento: só a proteção contra estouro",
+            Preset::Natural => crate::i18n::t!("daemon.preset.natural.description"),
+            Preset::Chamada => crate::i18n::t!("daemon.preset.chamada.description"),
+            Preset::Podcast => crate::i18n::t!("daemon.preset.podcast.description"),
+            Preset::Streaming => crate::i18n::t!("daemon.preset.streaming.description"),
+            Preset::Bruto => crate::i18n::t!("daemon.preset.bruto.description"),
         }
     }
 }

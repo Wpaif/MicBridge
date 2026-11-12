@@ -72,7 +72,7 @@ impl Tray for MicTray {
             .into(),
             MenuItem::Separator,
             StandardItem {
-                label: "Abrir MicBridge".into(),
+                label: crate::i18n::t!("daemon.tray.open").into(),
                 icon_name: "audio-input-microphone-symbolic".into(),
                 activate: Box::new(|t: &mut Self| {
                     let _ = t.tx.try_send(TrayEvent::Show);
@@ -82,7 +82,7 @@ impl Tray for MicTray {
             .into(),
             MenuItem::Separator,
             StandardItem {
-                label: "Sair".into(),
+                label: crate::i18n::t!("daemon.tray.quit").into(),
                 icon_name: "application-exit-symbolic".into(),
                 activate: Box::new(|t: &mut Self| {
                     let _ = t.tx.try_send(TrayEvent::Quit);

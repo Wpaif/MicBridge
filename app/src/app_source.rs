@@ -94,7 +94,7 @@ impl AppSource {
                     .iter()
                     .find(|s| s.id == id)
                     .cloned()
-                    .ok_or("App não encontrado; a lista mudou")?,
+                    .ok_or(crate::i18n::t!("daemon.extra.not_found"))?,
             ),
         };
         st.snapshot.selected = wanted.as_ref().map(|s| s.id);
@@ -319,7 +319,8 @@ async fn tick(
     applied_volume: &mut Option<(u32, f32)>,
 ) {
     let Some(g) = read_graph().await else {
-        source.state.lock().unwrap().snapshot.error = Some("PipeWire indisponível".into());
+        source.state.lock().unwrap().snapshot.error =
+            Some(crate::i18n::t!("daemon.extra.pipewire_down").into());
         return;
     };
 
@@ -365,7 +366,7 @@ async fn tick(
     let Some(sink) = g.sink else {
         let mut st = source.state.lock().unwrap();
         st.snapshot.linked = false;
-        st.snapshot.error = Some("Microfone virtual ausente; aguardando".into());
+        st.snapshot.error = Some(crate::i18n::t!("daemon.extra.no_mic").into());
         return;
     };
     let (Some(loop_in), Some(loop_out), true) = (g.loop_in, g.loop_out, alive) else {
@@ -407,7 +408,7 @@ async fn tick(
     let Some(stream) = wanted else {
         let mut st = source.state.lock().unwrap();
         st.snapshot.linked = false;
-        st.snapshot.error = Some("O app parou de tocar; volta sozinho quando tocar de novo".into());
+        st.snapshot.error = Some(crate::i18n::t!("daemon.extra.stopped").into());
         return;
     };
     let to_sink = wanted_links(&g, loop_out, sink);
@@ -423,7 +424,8 @@ async fn tick(
     }
     let mut st = source.state.lock().unwrap();
     st.snapshot.linked = ok;
-    st.snapshot.error = (!ok).then(|| format!("Não foi possível ligar {}", stream.app));
+    st.snapshot.error =
+        (!ok).then(|| crate::i18n::t!("daemon.extra.link_failed", app = stream.app));
 }
 
 #[cfg(test)]

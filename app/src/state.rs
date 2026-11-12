@@ -200,7 +200,7 @@ impl Shared {
     ) -> Result<crate::monitor::MonitorId, String> {
         let _transaction = self.lifecycle.lock().unwrap();
         if self.link() != Link::Connected {
-            return Err("Conecte o celular para ativar o retorno".into());
+            return Err(crate::i18n::t!("daemon.monitor.connect").into());
         }
         if !self
             .monitor_output
@@ -209,11 +209,11 @@ impl Shared {
             .as_ref()
             .is_some_and(|d| d.same_instance(&target))
         {
-            return Err("Escolha uma saída para o retorno".into());
+            return Err(crate::i18n::t!("daemon.monitor.choose").into());
         }
         let devices = self.devices.snapshot();
         if devices.error.is_some() || !devices.devices.iter().any(|d| d.same_instance(&target)) {
-            return Err("Saída indisponível. Atualize os dispositivos.".into());
+            return Err(crate::i18n::t!("daemon.monitor.unavailable").into());
         }
         Ok(self.local_audio.request_monitor(
             self.generation(),
@@ -368,40 +368,40 @@ impl Shared {
         if !self.pw_ok.load(Relaxed) {
             return Status {
                 link: Link::Error,
-                label: "Erro",
-                detail: "Microfone virtual indisponível: recriando…".into(),
+                label: crate::i18n::t!("daemon.status.error"),
+                detail: crate::i18n::t!("daemon.status.mic_recreating").into(),
             };
         }
         if let Some(e) = self.last_error.lock().unwrap().clone() {
             return Status {
                 link: Link::Error,
-                label: "Erro",
+                label: crate::i18n::t!("daemon.status.error"),
                 detail: e,
             };
         }
         match self.link() {
             Link::Connected => Status {
                 link: Link::Connected,
-                label: "Conectado",
-                detail: "Recebendo áudio do celular".into(),
+                label: crate::i18n::t!("daemon.status.connected"),
+                detail: crate::i18n::t!("daemon.status.receiving").into(),
             },
             Link::Connecting => Status {
                 link: Link::Connecting,
-                label: "Conectando",
-                detail: "Negociando a conexão…".into(),
+                label: crate::i18n::t!("daemon.status.connecting"),
+                detail: crate::i18n::t!("daemon.status.negotiating").into(),
             },
             Link::Reconnecting => Status {
                 link: Link::Reconnecting,
-                label: "Reconectando",
-                detail: "Conexão perdida. Aguardando o celular voltar…".into(),
+                label: crate::i18n::t!("daemon.status.reconnecting"),
+                detail: crate::i18n::t!("daemon.status.lost").into(),
             },
             _ => Status {
                 link: Link::Disconnected,
-                label: "Desconectado",
+                label: crate::i18n::t!("daemon.status.disconnected"),
                 detail: if self.device_count() == 0 {
-                    "Escaneie o QR code com o celular".into()
+                    crate::i18n::t!("daemon.status.scan").into()
                 } else {
-                    "Abra a página do MicBridge no celular".into()
+                    crate::i18n::t!("daemon.status.open_page").into()
                 },
             },
         }

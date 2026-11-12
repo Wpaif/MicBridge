@@ -14,5 +14,6 @@
   "denied.unpaired": "Este celular não está pareado. Escaneie o QR code mostrado no app do PC.",
   "denied.closed": "Pareamento fechado. Ative \"Aceitar novo celular\" no app do PC.",
   "denied.bad_qr": "QR code inválido.\nEscaneie o QR code mostrado no app do PC.",
-  "ca.not_found": "CA não encontrada"
+  "ca.not_found": "CA não encontrada",
+  "manifest.description": "Use o celular como microfone do PC."
 }

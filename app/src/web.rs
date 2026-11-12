@@ -37,15 +37,7 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/style.css",
             get(|| asset("text/css", include_str!("../web/style.css"))),
         )
-        .route(
-            "/manifest.json",
-            get(|| {
-                asset(
-                    "application/manifest+json",
-                    include_str!("../web/manifest.json"),
-                )
-            }),
-        )
+        .route("/manifest.json", get(manifest))
         .route(
             "/icon.svg",
             get(|| asset("image/svg+xml", include_str!("../web/icon.svg"))),
@@ -147,6 +139,23 @@ fn denied(loc: &Locale, key: &str, cookie: Option<String>) -> Response {
 
 async fn asset(content_type: &'static str, body: &'static str) -> Response {
     secured(([(header::CONTENT_TYPE, content_type)], body).into_response())
+}
+
+/// Manifesto do app instalável, com a descrição no idioma do navegador.
+async fn manifest(h: HeaderMap) -> Response {
+    let loc = locale(&h);
+    let mut value: serde_json::Value = serde_json::from_str(include_str!("../web/manifest.json"))
+        .expect("o manifesto embutido é JSON válido");
+    value["lang"] = loc.tag.into();
+    value["description"] = loc.t("manifest.description").into();
+    let mut res = (
+        [(header::CONTENT_TYPE, "application/manifest+json")],
+        value.to_string(),
+    )
+        .into_response();
+    res.headers_mut()
+        .insert(header::VARY, HeaderValue::from_static("Accept-Language"));
+    secured(res)
 }
 
 async fn icon_png() -> Response {
@@ -256,7 +265,7 @@ mod tests {
             keys.extend(keys_in(html, "<!--T:", "-->", ""));
         }
         keys.extend(keys_in(include_str!("../web/app.js"), "t(\"", "\"", ""));
-        for prefix in ["denied.", "ca."] {
+        for prefix in ["denied.", "ca.", "manifest."] {
             keys.extend(keys_in(rust, &format!("\"{prefix}"), "\"", prefix));
         }
         for expected in [
@@ -264,6 +273,7 @@ mod tests {
             "status.connected",
             "denied.bad_qr",
             "ca.not_found",
+            "manifest.description",
         ] {
             assert!(
                 keys.iter().any(|k| k == expected),

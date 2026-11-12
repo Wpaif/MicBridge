@@ -14,5 +14,6 @@
   "denied.unpaired": "This phone is not paired. Scan the QR code shown in the PC app.",
   "denied.closed": "Pairing is closed. Turn on \"Accept new phone\" in the PC app.",
   "denied.bad_qr": "Invalid QR code.\nScan the QR code shown in the PC app.",
-  "ca.not_found": "CA not found"
+  "ca.not_found": "CA not found",
+  "manifest.description": "Use your phone as the PC microphone."
 }
